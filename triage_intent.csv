@@ -1,0 +1,21 @@
+intent,type,description,route_to,default_priority,bot_action
+greeting,conversation,"Opens the chat",none,none,answer
+thanks_goodbye,conversation,"Thanks or closing the chat",none,none,answer
+bot_help,conversation,"Asks what the bot can do or how to use it",none,none,answer
+talk_to_human,conversation,"Asks for a staff member instead of the bot",Help Desk Staff,medium,handoff
+ticket_status,info,"Asks for an update on an earlier report or request",Help Desk Staff,low,lookup
+office_hours_location,info,"Asks where an office is or when it is open",none,low,answer
+wifi_issue,report,"No or slow internet on campus",ICT Office,medium,create_ticket
+account_login_issue,report,"Cannot log in to the portal or LMS or school email; forgotten or locked password; missing verification code",ICT Office,medium,create_ticket
+facility_problem,report,"Broken or unsanitary building facilities such as aircon or lights or plumbing or furniture or restrooms",Maintenance Office,medium,create_ticket
+equipment_issue,report,"Broken lab computer or projector or printer or audio equipment",ICT Office,medium,create_ticket
+lost_and_found,report,"Lost item or found item",Security Office,low,create_ticket
+safety_concern,report,"Harassment or bullying or fights or hazards or suspicious persons or someone needing urgent help",Security Office,high,handoff
+request_documents,request,"How to get a TOR or certificate or diploma or other records",Registrar,low,answer
+enrollment_issue,report,"Problems enrolling or section conflicts or full classes or missing from class list",Registrar,medium,create_ticket
+grade_concern,report,"Missing or wrong grades or INC or grade review",Registrar,medium,create_ticket
+payment_billing_issue,report,"Payment not posted or wrong balance or receipts or installments or refunds",Cashier,medium,create_ticket
+complaint_service,feedback,"Complaint about slow or rude service or long waits",Student Affairs Office,medium,create_ticket
+suggestion,feedback,"Idea to improve facilities or services",Student Affairs Office,low,log_feedback
+compliment,feedback,"Praise for staff or services",Student Affairs Office,low,log_feedback
+out_of_scope,fallback,"Anything unrelated to campus help",none,none,fallback_reply
