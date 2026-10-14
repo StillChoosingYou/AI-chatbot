@@ -1,301 +1,241 @@
 id,text,intent,language,author
-S001,"Hello",greeting,en,ai_seed
-S002,"Hi there",greeting,en,ai_seed
-S003,"Good morning",greeting,en,ai_seed
+S001,Hello,greeting,en,ai_seed
+S002,Hi there,greeting,en,ai_seed
+S003,Good morning,greeting,en,ai_seed
 S004,"Hey, are you there?",greeting,en,ai_seed
-S005,"Good evening",greeting,en,ai_seed
-S006,"Hello po",greeting,taglish,ai_seed
+S005,Good evening,greeting,en,ai_seed
+S006,Hello po,greeting,taglish,ai_seed
 S007,"Hi po, good morning",greeting,taglish,ai_seed
 S008,"Hey, musta?",greeting,taglish,ai_seed
-S009,"gud am po",greeting,taglish,ai_seed
+S009,gud am po,greeting,taglish,ai_seed
 S010,"Hi bot, kumusta",greeting,taglish,ai_seed
-S011,"Magandang umaga po",greeting,fil,ai_seed
-S012,"Magandang hapon po",greeting,fil,ai_seed
-S013,"Kumusta po",greeting,fil,ai_seed
-S014,"Magandang gabi po",greeting,fil,ai_seed
-S015,"Mabuhay po",greeting,fil,ai_seed
-S016,"Thank you",thanks_goodbye,en,ai_seed
-S017,"Thanks for your help",thanks_goodbye,en,ai_seed
-S018,"Bye",thanks_goodbye,en,ai_seed
+S011,Magandang umaga po,greeting,fil,ai_seed
+S012,Magandang hapon po,greeting,fil,ai_seed
+S013,Kumusta po,greeting,fil,ai_seed
+S014,Magandang gabi po,greeting,fil,ai_seed
+S015,Mabuhay po,greeting,fil,ai_seed
+S016,Thank you,thanks_goodbye,en,ai_seed
+S017,Thanks for your help,thanks_goodbye,en,ai_seed
+S018,Bye,thanks_goodbye,en,ai_seed
 S019,"That's all, thanks",thanks_goodbye,en,ai_seed
 S020,"Goodbye, have a nice day",thanks_goodbye,en,ai_seed
-S021,"Thank you po",thanks_goodbye,taglish,ai_seed
-S022,"Salamat po sa help",thanks_goodbye,taglish,ai_seed
+S021,Thank you po,thanks_goodbye,taglish,ai_seed
+S022,Salamat po sa help,thanks_goodbye,taglish,ai_seed
 S023,"Ok na po, thanks",thanks_goodbye,taglish,ai_seed
 S024,"Sige po, bye na",thanks_goodbye,taglish,ai_seed
 S025,"Thanks bot, ge na",thanks_goodbye,taglish,ai_seed
-S026,"Salamat po",thanks_goodbye,fil,ai_seed
-S027,"Maraming salamat po sa tulong",thanks_goodbye,fil,ai_seed
-S028,"Paalam po",thanks_goodbye,fil,ai_seed
+S026,Salamat po,thanks_goodbye,fil,ai_seed
+S027,Maraming salamat po sa tulong,thanks_goodbye,fil,ai_seed
+S028,Paalam po,thanks_goodbye,fil,ai_seed
 S029,"Sige po, salamat",thanks_goodbye,fil,ai_seed
-S030,"Hanggang sa muli po",thanks_goodbye,fil,ai_seed
-S031,"What can you do?",bot_help,en,ai_seed
-S032,"How do I use this chatbot?",bot_help,en,ai_seed
-S033,"What kind of concerns can you help me with?",bot_help,en,ai_seed
-S034,"Can you explain how this works?",bot_help,en,ai_seed
-S035,"What are your features?",bot_help,en,ai_seed
-S036,"Ano ang kaya mong gawin as a chatbot?",bot_help,taglish,ai_seed
-S037,"Paano ko ito i-use?",bot_help,taglish,ai_seed
-S038,"Anong mga concerns ang pwede kong i-report dito?",bot_help,taglish,ai_seed
-S039,"Pwede mo bang i-explain how this works?",bot_help,taglish,ai_seed
-S040,"Ano ang mga features mo?",bot_help,taglish,ai_seed
-S041,"Ano ang maitutulong mo sa akin?",bot_help,fil,ai_seed
-S042,"Paano po gamitin ang chatbot na ito?",bot_help,fil,ai_seed
-S043,"Anu-ano ang mga bagay na kaya mong sagutin?",bot_help,fil,ai_seed
-S044,"Ipaliwanag mo nga kung paano ka gumagana",bot_help,fil,ai_seed
-S045,"Anong mga serbisyo ang meron ka?",bot_help,fil,ai_seed
-S046,"I want to talk to a real person",talk_to_human,en,ai_seed
-S047,"Can I speak with a staff member?",talk_to_human,en,ai_seed
-S048,"Connect me to a human agent",talk_to_human,en,ai_seed
-S049,"Please transfer me to someone from the help desk",talk_to_human,en,ai_seed
+S030,Hanggang sa muli po,thanks_goodbye,fil,ai_seed
+S031,What can you do?,bot_help,en,ai_seed
+S032,How do I use this chatbot?,bot_help,en,ai_seed
+S033,What kind of concerns can you help me with?,bot_help,en,ai_seed
+S034,Can you explain how this works?,bot_help,en,ai_seed
+S035,What are your features?,bot_help,en,ai_seed
+S036,Ano ang kaya mong gawin as a chatbot?,bot_help,taglish,ai_seed
+S037,Paano ko ito i-use?,bot_help,taglish,ai_seed
+S038,Anong mga concerns ang pwede kong i-report dito?,bot_help,taglish,ai_seed
+S039,Pwede mo bang i-explain how this works?,bot_help,taglish,ai_seed
+S040,Ano ang mga features mo?,bot_help,taglish,ai_seed
+S041,Ano ang maitutulong mo sa akin?,bot_help,fil,ai_seed
+S042,Paano po gamitin ang chatbot na ito?,bot_help,fil,ai_seed
+S043,Anu-ano ang mga bagay na kaya mong sagutin?,bot_help,fil,ai_seed
+S044,Ipaliwanag mo nga kung paano ka gumagana,bot_help,fil,ai_seed
+S045,Anong mga serbisyo ang meron ka?,bot_help,fil,ai_seed
+S046,I want to talk to a real person,talk_to_human,en,ai_seed
+S047,Can I speak with a staff member?,talk_to_human,en,ai_seed
+S048,Connect me to a human agent,talk_to_human,en,ai_seed
+S049,Please transfer me to someone from the help desk,talk_to_human,en,ai_seed
 S050,"I would rather talk to a human, not a bot",talk_to_human,en,ai_seed
-S051,"Gusto ko makausap ang real person",talk_to_human,taglish,ai_seed
-S052,"Pwede ba akong mag-talk sa staff?",talk_to_human,taglish,ai_seed
-S053,"Paki-connect mo ako sa human agent",talk_to_human,taglish,ai_seed
+S051,Gusto ko makausap ang real person,talk_to_human,taglish,ai_seed
+S052,Pwede ba akong mag-talk sa staff?,talk_to_human,taglish,ai_seed
+S053,Paki-connect mo ako sa human agent,talk_to_human,taglish,ai_seed
 S054,"Ayoko na sa bot, staff na lang please",talk_to_human,taglish,ai_seed
-S055,"Can I speak sa isang tao dito?",talk_to_human,taglish,ai_seed
-S056,"Gusto kong makausap ang isang tao",talk_to_human,fil,ai_seed
-S057,"Pwede po bang makausap ang isang kawani?",talk_to_human,fil,ai_seed
-S058,"Ilipat mo ako sa tunay na tao",talk_to_human,fil,ai_seed
+S055,Can I speak sa isang tao dito?,talk_to_human,taglish,ai_seed
+S056,Gusto kong makausap ang isang tao,talk_to_human,fil,ai_seed
+S057,Pwede po bang makausap ang isang kawani?,talk_to_human,fil,ai_seed
+S058,Ilipat mo ako sa tunay na tao,talk_to_human,fil,ai_seed
 S059,"Hindi mo ako naiintindihan, tao na lang ang kausapin ko",talk_to_human,fil,ai_seed
-S060,"Pakitawag po ang nakatalagang kawani rito",talk_to_human,fil,ai_seed
-S061,"What is the status of my report?",ticket_status,en,ai_seed
-S062,"Any update on my ticket?",ticket_status,en,ai_seed
-S063,"I submitted a complaint last week, any news?",ticket_status,en,ai_seed
-S064,"Can you check ticket number 1024?",ticket_status,en,ai_seed
-S065,"Has my request been resolved yet?",ticket_status,en,ai_seed
-S066,"Ano na po ang update sa ticket ko?",ticket_status,taglish,ai_seed
-S067,"Na-resolve na ba yung report ko?",ticket_status,taglish,ai_seed
-S068,"Nag-submit ako ng request kahapon, may update na ba?",ticket_status,taglish,ai_seed
-S069,"Pa-check naman ng status ng ticket 2087",ticket_status,taglish,ai_seed
-S070,"Follow-up ko lang po yung complaint ko, may response na ba?",ticket_status,taglish,ai_seed
-S071,"Ano na po ang lagay ng ulat ko?",ticket_status,fil,ai_seed
-S072,"May balita na ba sa isinumite kong reklamo?",ticket_status,fil,ai_seed
-S073,"Natugunan na po ba ang hiling ko?",ticket_status,fil,ai_seed
-S074,"Kailan po masosolusyunan ang inireklamo ko?",ticket_status,fil,ai_seed
-S075,"Pakisuri po ang kalagayan ng ulat ko",ticket_status,fil,ai_seed
-S076,"What time does the registrar open?",office_hours_location,en,ai_seed
-S077,"Where is the cashier's office?",office_hours_location,en,ai_seed
-S078,"What are the library hours?",office_hours_location,en,ai_seed
-S079,"Is the guidance office open on Saturdays?",office_hours_location,en,ai_seed
-S080,"Where can I find the IT office?",office_hours_location,en,ai_seed
-S081,"Anong oras open ang registrar?",office_hours_location,taglish,ai_seed
-S082,"Saan ang cashier's office dito?",office_hours_location,taglish,ai_seed
-S083,"Hanggang what time ang library?",office_hours_location,taglish,ai_seed
-S084,"Open ba ang clinic ngayong lunch break?",office_hours_location,taglish,ai_seed
-S085,"Saan ko makikita ang ICT office?",office_hours_location,taglish,ai_seed
-S086,"Anong oras nagbubukas ang kahera?",office_hours_location,fil,ai_seed
-S087,"Nasaan po ang opisina ng kahera?",office_hours_location,fil,ai_seed
-S088,"Hanggang anong oras bukas ang aklatan?",office_hours_location,fil,ai_seed
-S089,"Bukas po ba ang klinika tuwing tanghali?",office_hours_location,fil,ai_seed
-S090,"Saan po ang opisina ng dekano?",office_hours_location,fil,ai_seed
-S091,"The wifi is not working in the library",wifi_issue,en,ai_seed
-S092,"Internet is very slow in our classroom",wifi_issue,en,ai_seed
-S093,"I can't connect to the campus wifi",wifi_issue,en,ai_seed
-S094,"There is no signal in the computer lab",wifi_issue,en,ai_seed
-S095,"The wifi keeps disconnecting every few minutes",wifi_issue,en,ai_seed
-S096,"Walang wifi sa room namin",wifi_issue,taglish,ai_seed
-S097,"Ang bagal ng internet dito sa library",wifi_issue,taglish,ai_seed
-S098,"Hindi ako maka-connect sa campus wifi",wifi_issue,taglish,ai_seed
-S099,"Laging nagdi-disconnect ang wifi sa lab",wifi_issue,taglish,ai_seed
-S100,"Patay ang net sa buong building",wifi_issue,taglish,ai_seed
-S101,"Walang internet sa silid-aralan namin",wifi_issue,fil,ai_seed
-S102,"Napakabagal ng koneksyon dito sa kantina",wifi_issue,fil,ai_seed
-S103,"Hindi ako makakonekta sa wifi ng paaralan",wifi_issue,fil,ai_seed
-S104,"Putol-putol ang signal ng internet dito",wifi_issue,fil,ai_seed
-S105,"Wala na namang net dito sa aklatan",wifi_issue,fil,ai_seed
-S106,"I can't log in to the student portal",account_login_issue,en,ai_seed
-S107,"I forgot my password",account_login_issue,en,ai_seed
-S108,"My account has been locked",account_login_issue,en,ai_seed
-S109,"The LMS says my credentials are invalid",account_login_issue,en,ai_seed
-S110,"I am not receiving the verification code",account_login_issue,en,ai_seed
-S111,"Hindi ako makalogin sa student portal",account_login_issue,taglish,ai_seed
-S112,"Nakalimutan ko yung password ko",account_login_issue,taglish,ai_seed
-S113,"Na-lock na yung account ko",account_login_issue,taglish,ai_seed
-S114,"Invalid daw ang password ko sa LMS",account_login_issue,taglish,ai_seed
-S115,"Wala akong natatanggap na verification code",account_login_issue,taglish,ai_seed
-S116,"Hindi ako makapasok sa portal ng paaralan",account_login_issue,fil,ai_seed
-S117,"Ayaw akong papasukin ng account ko",account_login_issue,fil,ai_seed
-S118,"Hindi ko maalala ang password ng account ko",account_login_issue,fil,ai_seed
-S119,"Nakasara na ang account ko, paano ito mabubuksan?",account_login_issue,fil,ai_seed
-S120,"Hindi dumarating ang code na ipinadala sa akin",account_login_issue,fil,ai_seed
-S121,"The aircon in room 204 is broken",facility_problem,en,ai_seed
-S122,"There is no water in the restroom",facility_problem,en,ai_seed
-S123,"The lights in our classroom are flickering",facility_problem,en,ai_seed
-S124,"Several chairs in the lecture hall are broken",facility_problem,en,ai_seed
-S125,"The comfort room on the second floor is very dirty",facility_problem,en,ai_seed
-S126,"Sira ang aircon sa room 305",facility_problem,taglish,ai_seed
-S127,"Walang tubig sa CR",facility_problem,taglish,ai_seed
-S128,"Kumikislap-kislap yung ilaw sa classroom namin",facility_problem,taglish,ai_seed
-S129,"Maraming sirang upuan sa hallway",facility_problem,taglish,ai_seed
-S130,"Barado na ang toilet sa 2nd floor",facility_problem,taglish,ai_seed
-S131,"Sira ang bentilador sa silid namin",facility_problem,fil,ai_seed
-S132,"Walang tubig sa palikuran",facility_problem,fil,ai_seed
-S133,"Basag ang salamin ng bintana sa ikatlong palapag",facility_problem,fil,ai_seed
-S134,"May tulo ang kisame sa aming silid-aralan",facility_problem,fil,ai_seed
-S135,"Marumi ang banyo sa ikalawang palapag",facility_problem,fil,ai_seed
-S136,"The projector in room 301 will not turn on",equipment_issue,en,ai_seed
-S137,"Several computers in the lab are not working",equipment_issue,en,ai_seed
-S138,"The printer is jammed again",equipment_issue,en,ai_seed
-S139,"The microphone has no sound",equipment_issue,en,ai_seed
-S140,"The keyboard on my lab computer is broken",equipment_issue,en,ai_seed
-S141,"Ayaw mag-on ng projector sa room 410",equipment_issue,taglish,ai_seed
-S142,"Maraming PC sa lab ang hindi gumagana",equipment_issue,taglish,ai_seed
-S143,"Jammed na naman yung printer",equipment_issue,taglish,ai_seed
-S144,"Walang sound yung speaker sa auditorium",equipment_issue,taglish,ai_seed
-S145,"Sira ang mouse ng computer ko sa lab",equipment_issue,taglish,ai_seed
-S146,"Hindi umiilaw ang proyektor sa silid namin",equipment_issue,fil,ai_seed
-S147,"Hindi gumagana ang mga kompyuter sa laboratoryo",equipment_issue,fil,ai_seed
-S148,"Naipit na naman ang papel sa printer",equipment_issue,fil,ai_seed
-S149,"Walang tunog ang mikropono",equipment_issue,fil,ai_seed
-S150,"Sira ang monitor ng kompyuter na gamit ko",equipment_issue,fil,ai_seed
-S151,"I lost my wallet in the cafeteria",lost_and_found,en,ai_seed
-S152,"Did anyone turn in a black umbrella?",lost_and_found,en,ai_seed
-S153,"I found a phone near the gym",lost_and_found,en,ai_seed
-S154,"I left my ID in the library",lost_and_found,en,ai_seed
-S155,"I think I left my laptop charger in room 112",lost_and_found,en,ai_seed
-S156,"Nawala ang wallet ko sa canteen",lost_and_found,taglish,ai_seed
-S157,"May nakapulot ba ng black na payong?",lost_and_found,taglish,ai_seed
-S158,"Nakakita ako ng phone malapit sa gym",lost_and_found,taglish,ai_seed
-S159,"Naiwan ko yung ID ko sa library",lost_and_found,taglish,ai_seed
-S160,"Nawawala ang tumbler ko, may nag-turn over ba?",lost_and_found,taglish,ai_seed
-S161,"Nawala ang pitaka ko sa kantina",lost_and_found,fil,ai_seed
-S162,"May nakapulot po ba ng itim na payong?",lost_and_found,fil,ai_seed
-S163,"May napulot akong cellphone sa hagdan",lost_and_found,fil,ai_seed
-S164,"Naiwan ko ang ID ko sa aklatan",lost_and_found,fil,ai_seed
-S165,"Nawawala ang calculator ko, saan ko ito hahanapin?",lost_and_found,fil,ai_seed
-S166,"Someone suspicious is following students near the gate",safety_concern,en,ai_seed
-S167,"There are exposed wires near the stairs",safety_concern,en,ai_seed
-S168,"A student fainted in the hallway and needs help",safety_concern,en,ai_seed
-S169,"I want to report a fight happening behind the canteen",safety_concern,en,ai_seed
-S170,"I am being harassed by another student",safety_concern,en,ai_seed
-S171,"May suspicious na tao na paikot-ikot sa parking lot",safety_concern,taglish,ai_seed
-S172,"May naamoy akong sunog sa electrical room",safety_concern,taglish,ai_seed
-S173,"May nahihirapang huminga na student sa gym, tulungan niyo po",safety_concern,taglish,ai_seed
-S174,"May nagsasapakan sa parking area",safety_concern,taglish,ai_seed
-S175,"Binu-bully ako ng kaklase ko at hindi ko alam ang gagawin",safety_concern,taglish,ai_seed
-S176,"May lalaking kahina-hinala sa labas ng gate",safety_concern,fil,ai_seed
-S177,"May nakalitaw na kable ng kuryente malapit sa hagdan",safety_concern,fil,ai_seed
-S178,"Nahimatay ang kaklase ko sa pasilyo",safety_concern,fil,ai_seed
-S179,"May nag-aaway sa likod ng kantina",safety_concern,fil,ai_seed
-S180,"Ginugulo ako ng isang estudyante araw-araw",safety_concern,fil,ai_seed
-S181,"How do I request my transcript of records?",request_documents,en,ai_seed
-S182,"I need a certificate of enrollment",request_documents,en,ai_seed
-S183,"What are the requirements for a good moral certificate?",request_documents,en,ai_seed
-S184,"How long does it take to release my diploma?",request_documents,en,ai_seed
-S185,"Can I request an authenticated copy of my grades?",request_documents,en,ai_seed
-S186,"Paano mag-request ng TOR?",request_documents,taglish,ai_seed
-S187,"Saan ako kukuha ng certificate of registration?",request_documents,taglish,ai_seed
-S188,"Ano ang requirements para sa good moral?",request_documents,taglish,ai_seed
-S189,"Ilang araw bago ma-release ang diploma ko?",request_documents,taglish,ai_seed
-S190,"Pwede bang ipakuha sa iba ang mga documents ko?",request_documents,taglish,ai_seed
-S191,"Paano po humingi ng kopya ng transcript ko?",request_documents,fil,ai_seed
-S192,"Saan po ako kukuha ng patunay ng pagpapatala ko?",request_documents,fil,ai_seed
-S193,"Ano po ang mga kailangan para sa good moral?",request_documents,fil,ai_seed
-S194,"Ilang araw po bago ibigay ang diploma ko?",request_documents,fil,ai_seed
-S195,"Maaari po bang ipakuha sa iba ang aking mga dokumento?",request_documents,fil,ai_seed
-S196,"I cannot enroll in my subjects online",enrollment_issue,en,ai_seed
-S197,"The subject I need is already full",enrollment_issue,en,ai_seed
-S198,"There is a schedule conflict in my enrollment",enrollment_issue,en,ai_seed
-S199,"My name is not on the class list",enrollment_issue,en,ai_seed
-S200,"I was enrolled in the wrong section",enrollment_issue,en,ai_seed
-S201,"Hindi ako maka-enroll sa portal",enrollment_issue,taglish,ai_seed
-S202,"Full na yung subject na kailangan ko",enrollment_issue,taglish,ai_seed
-S203,"May conflict ang schedule ko sa dalawang subjects",enrollment_issue,taglish,ai_seed
-S204,"Wala ang pangalan ko sa class list",enrollment_issue,taglish,ai_seed
-S205,"Nagkamali ng section ang na-enroll sa akin",enrollment_issue,taglish,ai_seed
-S206,"Hindi ako makapagpatala sa mga asignatura ko",enrollment_issue,fil,ai_seed
-S207,"Puno na ang klase na kailangan ko",enrollment_issue,fil,ai_seed
-S208,"Magkasabay ang oras ng dalawa kong asignatura",enrollment_issue,fil,ai_seed
-S209,"Wala ang pangalan ko sa listahan ng klase",enrollment_issue,fil,ai_seed
-S210,"Maling seksyon ang naipatala sa akin",enrollment_issue,fil,ai_seed
-S211,"My grade has not been posted yet",grade_concern,en,ai_seed
-S212,"I think there is a mistake in my final grade",grade_concern,en,ai_seed
-S213,"I received an INC, how do I complete it?",grade_concern,en,ai_seed
-S214,"My instructor has not submitted our grades",grade_concern,en,ai_seed
-S215,"How can I request a grade review?",grade_concern,en,ai_seed
-S216,"Wala pa rin yung grade ko sa portal",grade_concern,taglish,ai_seed
-S217,"Mali yata ang grade ko sa Math",grade_concern,taglish,ai_seed
-S218,"May INC ako, paano ko ito matatanggal?",grade_concern,taglish,ai_seed
-S219,"Hindi pa nagsa-submit ng grades si sir",grade_concern,taglish,ai_seed
-S220,"Paano mag-request ng grade correction?",grade_concern,taglish,ai_seed
-S221,"Hindi pa lumalabas ang marka ko",grade_concern,fil,ai_seed
-S222,"Sa tingin ko may mali sa aking huling marka",grade_concern,fil,ai_seed
-S223,"Nakakuha ako ng INC, ano ang dapat kong gawin?",grade_concern,fil,ai_seed
-S224,"Hindi pa naipapasa ng guro namin ang mga marka",grade_concern,fil,ai_seed
-S225,"Paano po ipasuri ang aking grado?",grade_concern,fil,ai_seed
-S226,"I paid my tuition but it is not reflected in my account",payment_billing_issue,en,ai_seed
-S227,"My balance is wrong",payment_billing_issue,en,ai_seed
-S228,"I need a copy of my official receipt",payment_billing_issue,en,ai_seed
-S229,"How can I pay my fees in installments?",payment_billing_issue,en,ai_seed
-S230,"Can I get a refund for my overpayment?",payment_billing_issue,en,ai_seed
-S231,"Nagbayad na ako pero wala pa sa account ko",payment_billing_issue,taglish,ai_seed
-S232,"Mali ang balance ko sa portal",payment_billing_issue,taglish,ai_seed
-S233,"Pwede bang humingi ng copy ng official receipt?",payment_billing_issue,taglish,ai_seed
-S234,"Paano ang installment ng tuition?",payment_billing_issue,taglish,ai_seed
-S235,"Na-overpay ako, paano ako makaka-refund?",payment_billing_issue,taglish,ai_seed
-S236,"Nagbayad na po ako ng matrikula pero hindi pa rin nakalagay",payment_billing_issue,fil,ai_seed
-S237,"Mali po ang halagang sinisingil sa akin",payment_billing_issue,fil,ai_seed
-S238,"Pwede po bang humingi ng kopya ng resibo?",payment_billing_issue,fil,ai_seed
-S239,"Maaari po bang hulugan ang pagbabayad ng matrikula?",payment_billing_issue,fil,ai_seed
-S240,"Nasobrahan ang nabayad ko, maibabalik po ba ito?",payment_billing_issue,fil,ai_seed
-S241,"The line at the cashier is too long and nobody is helping us",complaint_service,en,ai_seed
-S242,"The staff at the registrar was rude to me",complaint_service,en,ai_seed
-S243,"I have been waiting for an hour and no one has attended to me",complaint_service,en,ai_seed
-S244,"Nobody answers the phone at the admin office",complaint_service,en,ai_seed
-S245,"The process here is too slow and confusing",complaint_service,en,ai_seed
-S246,"Ang haba ng pila sa cashier at wala man lang nag-aasikaso",complaint_service,taglish,ai_seed
-S247,"Sungit ng staff sa registrar kanina",complaint_service,taglish,ai_seed
-S248,"Two hours na akong nakapila pero walang nangyayari",complaint_service,taglish,ai_seed
-S249,"Hindi sumasagot ang phone ng admin office",complaint_service,taglish,ai_seed
-S250,"Sobrang slow at confusing ng process dito",complaint_service,taglish,ai_seed
-S251,"Napakahaba ng pila at walang tumutulong sa amin",complaint_service,fil,ai_seed
-S252,"Bastos ang pakikitungo ng empleyado sa akin",complaint_service,fil,ai_seed
-S253,"Isang oras na akong naghihintay at walang lumalapit sa akin",complaint_service,fil,ai_seed
-S254,"Walang sumasagot sa telepono ng opisina",complaint_service,fil,ai_seed
-S255,"Napakabagal ng proseso at nakalilito",complaint_service,fil,ai_seed
-S256,"I suggest adding more charging stations in the library",suggestion,en,ai_seed
-S257,"It would be great if documents could be requested online",suggestion,en,ai_seed
-S258,"Please consider extending the library hours during exams",suggestion,en,ai_seed
-S259,"You should add more water refilling stations",suggestion,en,ai_seed
-S260,"Please add more study areas with power outlets",suggestion,en,ai_seed
-S261,"Suggest ko lang na magdagdag ng mas maraming trash bins sa campus",suggestion,taglish,ai_seed
-S262,"Sana pwede nang mag-request ng documents online",suggestion,taglish,ai_seed
-S263,"Pwede bang i-extend ang library hours tuwing exam week?",suggestion,taglish,ai_seed
-S264,"Mas maganda kung may dagdag na water refilling station",suggestion,taglish,ai_seed
-S265,"Sana mas maraming student seats sa canteen tuwing lunch",suggestion,taglish,ai_seed
-S266,"Iminumungkahi kong dagdagan ang saksakan sa aklatan",suggestion,fil,ai_seed
-S267,"Sana mas maagang magbukas ang kantina tuwing umaga",suggestion,fil,ai_seed
-S268,"Mungkahi ko po na pahabain ang oras ng aklatan tuwing may pagsusulit",suggestion,fil,ai_seed
-S269,"Mas mainam kung may bubong ang daanan papunta sa bagong gusali",suggestion,fil,ai_seed
-S270,"Sana magkaroon ng mas maraming lugar na mapag-aaralan na may saksakan",suggestion,fil,ai_seed
-S271,"The staff at the cashier were very helpful today",compliment,en,ai_seed
-S272,"Thank you to the library staff for assisting me",compliment,en,ai_seed
-S273,"Great job on the new student portal",compliment,en,ai_seed
-S274,"The campus is very clean, well done",compliment,en,ai_seed
-S275,"I appreciate how quickly the registrar processed my request",compliment,en,ai_seed
-S276,"Ang bait ng staff sa registrar kanina, thank you po",compliment,taglish,ai_seed
-S277,"Ang ganda ng bagong wifi sa library, ang bilis na",compliment,taglish,ai_seed
-S278,"Salamat sa mabilis na pag-assist ng guard sa gate",compliment,taglish,ai_seed
-S279,"Ang linis ng CR ngayon, good job po",compliment,taglish,ai_seed
-S280,"Very helpful si ma'am sa cashier",compliment,taglish,ai_seed
-S281,"Napakabait ng mga kawani sa tanggapan ng registrar",compliment,fil,ai_seed
-S282,"Maraming salamat sa mabilis na pag-asikaso sa akin ng guwardiya",compliment,fil,ai_seed
-S283,"Ang linis na ng mga banyo ngayon, magaling po",compliment,fil,ai_seed
-S284,"Natutuwa ako sa mabilis na serbisyo ng aklatan",compliment,fil,ai_seed
-S285,"Pinupuri ko ang mga guro sa kanilang dedikasyon",compliment,fil,ai_seed
-S286,"What is the weather like today?",out_of_scope,en,ai_seed
-S287,"Tell me a joke",out_of_scope,en,ai_seed
-S288,"Who won the basketball game last night?",out_of_scope,en,ai_seed
-S289,"Can you help me with my math homework?",out_of_scope,en,ai_seed
-S290,"What is the capital of France?",out_of_scope,en,ai_seed
-S291,"Ano ang lulutuin ko for dinner?",out_of_scope,taglish,ai_seed
-S292,"Pwede mo ba akong turuan mag-code sa Python?",out_of_scope,taglish,ai_seed
-S293,"May girlfriend ka na ba, bot?",out_of_scope,taglish,ai_seed
-S294,"Pwede mo ba akong i-recommend ng magandang movie?",out_of_scope,taglish,ai_seed
-S295,"Ano ang latest news ngayon?",out_of_scope,taglish,ai_seed
-S296,"Ano ang lagay ng panahon ngayon?",out_of_scope,fil,ai_seed
-S297,"Magkuwento ka ng isang biro",out_of_scope,fil,ai_seed
-S298,"Sino ang nanalo sa laro kagabi?",out_of_scope,fil,ai_seed
-S299,"Paano magluto ng adobo?",out_of_scope,fil,ai_seed
-S300,"Magkano ang presyo ng ginto ngayon?",out_of_scope,fil,ai_seed
+S060,Pakitawag po ang nakatalagang kawani rito,talk_to_human,fil,ai_seed
+S061,What is the weather like today?,out_of_scope,en,ai_seed
+S062,Tell me a joke,out_of_scope,en,ai_seed
+S063,Who won the basketball game last night?,out_of_scope,en,ai_seed
+S064,Can you help me with my math homework?,out_of_scope,en,ai_seed
+S065,What is the capital of France?,out_of_scope,en,ai_seed
+S066,Ano ang lulutuin ko for dinner?,out_of_scope,taglish,ai_seed
+S067,Pwede mo ba akong turuan mag-code sa Python?,out_of_scope,taglish,ai_seed
+S068,"May girlfriend ka na ba, bot?",out_of_scope,taglish,ai_seed
+S069,Pwede mo ba akong i-recommend ng magandang movie?,out_of_scope,taglish,ai_seed
+S070,Ano ang latest news ngayon?,out_of_scope,taglish,ai_seed
+S071,Ano ang lagay ng panahon ngayon?,out_of_scope,fil,ai_seed
+S072,Magkuwento ka ng isang biro,out_of_scope,fil,ai_seed
+S073,Sino ang nanalo sa laro kagabi?,out_of_scope,fil,ai_seed
+S074,Paano magluto ng adobo?,out_of_scope,fil,ai_seed
+S075,Magkano ang presyo ng ginto ngayon?,out_of_scope,fil,ai_seed
+S076,When can I collect my school ID?,id_release_schedule,en,ai_seed
+S077,What is my ID release date?,id_release_schedule,en,ai_seed
+S078,What time is ID pickup?,id_release_schedule,en,ai_seed
+S079,Show my scheduled ID release,id_release_schedule,en,ai_seed
+S080,Is there an ID collection appointment for me?,id_release_schedule,en,ai_seed
+S081,When will my printed ID be available for pickup?,id_release_schedule,en,ai_seed
+S082,Can I see the release schedule for my student ID?,id_release_schedule,en,ai_seed
+S083,What day should I collect my ID card?,id_release_schedule,en,ai_seed
+S084,Where do I check my ID pickup time?,id_release_schedule,en,ai_seed
+S085,Tell me the date and time for ID releasing,id_release_schedule,en,ai_seed
+S086,Kailan ang release ng ID ko?,id_release_schedule,taglish,ai_seed
+S087,Anong oras ang kuha ng school ID?,id_release_schedule,taglish,ai_seed
+S088,May schedule na ba ng release ng ID ko?,id_release_schedule,taglish,ai_seed
+S089,Petsa ng pagkuha ng ID ko po,id_release_schedule,taglish,ai_seed
+S090,Kailan puwedeng kunin ang printed ID?,id_release_schedule,taglish,ai_seed
+S091,What is the status of my student ID?,id_processing_status,en,ai_seed
+S092,Is my ID being printed?,id_processing_status,en,ai_seed
+S093,Is my ID ready for release?,id_processing_status,en,ai_seed
+S094,Has my school ID been released?,id_processing_status,en,ai_seed
+S095,Track my ID processing,id_processing_status,en,ai_seed
+S096,Check my ID application progress,id_processing_status,en,ai_seed
+S097,Is my ID still processing?,id_processing_status,en,ai_seed
+S098,How far along is my ID request?,id_processing_status,en,ai_seed
+S099,Has printing finished for my card?,id_processing_status,en,ai_seed
+S100,Show the current stage of my ID,id_processing_status,en,ai_seed
+S101,Ano na ang status ng ID ko?,id_processing_status,taglish,ai_seed
+S102,Napi-print na ba ang ID ko?,id_processing_status,taglish,ai_seed
+S103,Ready na ba ang school ID ko?,id_processing_status,taglish,ai_seed
+S104,Tapos na ba ang processing ng ID?,id_processing_status,taglish,ai_seed
+S105,Na-release na ba ang ID ko?,id_processing_status,taglish,ai_seed
+S106,Why is my student ID pending?,pending_id,en,ai_seed
+S107,What is missing from my ID application?,pending_id,en,ai_seed
+S108,What do I need to submit for a pending ID?,pending_id,en,ai_seed
+S109,"My ID is on hold, what should I do?",pending_id,en,ai_seed
+S110,How can I clear my pending ID requirements?,pending_id,en,ai_seed
+S111,Why has my card not been processed?,pending_id,en,ai_seed
+S112,Does my pending ID need a new photo?,pending_id,en,ai_seed
+S113,Check the reason for my pending ID,pending_id,en,ai_seed
+S114,What requirement is holding up my ID?,pending_id,en,ai_seed
+S115,How do I resolve an incomplete ID application?,pending_id,en,ai_seed
+S116,Bakit pending ang ID ko?,pending_id,taglish,ai_seed
+S117,Ano ang kulang sa requirements ng ID?,pending_id,taglish,ai_seed
+S118,Paano maayos ang pending ID ko?,pending_id,taglish,ai_seed
+S119,May kulang ba sa picture para sa ID?,pending_id,taglish,ai_seed
+S120,Ano ang kailangan para maproseso ang pending ID?,pending_id,taglish,ai_seed
+S121,Schedule an appointment for my pending ID,pending_id_schedule,en,ai_seed
+S122,When is my pending ID follow-up appointment?,pending_id_schedule,en,ai_seed
+S123,Book a date to submit missing ID requirements,pending_id_schedule,en,ai_seed
+S124,What time can I complete my pending ID?,pending_id_schedule,en,ai_seed
+S125,Set a pending ID follow-up date,pending_id_schedule,en,ai_seed
+S126,I need an appointment for an incomplete ID application,pending_id_schedule,en,ai_seed
+S127,Show my pending ID appointment time,pending_id_schedule,en,ai_seed
+S128,When should I come back for my pending card?,pending_id_schedule,en,ai_seed
+S129,Can I schedule a pending ID document check?,pending_id_schedule,en,ai_seed
+S130,Arrange a visit to resolve my pending ID,pending_id_schedule,en,ai_seed
+S131,Pa-schedule po para sa pending ID,pending_id_schedule,taglish,ai_seed
+S132,Kailan ang appointment ng pending ID ko?,pending_id_schedule,taglish,ai_seed
+S133,Anong oras ako babalik para sa pending ID?,pending_id_schedule,taglish,ai_seed
+S134,Magpa-appointment para sa kulang na ID requirements,pending_id_schedule,taglish,ai_seed
+S135,Puwede bang mag-book ng follow-up sa pending ID?,pending_id_schedule,taglish,ai_seed
+S136,I lost my school ID,lost_id_report,en,ai_seed
+S137,My student ID is missing,lost_id_report,en,ai_seed
+S138,How do I report a lost ID card?,lost_id_report,en,ai_seed
+S139,I need to replace a lost student ID,lost_id_report,en,ai_seed
+S140,Someone stole my school ID,lost_id_report,en,ai_seed
+S141,What should I do after losing my ID?,lost_id_report,en,ai_seed
+S142,Where do I report my missing ID?,lost_id_report,en,ai_seed
+S143,I cannot find my ID card,lost_id_report,en,ai_seed
+S144,Please report my lost student card,lost_id_report,en,ai_seed
+S145,What are the steps for a lost ID replacement?,lost_id_report,en,ai_seed
+S146,Nawala ang school ID ko,lost_id_report,taglish,ai_seed
+S147,Paano mag-report ng nawawalang ID?,lost_id_report,taglish,ai_seed
+S148,Nanakaw ang student ID ko,lost_id_report,taglish,ai_seed
+S149,Kailangan ko ng replacement kasi nawala ang ID,lost_id_report,taglish,ai_seed
+S150,Hindi ko makita ang ID ko po,lost_id_report,taglish,ai_seed
+S151,Book an appointment for a lost ID replacement,lost_id_schedule,en,ai_seed
+S152,When is my lost ID replacement schedule?,lost_id_schedule,en,ai_seed
+S153,What time is my lost ID appointment?,lost_id_schedule,en,ai_seed
+S154,Schedule a visit for my missing student ID,lost_id_schedule,en,ai_seed
+S155,Can I choose a date for a lost ID replacement?,lost_id_schedule,en,ai_seed
+S156,Show my replacement ID appointment,lost_id_schedule,en,ai_seed
+S157,I need a time slot for a lost ID request,lost_id_schedule,en,ai_seed
+S158,Arrange an appointment to replace a stolen ID,lost_id_schedule,en,ai_seed
+S159,What day is my missing ID replacement visit?,lost_id_schedule,en,ai_seed
+S160,When can I visit for my lost ID replacement?,lost_id_schedule,en,ai_seed
+S161,Pa-schedule para sa nawalang ID,lost_id_schedule,taglish,ai_seed
+S162,Kailan ang appointment para sa lost ID?,lost_id_schedule,taglish,ai_seed
+S163,Anong oras ang replacement appointment ko?,lost_id_schedule,taglish,ai_seed
+S164,Magpa-book para sa nawawalang school ID,lost_id_schedule,taglish,ai_seed
+S165,Puwede bang pumili ng araw para sa lost ID replacement?,lost_id_schedule,taglish,ai_seed
+S166,Show the student ID inventory,id_inventory,en,ai_seed
+S167,Find IDs for the BSIT course,id_inventory,en,ai_seed
+S168,Filter the inventory by section,id_inventory,en,ai_seed
+S169,Show all first year IDs,id_inventory,en,ai_seed
+S170,List IDs that are ready for release,id_inventory,en,ai_seed
+S171,How many ID cards are pending?,id_inventory,en,ai_seed
+S172,Search for a student in the ID inventory,id_inventory,en,ai_seed
+S173,Show printed IDs by year level,id_inventory,en,ai_seed
+S174,Filter ID records by processing status,id_inventory,en,ai_seed
+S175,Find released cards for section A,id_inventory,en,ai_seed
+S176,Ipakita ang inventory ng IDs,id_inventory,taglish,ai_seed
+S177,Hanapin ang IDs ng BSCS students,id_inventory,taglish,ai_seed
+S178,I-filter ang ID list ayon sa section,id_inventory,taglish,ai_seed
+S179,Ilang pending IDs ang nasa inventory?,id_inventory,taglish,ai_seed
+S180,Ipakita ang IDs ng second year,id_inventory,taglish,ai_seed
+S181,How do I scan the QR code on an ID?,qr_student_details,en,ai_seed
+S182,What information appears after scanning the QR sticker?,qr_student_details,en,ai_seed
+S183,Does the QR show the student name and course?,qr_student_details,en,ai_seed
+S184,Show the section and year level from a QR code,qr_student_details,en,ai_seed
+S185,Where can I view the student profile after scanning?,qr_student_details,en,ai_seed
+S186,What does my ID QR code open?,qr_student_details,en,ai_seed
+S187,Can I scan the sticker using my phone?,qr_student_details,en,ai_seed
+S188,How do I check the details linked to the QR?,qr_student_details,en,ai_seed
+S189,Why is the QR scan showing student information?,qr_student_details,en,ai_seed
+S190,Can the QR show name course section and year?,qr_student_details,en,ai_seed
+S191,Paano i-scan ang QR code sa ID?,qr_student_details,taglish,ai_seed
+S192,Ano ang makikita pagkatapos i-scan ang sticker?,qr_student_details,taglish,ai_seed
+S193,Makikita ba ang course at section sa QR?,qr_student_details,taglish,ai_seed
+S194,Lalabas ba ang pangalan at year level sa scan?,qr_student_details,taglish,ai_seed
+S195,Puwede bang phone ang gamit pang-scan ng QR?,qr_student_details,taglish,ai_seed
+S196,How can I print a small QR sticker?,qr_sticker_request,en,ai_seed
+S197,I need a QR sticker for my school ID,qr_sticker_request,en,ai_seed
+S198,Can I download my ID QR code?,qr_sticker_request,en,ai_seed
+S199,Print the QR label for this student,qr_sticker_request,en,ai_seed
+S200,My QR sticker is damaged,qr_sticker_request,en,ai_seed
+S201,How do I replace an unreadable QR label?,qr_sticker_request,en,ai_seed
+S202,What size should the QR sticker be?,qr_sticker_request,en,ai_seed
+S203,I want a printable QR sticker,qr_sticker_request,en,ai_seed
+S204,Where is the print sticker button?,qr_sticker_request,en,ai_seed
+S205,Can I get another copy of my QR sticker?,qr_sticker_request,en,ai_seed
+S206,Paano mag-print ng maliit na QR sticker?,qr_sticker_request,taglish,ai_seed
+S207,Kailangan ko ng QR sticker para sa ID,qr_sticker_request,taglish,ai_seed
+S208,Nasira ang QR sticker ko,qr_sticker_request,taglish,ai_seed
+S209,Puwede bang mag-download ng QR label?,qr_sticker_request,taglish,ai_seed
+S210,Saan makakakuha ng kapalit na QR sticker?,qr_sticker_request,taglish,ai_seed
+S211,What are the requirements for a school ID?,id_requirements,en,ai_seed
+S212,What documents are needed for a new student ID?,id_requirements,en,ai_seed
+S213,Do I need a photo for my ID application?,id_requirements,en,ai_seed
+S214,Is there a fee for ID replacement?,id_requirements,en,ai_seed
+S215,What should I bring for my ID appointment?,id_requirements,en,ai_seed
+S216,How do I apply for my first school ID?,id_requirements,en,ai_seed
+S217,Who confirms my student ID requirements?,id_requirements,en,ai_seed
+S218,What documents are needed for a lost ID replacement?,id_requirements,en,ai_seed
+S219,What photo size does the school require for IDs?,id_requirements,en,ai_seed
+S220,Where can I confirm ID processing fees?,id_requirements,en,ai_seed
+S221,Ano ang requirements para sa school ID?,id_requirements,taglish,ai_seed
+S222,May bayad ba ang replacement ng ID?,id_requirements,taglish,ai_seed
+S223,Anong documents ang dadalhin para sa ID?,id_requirements,taglish,ai_seed
+S224,Kailangan ba ng bagong picture para sa ID?,id_requirements,taglish,ai_seed
+S225,Paano kumuha ng unang student ID?,id_requirements,taglish,ai_seed
+S226,Where is the Property Management Office?,office_hours_location,en,ai_seed
+S227,What time does the ID office open?,office_hours_location,en,ai_seed
+S228,Where should I collect my student ID?,office_hours_location,en,ai_seed
+S229,Is the Property Management Office open today?,office_hours_location,en,ai_seed
+S230,What are the ID releasing office hours?,office_hours_location,en,ai_seed
+S231,Where is the pending ID service desk?,office_hours_location,en,ai_seed
+S232,Which office handles student ID cards?,office_hours_location,en,ai_seed
+S233,Where is the lost ID replacement desk located?,office_hours_location,en,ai_seed
+S234,What time does the ID office close?,office_hours_location,en,ai_seed
+S235,Who can confirm the ID pickup location?,office_hours_location,en,ai_seed
+S236,Saan ang Property Management Office?,office_hours_location,taglish,ai_seed
+S237,Anong oras bukas ang ID office?,office_hours_location,taglish,ai_seed
+S238,Saan kukunin ang school ID?,office_hours_location,taglish,ai_seed
+S239,Bukas ba ang opisina para sa ID ngayon?,office_hours_location,taglish,ai_seed
+S240,Saan pupunta para sa lost ID appointment?,office_hours_location,taglish,ai_seed

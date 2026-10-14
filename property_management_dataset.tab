@@ -1,0 +1,243 @@
+id	text	intent	language	author
+string	string	discrete	discrete	discrete
+meta	meta	class	meta	meta
+S001	Hello	greeting	en	ai_seed
+S002	Hi there	greeting	en	ai_seed
+S003	Good morning	greeting	en	ai_seed
+S004	Hey, are you there?	greeting	en	ai_seed
+S005	Good evening	greeting	en	ai_seed
+S006	Hello po	greeting	taglish	ai_seed
+S007	Hi po, good morning	greeting	taglish	ai_seed
+S008	Hey, musta?	greeting	taglish	ai_seed
+S009	gud am po	greeting	taglish	ai_seed
+S010	Hi bot, kumusta	greeting	taglish	ai_seed
+S011	Magandang umaga po	greeting	fil	ai_seed
+S012	Magandang hapon po	greeting	fil	ai_seed
+S013	Kumusta po	greeting	fil	ai_seed
+S014	Magandang gabi po	greeting	fil	ai_seed
+S015	Mabuhay po	greeting	fil	ai_seed
+S016	Thank you	thanks_goodbye	en	ai_seed
+S017	Thanks for your help	thanks_goodbye	en	ai_seed
+S018	Bye	thanks_goodbye	en	ai_seed
+S019	That's all, thanks	thanks_goodbye	en	ai_seed
+S020	Goodbye, have a nice day	thanks_goodbye	en	ai_seed
+S021	Thank you po	thanks_goodbye	taglish	ai_seed
+S022	Salamat po sa help	thanks_goodbye	taglish	ai_seed
+S023	Ok na po, thanks	thanks_goodbye	taglish	ai_seed
+S024	Sige po, bye na	thanks_goodbye	taglish	ai_seed
+S025	Thanks bot, ge na	thanks_goodbye	taglish	ai_seed
+S026	Salamat po	thanks_goodbye	fil	ai_seed
+S027	Maraming salamat po sa tulong	thanks_goodbye	fil	ai_seed
+S028	Paalam po	thanks_goodbye	fil	ai_seed
+S029	Sige po, salamat	thanks_goodbye	fil	ai_seed
+S030	Hanggang sa muli po	thanks_goodbye	fil	ai_seed
+S031	What can you do?	bot_help	en	ai_seed
+S032	How do I use this chatbot?	bot_help	en	ai_seed
+S033	What kind of concerns can you help me with?	bot_help	en	ai_seed
+S034	Can you explain how this works?	bot_help	en	ai_seed
+S035	What are your features?	bot_help	en	ai_seed
+S036	Ano ang kaya mong gawin as a chatbot?	bot_help	taglish	ai_seed
+S037	Paano ko ito i-use?	bot_help	taglish	ai_seed
+S038	Anong mga concerns ang pwede kong i-report dito?	bot_help	taglish	ai_seed
+S039	Pwede mo bang i-explain how this works?	bot_help	taglish	ai_seed
+S040	Ano ang mga features mo?	bot_help	taglish	ai_seed
+S041	Ano ang maitutulong mo sa akin?	bot_help	fil	ai_seed
+S042	Paano po gamitin ang chatbot na ito?	bot_help	fil	ai_seed
+S043	Anu-ano ang mga bagay na kaya mong sagutin?	bot_help	fil	ai_seed
+S044	Ipaliwanag mo nga kung paano ka gumagana	bot_help	fil	ai_seed
+S045	Anong mga serbisyo ang meron ka?	bot_help	fil	ai_seed
+S046	I want to talk to a real person	talk_to_human	en	ai_seed
+S047	Can I speak with a staff member?	talk_to_human	en	ai_seed
+S048	Connect me to a human agent	talk_to_human	en	ai_seed
+S049	Please transfer me to someone from the help desk	talk_to_human	en	ai_seed
+S050	I would rather talk to a human, not a bot	talk_to_human	en	ai_seed
+S051	Gusto ko makausap ang real person	talk_to_human	taglish	ai_seed
+S052	Pwede ba akong mag-talk sa staff?	talk_to_human	taglish	ai_seed
+S053	Paki-connect mo ako sa human agent	talk_to_human	taglish	ai_seed
+S054	Ayoko na sa bot, staff na lang please	talk_to_human	taglish	ai_seed
+S055	Can I speak sa isang tao dito?	talk_to_human	taglish	ai_seed
+S056	Gusto kong makausap ang isang tao	talk_to_human	fil	ai_seed
+S057	Pwede po bang makausap ang isang kawani?	talk_to_human	fil	ai_seed
+S058	Ilipat mo ako sa tunay na tao	talk_to_human	fil	ai_seed
+S059	Hindi mo ako naiintindihan, tao na lang ang kausapin ko	talk_to_human	fil	ai_seed
+S060	Pakitawag po ang nakatalagang kawani rito	talk_to_human	fil	ai_seed
+S061	What is the weather like today?	out_of_scope	en	ai_seed
+S062	Tell me a joke	out_of_scope	en	ai_seed
+S063	Who won the basketball game last night?	out_of_scope	en	ai_seed
+S064	Can you help me with my math homework?	out_of_scope	en	ai_seed
+S065	What is the capital of France?	out_of_scope	en	ai_seed
+S066	Ano ang lulutuin ko for dinner?	out_of_scope	taglish	ai_seed
+S067	Pwede mo ba akong turuan mag-code sa Python?	out_of_scope	taglish	ai_seed
+S068	May girlfriend ka na ba, bot?	out_of_scope	taglish	ai_seed
+S069	Pwede mo ba akong i-recommend ng magandang movie?	out_of_scope	taglish	ai_seed
+S070	Ano ang latest news ngayon?	out_of_scope	taglish	ai_seed
+S071	Ano ang lagay ng panahon ngayon?	out_of_scope	fil	ai_seed
+S072	Magkuwento ka ng isang biro	out_of_scope	fil	ai_seed
+S073	Sino ang nanalo sa laro kagabi?	out_of_scope	fil	ai_seed
+S074	Paano magluto ng adobo?	out_of_scope	fil	ai_seed
+S075	Magkano ang presyo ng ginto ngayon?	out_of_scope	fil	ai_seed
+S076	When can I collect my school ID?	id_release_schedule	en	ai_seed
+S077	What is my ID release date?	id_release_schedule	en	ai_seed
+S078	What time is ID pickup?	id_release_schedule	en	ai_seed
+S079	Show my scheduled ID release	id_release_schedule	en	ai_seed
+S080	Is there an ID collection appointment for me?	id_release_schedule	en	ai_seed
+S081	When will my printed ID be available for pickup?	id_release_schedule	en	ai_seed
+S082	Can I see the release schedule for my student ID?	id_release_schedule	en	ai_seed
+S083	What day should I collect my ID card?	id_release_schedule	en	ai_seed
+S084	Where do I check my ID pickup time?	id_release_schedule	en	ai_seed
+S085	Tell me the date and time for ID releasing	id_release_schedule	en	ai_seed
+S086	Kailan ang release ng ID ko?	id_release_schedule	taglish	ai_seed
+S087	Anong oras ang kuha ng school ID?	id_release_schedule	taglish	ai_seed
+S088	May schedule na ba ng release ng ID ko?	id_release_schedule	taglish	ai_seed
+S089	Petsa ng pagkuha ng ID ko po	id_release_schedule	taglish	ai_seed
+S090	Kailan puwedeng kunin ang printed ID?	id_release_schedule	taglish	ai_seed
+S091	What is the status of my student ID?	id_processing_status	en	ai_seed
+S092	Is my ID being printed?	id_processing_status	en	ai_seed
+S093	Is my ID ready for release?	id_processing_status	en	ai_seed
+S094	Has my school ID been released?	id_processing_status	en	ai_seed
+S095	Track my ID processing	id_processing_status	en	ai_seed
+S096	Check my ID application progress	id_processing_status	en	ai_seed
+S097	Is my ID still processing?	id_processing_status	en	ai_seed
+S098	How far along is my ID request?	id_processing_status	en	ai_seed
+S099	Has printing finished for my card?	id_processing_status	en	ai_seed
+S100	Show the current stage of my ID	id_processing_status	en	ai_seed
+S101	Ano na ang status ng ID ko?	id_processing_status	taglish	ai_seed
+S102	Napi-print na ba ang ID ko?	id_processing_status	taglish	ai_seed
+S103	Ready na ba ang school ID ko?	id_processing_status	taglish	ai_seed
+S104	Tapos na ba ang processing ng ID?	id_processing_status	taglish	ai_seed
+S105	Na-release na ba ang ID ko?	id_processing_status	taglish	ai_seed
+S106	Why is my student ID pending?	pending_id	en	ai_seed
+S107	What is missing from my ID application?	pending_id	en	ai_seed
+S108	What do I need to submit for a pending ID?	pending_id	en	ai_seed
+S109	My ID is on hold, what should I do?	pending_id	en	ai_seed
+S110	How can I clear my pending ID requirements?	pending_id	en	ai_seed
+S111	Why has my card not been processed?	pending_id	en	ai_seed
+S112	Does my pending ID need a new photo?	pending_id	en	ai_seed
+S113	Check the reason for my pending ID	pending_id	en	ai_seed
+S114	What requirement is holding up my ID?	pending_id	en	ai_seed
+S115	How do I resolve an incomplete ID application?	pending_id	en	ai_seed
+S116	Bakit pending ang ID ko?	pending_id	taglish	ai_seed
+S117	Ano ang kulang sa requirements ng ID?	pending_id	taglish	ai_seed
+S118	Paano maayos ang pending ID ko?	pending_id	taglish	ai_seed
+S119	May kulang ba sa picture para sa ID?	pending_id	taglish	ai_seed
+S120	Ano ang kailangan para maproseso ang pending ID?	pending_id	taglish	ai_seed
+S121	Schedule an appointment for my pending ID	pending_id_schedule	en	ai_seed
+S122	When is my pending ID follow-up appointment?	pending_id_schedule	en	ai_seed
+S123	Book a date to submit missing ID requirements	pending_id_schedule	en	ai_seed
+S124	What time can I complete my pending ID?	pending_id_schedule	en	ai_seed
+S125	Set a pending ID follow-up date	pending_id_schedule	en	ai_seed
+S126	I need an appointment for an incomplete ID application	pending_id_schedule	en	ai_seed
+S127	Show my pending ID appointment time	pending_id_schedule	en	ai_seed
+S128	When should I come back for my pending card?	pending_id_schedule	en	ai_seed
+S129	Can I schedule a pending ID document check?	pending_id_schedule	en	ai_seed
+S130	Arrange a visit to resolve my pending ID	pending_id_schedule	en	ai_seed
+S131	Pa-schedule po para sa pending ID	pending_id_schedule	taglish	ai_seed
+S132	Kailan ang appointment ng pending ID ko?	pending_id_schedule	taglish	ai_seed
+S133	Anong oras ako babalik para sa pending ID?	pending_id_schedule	taglish	ai_seed
+S134	Magpa-appointment para sa kulang na ID requirements	pending_id_schedule	taglish	ai_seed
+S135	Puwede bang mag-book ng follow-up sa pending ID?	pending_id_schedule	taglish	ai_seed
+S136	I lost my school ID	lost_id_report	en	ai_seed
+S137	My student ID is missing	lost_id_report	en	ai_seed
+S138	How do I report a lost ID card?	lost_id_report	en	ai_seed
+S139	I need to replace a lost student ID	lost_id_report	en	ai_seed
+S140	Someone stole my school ID	lost_id_report	en	ai_seed
+S141	What should I do after losing my ID?	lost_id_report	en	ai_seed
+S142	Where do I report my missing ID?	lost_id_report	en	ai_seed
+S143	I cannot find my ID card	lost_id_report	en	ai_seed
+S144	Please report my lost student card	lost_id_report	en	ai_seed
+S145	What are the steps for a lost ID replacement?	lost_id_report	en	ai_seed
+S146	Nawala ang school ID ko	lost_id_report	taglish	ai_seed
+S147	Paano mag-report ng nawawalang ID?	lost_id_report	taglish	ai_seed
+S148	Nanakaw ang student ID ko	lost_id_report	taglish	ai_seed
+S149	Kailangan ko ng replacement kasi nawala ang ID	lost_id_report	taglish	ai_seed
+S150	Hindi ko makita ang ID ko po	lost_id_report	taglish	ai_seed
+S151	Book an appointment for a lost ID replacement	lost_id_schedule	en	ai_seed
+S152	When is my lost ID replacement schedule?	lost_id_schedule	en	ai_seed
+S153	What time is my lost ID appointment?	lost_id_schedule	en	ai_seed
+S154	Schedule a visit for my missing student ID	lost_id_schedule	en	ai_seed
+S155	Can I choose a date for a lost ID replacement?	lost_id_schedule	en	ai_seed
+S156	Show my replacement ID appointment	lost_id_schedule	en	ai_seed
+S157	I need a time slot for a lost ID request	lost_id_schedule	en	ai_seed
+S158	Arrange an appointment to replace a stolen ID	lost_id_schedule	en	ai_seed
+S159	What day is my missing ID replacement visit?	lost_id_schedule	en	ai_seed
+S160	When can I visit for my lost ID replacement?	lost_id_schedule	en	ai_seed
+S161	Pa-schedule para sa nawalang ID	lost_id_schedule	taglish	ai_seed
+S162	Kailan ang appointment para sa lost ID?	lost_id_schedule	taglish	ai_seed
+S163	Anong oras ang replacement appointment ko?	lost_id_schedule	taglish	ai_seed
+S164	Magpa-book para sa nawawalang school ID	lost_id_schedule	taglish	ai_seed
+S165	Puwede bang pumili ng araw para sa lost ID replacement?	lost_id_schedule	taglish	ai_seed
+S166	Show the student ID inventory	id_inventory	en	ai_seed
+S167	Find IDs for the BSIT course	id_inventory	en	ai_seed
+S168	Filter the inventory by section	id_inventory	en	ai_seed
+S169	Show all first year IDs	id_inventory	en	ai_seed
+S170	List IDs that are ready for release	id_inventory	en	ai_seed
+S171	How many ID cards are pending?	id_inventory	en	ai_seed
+S172	Search for a student in the ID inventory	id_inventory	en	ai_seed
+S173	Show printed IDs by year level	id_inventory	en	ai_seed
+S174	Filter ID records by processing status	id_inventory	en	ai_seed
+S175	Find released cards for section A	id_inventory	en	ai_seed
+S176	Ipakita ang inventory ng IDs	id_inventory	taglish	ai_seed
+S177	Hanapin ang IDs ng BSCS students	id_inventory	taglish	ai_seed
+S178	I-filter ang ID list ayon sa section	id_inventory	taglish	ai_seed
+S179	Ilang pending IDs ang nasa inventory?	id_inventory	taglish	ai_seed
+S180	Ipakita ang IDs ng second year	id_inventory	taglish	ai_seed
+S181	How do I scan the QR code on an ID?	qr_student_details	en	ai_seed
+S182	What information appears after scanning the QR sticker?	qr_student_details	en	ai_seed
+S183	Does the QR show the student name and course?	qr_student_details	en	ai_seed
+S184	Show the section and year level from a QR code	qr_student_details	en	ai_seed
+S185	Where can I view the student profile after scanning?	qr_student_details	en	ai_seed
+S186	What does my ID QR code open?	qr_student_details	en	ai_seed
+S187	Can I scan the sticker using my phone?	qr_student_details	en	ai_seed
+S188	How do I check the details linked to the QR?	qr_student_details	en	ai_seed
+S189	Why is the QR scan showing student information?	qr_student_details	en	ai_seed
+S190	Can the QR show name course section and year?	qr_student_details	en	ai_seed
+S191	Paano i-scan ang QR code sa ID?	qr_student_details	taglish	ai_seed
+S192	Ano ang makikita pagkatapos i-scan ang sticker?	qr_student_details	taglish	ai_seed
+S193	Makikita ba ang course at section sa QR?	qr_student_details	taglish	ai_seed
+S194	Lalabas ba ang pangalan at year level sa scan?	qr_student_details	taglish	ai_seed
+S195	Puwede bang phone ang gamit pang-scan ng QR?	qr_student_details	taglish	ai_seed
+S196	How can I print a small QR sticker?	qr_sticker_request	en	ai_seed
+S197	I need a QR sticker for my school ID	qr_sticker_request	en	ai_seed
+S198	Can I download my ID QR code?	qr_sticker_request	en	ai_seed
+S199	Print the QR label for this student	qr_sticker_request	en	ai_seed
+S200	My QR sticker is damaged	qr_sticker_request	en	ai_seed
+S201	How do I replace an unreadable QR label?	qr_sticker_request	en	ai_seed
+S202	What size should the QR sticker be?	qr_sticker_request	en	ai_seed
+S203	I want a printable QR sticker	qr_sticker_request	en	ai_seed
+S204	Where is the print sticker button?	qr_sticker_request	en	ai_seed
+S205	Can I get another copy of my QR sticker?	qr_sticker_request	en	ai_seed
+S206	Paano mag-print ng maliit na QR sticker?	qr_sticker_request	taglish	ai_seed
+S207	Kailangan ko ng QR sticker para sa ID	qr_sticker_request	taglish	ai_seed
+S208	Nasira ang QR sticker ko	qr_sticker_request	taglish	ai_seed
+S209	Puwede bang mag-download ng QR label?	qr_sticker_request	taglish	ai_seed
+S210	Saan makakakuha ng kapalit na QR sticker?	qr_sticker_request	taglish	ai_seed
+S211	What are the requirements for a school ID?	id_requirements	en	ai_seed
+S212	What documents are needed for a new student ID?	id_requirements	en	ai_seed
+S213	Do I need a photo for my ID application?	id_requirements	en	ai_seed
+S214	Is there a fee for ID replacement?	id_requirements	en	ai_seed
+S215	What should I bring for my ID appointment?	id_requirements	en	ai_seed
+S216	How do I apply for my first school ID?	id_requirements	en	ai_seed
+S217	Who confirms my student ID requirements?	id_requirements	en	ai_seed
+S218	What documents are needed for a lost ID replacement?	id_requirements	en	ai_seed
+S219	What photo size does the school require for IDs?	id_requirements	en	ai_seed
+S220	Where can I confirm ID processing fees?	id_requirements	en	ai_seed
+S221	Ano ang requirements para sa school ID?	id_requirements	taglish	ai_seed
+S222	May bayad ba ang replacement ng ID?	id_requirements	taglish	ai_seed
+S223	Anong documents ang dadalhin para sa ID?	id_requirements	taglish	ai_seed
+S224	Kailangan ba ng bagong picture para sa ID?	id_requirements	taglish	ai_seed
+S225	Paano kumuha ng unang student ID?	id_requirements	taglish	ai_seed
+S226	Where is the Property Management Office?	office_hours_location	en	ai_seed
+S227	What time does the ID office open?	office_hours_location	en	ai_seed
+S228	Where should I collect my student ID?	office_hours_location	en	ai_seed
+S229	Is the Property Management Office open today?	office_hours_location	en	ai_seed
+S230	What are the ID releasing office hours?	office_hours_location	en	ai_seed
+S231	Where is the pending ID service desk?	office_hours_location	en	ai_seed
+S232	Which office handles student ID cards?	office_hours_location	en	ai_seed
+S233	Where is the lost ID replacement desk located?	office_hours_location	en	ai_seed
+S234	What time does the ID office close?	office_hours_location	en	ai_seed
+S235	Who can confirm the ID pickup location?	office_hours_location	en	ai_seed
+S236	Saan ang Property Management Office?	office_hours_location	taglish	ai_seed
+S237	Anong oras bukas ang ID office?	office_hours_location	taglish	ai_seed
+S238	Saan kukunin ang school ID?	office_hours_location	taglish	ai_seed
+S239	Bukas ba ang opisina para sa ID ngayon?	office_hours_location	taglish	ai_seed
+S240	Saan pupunta para sa lost ID appointment?	office_hours_location	taglish	ai_seed
