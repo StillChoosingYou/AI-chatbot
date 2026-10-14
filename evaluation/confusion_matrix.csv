@@ -1,0 +1,17 @@
+actual / predicted,bot_help,greeting,id_inventory,id_processing_status,id_release_schedule,id_requirements,lost_id_report,lost_id_schedule,office_hours_location,out_of_scope,pending_id,pending_id_schedule,qr_sticker_request,qr_student_details,talk_to_human,thanks_goodbye
+bot_help,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+greeting,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+id_inventory,0,0,1,0,0,0,0,0,0,2,0,0,0,0,0,0
+id_processing_status,0,0,0,2,0,0,0,0,0,1,0,0,0,0,0,0
+id_release_schedule,0,0,0,1,0,0,0,0,0,2,0,0,0,0,0,0
+id_requirements,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,0
+lost_id_report,0,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0
+lost_id_schedule,0,0,0,0,0,0,0,2,0,1,0,0,0,0,0,0
+office_hours_location,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0
+out_of_scope,0,0,0,1,0,0,0,0,0,2,0,0,0,0,0,0
+pending_id,0,0,0,1,0,0,0,0,0,0,0,2,0,0,0,0
+pending_id_schedule,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0
+qr_sticker_request,0,0,0,0,0,0,0,0,0,0,0,0,2,1,0,0
+qr_student_details,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0
+talk_to_human,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0
+thanks_goodbye,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3
