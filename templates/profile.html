@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Student ID · Front and back</title><link rel="stylesheet" href="/static/style.css"></head>
+<body class="profile-body"><main class="scan-page"><header class="scan-header"><span class="brand-icon">▦</span><div><p class="eyebrow">PGPC · DIGITAL STUDENT ID</p><h1>{{student.name}}</h1><p class="scan-details">{{student.course}} <span>·</span> Section {{student.section}} <span>·</span> Year {{student.year_level}}</p></div></header>
+<section class="id-sides" aria-label="Front and back of student ID">
+{% for side in ('front','back') %}
+<figure class="id-side"><figcaption><h2>{{side.title()}} of ID</h2><span class="image-label">{{'Uploaded image' if side in uploaded else 'Sample design'}}</span></figcaption><a href="{{url_for('id_image',token=token,side=side)}}" target="_blank" rel="noopener" aria-label="Open {{side}} of ID at full size"><img src="{{url_for('id_image',token=token,side=side)}}" alt="{{side.title()}} of {{student.name}}’s student ID"></a>{% if side not in uploaded %}<p class="subtle">PGPC layout preview with personal placeholders. No ID image has been uploaded for this side.</p>{% endif %}</figure>
+{% endfor %}
+</section><p class="scan-footer">School Property Management · Student ID images</p></main></body></html>
