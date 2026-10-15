@@ -151,6 +151,35 @@ def create_app(database=None):
             db.execute('UPDATE inventory SET id_status=?,status=?,pending_reason=?,schedule_type=?,schedule_date=?,schedule_time=? WHERE id=?', (*[current[k] for k in allowed],record_id))
         return jsonify(record(record_id))
 
+    @app.post('/api/inventory/<int:record_id>/reschedule')
+    def reschedule_lost_id(record_id):
+        record(record_id)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) != {'schedule_date', 'schedule_time'}:
+            return jsonify(error='Supply the replacement pickup date and time.'), 400
+        if any(not isinstance(value, str) for value in payload.values()):
+            return jsonify(error='Use a valid date and time.'), 400
+        date, time = payload['schedule_date'], payload['schedule_time']
+        try:
+            appointment = datetime.strptime(date + ' ' + time, '%Y-%m-%d %H:%M')
+            if appointment.strftime('%Y-%m-%d %H:%M') != date + ' ' + time:
+                raise ValueError
+        except ValueError:
+            return jsonify(error='Use a valid date (YYYY-MM-DD) and time (HH:MM).'), 400
+        with connect() as db:
+            # Check availability and save in one transaction, including concurrent staff updates.
+            db.execute('BEGIN IMMEDIATE')
+            current = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
+            if current is None:
+                abort(404)
+            if current['id_status'] != 'Lost':
+                return jsonify(error='This action is for a student whose ID is currently marked Lost.'), 409
+            if current['status'] != 'Ready for release':
+                return jsonify(error='The replacement ID is not available for pickup yet. Mark it Ready for release once it is available.'), 409
+            db.execute("UPDATE inventory SET schedule_type='Lost ID replacement',schedule_date=?,schedule_time=? WHERE id=?",
+                       (date, time, record_id))
+        return jsonify(record=record(record_id), message='Replacement pickup appointment saved. The student can view it using the existing QR code.')
+
     def scanned_record(token):
         with connect() as db:
             row = db.execute('SELECT * FROM inventory WHERE token=?', (token,)).fetchone()
@@ -272,8 +301,11 @@ def create_app(database=None):
             return jsonify(error='Enter a message of 1–1000 characters.'), 400
         text = payload['message']
         intent = matcher.match(text)
+        reschedule_request = bool(re.search(r'\breschedul(?:e|ing)\b', text, re.I) and re.search(r'\bID\b', text, re.I))
         if re.search(r"\b(status|active|lost)\b", text, re.I) and re.search(r"\bID\b", text, re.I) and not re.search(r"\b(report|schedule|appointment|lost my)\b", text, re.I):
             intent = 'id_processing_status'
+        if reschedule_request:
+            intent = 'lost_id_schedule'
         def normalize(value):
             value = unicodedata.normalize('NFKC', value).casefold().replace('’', "'")
             value = re.sub(r"'s\b", '', value)
@@ -329,6 +361,18 @@ def create_app(database=None):
                 answer = 'Select a student record using “Ask about ID” or ask by full name or student ID so I can check its status or appointment.'
             elif intent == 'id_processing_status':
                 answer = f'{selected["name"]}: ID status: {selected["id_status"]}. Processing status: {selected["status"]} ({selected["request_type"]}). No ID, No Entry. A status QR does not authorize entry; follow the school’s entry procedure.'
+            elif intent == 'lost_id_schedule' and reschedule_request:
+                if selected['id_status'] != 'Lost':
+                    answer = f'{selected["name"]}: the ID is not currently marked Lost. Contact the coordinator to confirm the lost ID record before arranging replacement pickup.'
+                elif selected['status'] != 'Ready for release':
+                    answer = f'{selected["name"]}: the replacement ID is not available for pickup yet (processing status: {selected["status"]}). The coordinator can schedule or reschedule pickup once it is Ready for release.'
+                else:
+                    answer = f'{selected["name"]}: the replacement ID is available for pickup. '
+                    if selected['schedule_type'] == 'Lost ID replacement':
+                        answer += f'Current appointment: {selected["schedule_date"]} at {selected["schedule_time"]} (school local time). '
+                    else:
+                        answer += 'No replacement pickup appointment is recorded yet. '
+                    answer += 'The coordinator can use “Schedule / reschedule replacement pickup” to confirm a date and time with you. This chat has not changed the appointment.'
             elif intent == 'pending_id':
                 answer = f'{selected["name"]}: status is {selected["status"]}. ' + (selected['pending_reason'] or 'No pending reason has been recorded. Ask staff to confirm any missing requirements.')
             else:

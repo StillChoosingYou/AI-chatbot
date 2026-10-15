@@ -12,3 +12,4 @@
 @media(max-width:520px){.login-panel{padding:22px;margin:3vh auto}.id-validity{font-size:11px}}
 #messages{height:360px}
 @media(max-width:760px){#messages{height:320px}}
+.replacement-availability{font-size:11px;margin:10px 0;line-height:1.5}.replacement-action{display:block;margin:10px 0 10px auto;line-height:1.5}#reschedule-error{color:#b43f3f;font-size:12px;margin:12px 0}

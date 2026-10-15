@@ -1,4 +1,4 @@
-let records = [], selected = null, editing = null, imageRecord = null;
+let records = [], selected = null, editing = null, imageRecord = null, rescheduling = null;
 const coordinator = document.body.dataset.role === 'coordinator';
 const $ = (id) => document.getElementById(id);
 const escapeText = (value) => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -27,7 +27,7 @@ function render() {
   const query = $('search').value.trim().toLowerCase();
   const shown = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query) && [['id_status','id-status-filter'],['status','status-filter'],['course','course-filter'],['year_level','year-filter'],['section','section-filter'],['request_type','kind-filter']].every(([field,id])=>!$(id).value || String(r[field])===$(id).value));
   $('count').textContent = `${shown.length} of ${records.length}`;
-  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
+  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${r.id_status==='Lost' ? `<p class="replacement-availability">${r.status==='Ready for release' ? 'Replacement available for pickup' : 'Replacement not yet available for pickup'}</p>${coordinator ? `<button class="text-button replacement-action" data-reschedule="${r.id}" ${r.status!=='Ready for release' ? 'disabled' : ''}>Schedule / reschedule replacement pickup</button>` : ''}` : ''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
 }
 for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) { $(id).addEventListener('input',render); $(id).addEventListener('change',render); }
 $('reset-filters').onclick = () => { for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) $(id).value=''; render(); };
@@ -35,6 +35,8 @@ $('records').onclick = event => {
   const select = event.target.closest('[data-select]');
   const edit = event.target.closest('[data-edit]');
   const images = event.target.closest('[data-images]');
+  const reschedule = event.target.closest('[data-reschedule]');
+  if (reschedule) openReschedule(records.find(r=>r.id===Number(reschedule.dataset.reschedule)));
   if (images) openImages(records.find(r=>r.id===Number(images.dataset.images)));
   if (select) { selected=Number(select.dataset.select); $('selected-student').textContent=records.find(r=>r.id===selected).name; render(); $('chat-input').focus(); }
   if (edit) openDialog(records.find(r=>r.id===Number(edit.dataset.edit)));
@@ -123,4 +125,30 @@ for(const side of ['front','back']) $(`remove-${side}`).onclick=async()=>{
   try { await api(`/api/inventory/${targetId}/images/${side}`,{method:'DELETE'}); await load(); imageRecord=records.find(r=>r.id===targetId); refreshImagePreviews(); notify('Uploaded image removed. Sample placeholder restored.'); }
   catch(error) { $('images-error').textContent=error.message; }
   finally { $(`remove-${side}`).disabled=false; }
+};
+
+
+function openReschedule(row) {
+  rescheduling = row.id;
+  $('reschedule-form').reset(); $('reschedule-error').textContent='';
+  $('reschedule-title').textContent=`Replacement pickup · ${row.name}`;
+  $('previous-appointment').textContent=row.schedule_date
+    ? `Current appointment: ${row.schedule_type} · ${row.schedule_date} at ${row.schedule_time}`
+    : 'No appointment is currently recorded.';
+  if (row.schedule_type==='Lost ID replacement') {
+    $('reschedule-form').elements.schedule_date.value=row.schedule_date;
+    $('reschedule-form').elements.schedule_time.value=row.schedule_time;
+  }
+  $('reschedule-dialog').showModal();
+}
+$('close-reschedule').onclick=()=>$('reschedule-dialog').close();
+$('reschedule-form').onsubmit=async event=>{
+  event.preventDefault(); $('save-reschedule').disabled=true; $('reschedule-error').textContent='';
+  const body=Object.fromEntries(new FormData(event.target));
+  const targetId=rescheduling;
+  try {
+    const response=await api(`/api/inventory/${targetId}/reschedule`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    $('reschedule-dialog').close(); await load(); notify(response.message);
+  } catch(error) { $('reschedule-error').textContent=error.message; }
+  finally { $('save-reschedule').disabled=false; }
 };

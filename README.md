@@ -86,6 +86,26 @@ activate an ID; set ID status independently after confirming issuance/replacemen
 The chatbot repeats **“No ID, No Entry.”** It reports inventory facts and does not
 approve entry or treat a status QR as a substitute for wearing an ID.
 
+### Schedule or reschedule pickup for a lost ID
+
+1. The coordinator marks the student's ID **Lost** and tracks replacement processing.
+2. When the replacement is physically available for pickup, set processing status to
+   **Ready for release** using **Update / schedule**.
+3. Choose **Schedule / reschedule replacement pickup** on that student's card.
+   Confirm an available pickup date/time with the student and save. Saving replaces
+   the current appointment with a **Lost ID replacement** appointment.
+4. The student can ask **“Can I reschedule my lost ID pickup?”** to see readiness,
+   the saved appointment, and a QR link. The coordinator confirms and saves changes;
+   the chat itself does not change appointments. The existing QR page shows updates.
+5. After the student collects the replacement, the coordinator sets ID status to
+   **Active** and processing status to **Released**.
+
+Students and guards cannot save appointment changes. The dedicated pickup action is
+blocked until the current ID is Lost and the replacement is Ready for release.
+Availability is confirmed by the coordinator; there is no automatic office calendar,
+capacity check, or notification service. Existing general appointment forms remain
+available for replacement processing appointments before pickup readiness.
+
 ### QR printing and phone scanning
 
 Set `PUBLIC_BASE_URL` to the reachable URL of this application before printing:
