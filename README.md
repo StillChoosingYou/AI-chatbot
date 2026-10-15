@@ -19,8 +19,7 @@ Open http://localhost:5000. Six fictional demo records are created on the first 
 Records, accounts, and appointments persist in `data/inventory.sqlite3`. Back up your local database before updating. Avoid committing runtime database changes.
 The interface supports search, course, section, year, request type, and status filters.
 QR codes appear on the left; status, appointments, and updates appear on the right.
-Sign in as a coordinator, add a record, choose **Update / schedule**, set a status and appointment, then choose
-**Ask about ID** to ask the chatbot about that record. Students confirm a replacement
+Sign in as a coordinator, add a record, and use **Update / schedule** for processing and appointments. Verified students use **Ask about ID** for their own record. Public guidance is at **/help**, also linked from sign-in. Students confirm a replacement
 pickup booking by clicking an available date in the chat. Text questions open a confirmation form; they do not
 submit reports or change appointments. Coordinators manage records and publish availability.
 
@@ -48,12 +47,19 @@ On **Windows PowerShell**, use:
 Replace the usernames with assigned account names. A student's `--student-id` must
 already exist in inventory. The coordinator first adds new students through the
 workspace, then provisions their accounts with the command above. Accounts have
-one assigned role; student accounts are linked to one inventory record.
+one assigned role; student accounts are linked to one inventory record. Student sign-in
+requires the assigned username/password **and the matching student number**; staff leave
+the student-number field blank. Existing student sessions must sign in again to verify.
+
+**Verification boundary:** these are local, PMO-provisioned prototype accounts.
+This is not school Google/Microsoft SSO or email/SMS OTP. Connecting the official school
+account provider or OTP delivery requires the school's chosen provider/configuration;
+no fake OTP or neural-network prediction is accepted as verification.
 
 | Role | Access |
 | --- | --- |
-| Student | View their own record and ID images; verify/confirm a lost report; receive notices; choose application/pickup dates; print their sticker |
-| Property management coordinator | Manage inventory/images, policy and appointment availability; process/issue replacements; log custody, claims and stock audits |
+| Student | View their own record and ID images; verify/confirm a lost report; receive notices; choose application/pickup dates; ask about representative pickup (PMO approval required) |
+| Property management coordinator | Manage inventory/images, policy and appointment availability; process/issue replacements; print new stickers; log custody/claims/stock audits; explicitly notify found-ID owners |
 | Guard | Search records; scan QR and view ID images/status; confirm physical receipt of found IDs and verified claiming; cannot edit inventory or issue replacements |
 
 Permissions are checked on the server. Passwords are hashed; sessions expire after
@@ -63,30 +69,38 @@ existing sessions. There is no password reset, account administration screen, or
 login throttling yet; deployment for real students needs these operational controls
 and HTTPS. QR details and images require guard/staff sign-in; students see their own images through their authenticated workspace.
 
-### Guard lookup and school entry policy
+### Intent permissions and school entry
 
-As a guard, ask **“What's the processing status of Sam Reyes's ID?”**. You can also
-use a student ID such as **DEMO-003**, or select **Ask about ID** on a record. A named
-student takes precedence over a previously selected card. Full names ignore case
-and curly/straight possessive apostrophes; partial names such as **Sam** work in
-**“What is the status of Sam's ID?”**. Multiple matches require choosing a record;
-missing names never silently return another student's status.
+| Intent | Access |
+| --- | --- |
+| `bot_help`, `id_requirements`, `office_hours_location`, `qr_student_details` | Public guidance; no inventory lookup |
+| `id_release_schedule`, `id_processing_status`, `pending_id`, `pending_id_schedule`, `lost_id_report`, `lost_id_schedule` | Verified student, own record only |
+| `authorized_pickup` | Verified student; PMO policy handoff, never automatic approval |
+| `id_inventory`, `qr_sticker_request` | Staff (guard/coordinator) |
+| `found_id_report` | Public hand-in guidance; authenticated staff records physical custody; only PMO/coordinator sends the owner notification |
 
-The reply gives **ID status**, **processing status**, and a QR code. Guards/staff use
-**Scan / enter QR code** in their signed-in workspace. The scan page displays the
-owner's name, course, section, year level, front/back ID images, and live status.
-Students use their own ID workspace; another student's record/images are forbidden.
-Anonymous scan links redirect to sign-in without showing personal details.
+Greetings, thanks, fallback and PMO handoff also return nonpersonal public replies.
+Every intent's scope is recorded in the catalog's `access_role` column and enforced
+by server rules. A student can see their own ID workspace; this does not grant access
+to staff inventory, QR image downloads, or printing. Direct sticker/QR routes enforce
+staff access too. Guards use inventory filters and the signed-in scanner to check
+students; personal chatbot status/appointment intents are student-only.
 
-**No ID, No Entry.** Inventory status and a digital QR never grant campus entry.
+Public/other-student QR scans display limited guidance without name, course, student
+number, processing details or ID images. A revoked reference displays only
+**REVOKED — Reported lost, contact PMO.** Unknown/other references give general PMO
+instructions. Staff can view the authorized scan profile and front/back images;
+students view their own details through their authenticated workspace.
+
+**No ID, No Entry.** The chatbot and QR never approve entry.
 
 ### Confirmed lost/found ID workflow
 
 1. The student says **“Nawala ang ID ko”** (`lost_id_report`) and enters their student
    number, course and section. These must match the signed-in student's inventory
    record. The student must tick the loss confirmation before a ticket is created.
-2. Status becomes **Reported Lost / Pending**. The original QR is flagged; staff
-   scanning it see **“REPORTED LOST, kunin ang ID at ipaalam sa ID office.”**
+2. Status becomes **Reported Lost / Pending**. The original QR is immediately
+   **REVOKED**. Scanning it says **“Reported lost, contact PMO.”**
    No scan activity, inactivity, or gate attendance can create a lost report.
 3. The bot returns the configured replacement requirements/fee. The coordinator enters
    the approved values under **Approved ID policy**. Blank values explicitly say
@@ -104,15 +118,19 @@ Anonymous scan links redirect to sign-in without showing personal details.
    original's uploaded images. Print the **new sticker** and upload the replacement's
    images after issuance. The old QR can never reactivate, including after a found report.
 
-For a found ID, the guard/staff scans or enters the QR, physically receives the ID,
-and ticks the custody confirmation under **Log found ID** (`found_id_report`). A scan
-alone does not change inventory. Before replacement issuance, the original becomes
-**Found - For Claiming**, the replacement ticket/appointment is cancelled, and the
-original QR reactivates. The owner receives an in-app notice to collect at the
-configured claim location (default **Security Office**) with another valid ID.
-Staff verifies that ID and uses **Confirm claiming** to return the original to **Active / Released**.
-Finding an already retired original logs its recovery without changing the replacement
-or its appointments. Repeated confirmations do not duplicate an open ticket.
+For a found ID, public users receive instructions to turn it over to PMO; no owner
+identity is revealed. The guard/staff physically receives the ID and confirms custody
+under **Log found ID** (`found_id_report`). A scan or chatbot question alone changes nothing.
+
+- If the QR has **never been revoked**, record **Found - For Claiming**. Staff verifies
+  the claimant with another valid ID before **Confirm claiming** returns it to Active.
+- A **revoked or retired** original remains REVOKED even when recovered. Record custody
+  without reactivating it or cancelling the replacement/appointment. PMO handles its
+  return; a replacement receives a new QR at issuance.
+- A found report does **not** automatically send a notice. PMO/coordinator reviews the
+  report ticket and clicks **PMO: notify owner**, confirming physical custody. This
+  queues an in-app notice for the owner (claim location or revoked-original instructions).
+  Guards/students cannot use that action. Repeat clicks do not duplicate the notice.
 
 Notifications persist until delivered to the owner's signed-in chat. Available slots
 and notifications refresh every **15 seconds** while the tab is visible, on tab return,
@@ -144,11 +162,11 @@ The QR contains **only an opaque code**, such as `PGPC-…`; it contains no name
 student number or other personal details. **Print sticker** makes a 30 mm QR area with
 its opaque code caption. Print at 100% and physically test the final sticker.
 
-A normal phone camera shows the raw code. Guards/staff open the deployed application,
+A normal phone camera shows the raw code. Public users can paste it into **Check a QR code** at `/help` to get limited PMO guidance without owner details. Guards/staff open the deployed application,
 sign in, then use **Scan with camera** or paste the code into **Scan / enter QR code**.
 The camera scanner needs HTTPS (or localhost), camera permission, and a browser with
 QR `BarcodeDetector` support. Manual entry is always available. Legacy stickers with
-`/student/<code>` URLs also resolve through the staff scanner and require staff sign-in.
+`/student/<code>` URLs also resolve through the staff scanner. Public views remain limited; staff sign-in is required for the full profile.
 Use the school's reachable application URL on phones. `PUBLIC_BASE_URL` can set the
 origin for shared staff links; it does not add a URL or personal data to new QR codes.
 
@@ -187,14 +205,14 @@ From the extracted project folder, use your existing `venv` directly:
 
 If the environment is missing, create it first with `py -3.11 -m venv venv`. When
 updating an existing installation, keep `venv/` and `data/`; replace the Python files,
-`templates/`, `static/`, and `assets/`, install requirements, and restart the app. This update adds `found_id_report`: retrain with `python train_model.py` after replacing both CSVs, then restart. A stale model is rejected. Create the role accounts once using the commands above.
+`templates/`, `static/`, and `assets/`, install requirements, and restart the app. This update adds `authorized_pickup` and access scopes (and retains `found_id_report`): retrain with `python train_model.py` after replacing both CSVs, then restart. A stale model is rejected. Create the role accounts once using the commands above.
 
 ## Dataset and intents
 
-- `property_management_dataset.csv`: 255 synthetic utterances, 15 per intent, with
+- `property_management_dataset.csv`: 270 synthetic utterances, 15 per intent, with
   `id,text,intent,language,author` columns. Generic conversational examples retained
   from the supplied CSV; school ID examples replace general campus support requests.
-- `property_management_intent.csv`: 17 intent definitions and staff actions.
+- `property_management_intent.csv`: 18 intent definitions, actions and `access_role` permissions.
 - `property_management_dataset.tab`: Orange version with `intent` as the class,
   `text` as a string meta, and identifiers/language/author as metadata.
 
@@ -202,7 +220,7 @@ updating an existing installation, keep `venv/` and `data/`; replace the Python 
 
 The guide allows a locally trained Artificial Neural Network. `train_model.py` builds
 TF-IDF word/bigram features and a scikit-learn `MLPClassifier`: one 32-neuron ReLU
-hidden layer and 17 output intents. It uses L-BFGS, L2 regularization (`alpha=0.1`),
+hidden layer and 18 output intents. It uses L-BFGS, L2 regularization (`alpha=0.1`),
 seed 42, and at most 600 iterations. No external AI service or pretrained model is used.
 
 ```bash
@@ -210,8 +228,8 @@ seed 42, and at most 600 iterations. No external AI service or pretrained model 
 .venv/bin/python Chatbot.py
 ```
 
-The script evaluates a stratified 80/20 split (204 training, 51 test examples), fitting
-vocabulary and IDF only on the training partition. It then refits on all 255 source
+The script evaluates a stratified 80/20 split (216 training, 54 test examples), fitting
+vocabulary and IDF only on the training partition. It then refits on all 270 source
 examples and saves `data/intent_model.joblib`. `Chatbot.py` loads that model. Train before
 starting the app; retrain and restart after changing either CSV or scikit-learn version.
 Only load model files produced by your own training script: joblib uses Python pickle.
@@ -241,9 +259,21 @@ unrelated questions will always be rejected.
 
 `intent_model.py` shares model loading and fallback logic with the application. Actual
 ID status, dates/times, and student details are retrieved from SQLite after intent
-classification. QR generation remains separate. The model cannot book appointments
-or determine school policy. Group members should review and understand this code,
+classification. QR generation remains separate. The model cannot verify identity, grant roles, authorize representative pickup,
+book appointments, revoke/issue QR codes or determine school policy. Authentication,
+ownership checks, explicit confirmation and server rules control these actions. Group members should review and understand this code,
 curate the dataset, and document their own contributions for the guide's defense.
+
+## Defense explanation
+
+> Ang neural network ay nag-uuri lamang ng intent. Ang login, student-number matching,
+> ownership checks at authorization rules ang nagve-verify at naglilimita ng access.
+> PMO ang nag-aapruba ng representative pickup at nagpapadala ng found-ID notice.
+
+`tests/test_intent_access.py` forces every intent prediction across anonymous/student/
+guard/coordinator sessions and checks the permission matrix independently of ANN
+accuracy. The current login is a local prototype; official school SSO/OTP integration
+must be described as pending until configured and tested with the actual school provider.
 
 ## Orange workflow
 

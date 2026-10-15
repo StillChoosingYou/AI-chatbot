@@ -11,8 +11,18 @@ def signed_client(app, role='coordinator', record_id=None, username=None):
     client.get('/login')
     with client.session_transaction() as session:
         token = session['csrf']
-    response = client.post('/login', data={'username':username, 'password':'test-password-123', 'csrf_token':token})
+    with sqlite3.connect(app.config['DATABASE']) as db:
+        row=db.execute('SELECT student_id FROM inventory WHERE id=?',(record_id,)).fetchone() if role=='student' else None
+    response = client.post('/login', data={'username':username, 'password':'test-password-123', 'csrf_token':token,'student_id':row[0] if row else ''})
     assert response.status_code == 302
     with client.session_transaction() as session:
         client.environ_base['HTTP_X_CSRF_TOKEN'] = session['csrf']
+    return client
+
+
+def public_client(app):
+    client=app.test_client()
+    client.get('/help')
+    with client.session_transaction() as session:
+        client.environ_base['HTTP_X_CSRF_TOKEN']=session['csrf']
     return client

@@ -11,11 +11,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import qrcode
-from flask import Flask, abort, g, jsonify, render_template, request, send_file, url_for
+from flask import Flask, abort, g, jsonify, redirect, render_template, request, session, send_file, url_for
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from access import install_access
+from access import install_access, PUBLIC_INTENTS, STUDENT_INTENTS, STAFF_INTENTS
 from id_cards import sample_card
 from intent_model import ANNIntentModel
 from lifecycle import IDLifecycle, LOSS_STATES, new_code
@@ -92,6 +92,20 @@ def create_app(database=None):
 
     lifecycle = IDLifecycle(app, connect, record)
     pickup_offer = install_pickup(app, connect, record, scan_url)
+
+    @app.get('/scan')
+    def public_scan():
+        code=request.args.get('code','').strip()
+        if '://' in code:
+            path=urlparse(code).path
+            code=path[len('/student/'):] if path.startswith('/student/') else ''
+        if not re.fullmatch(r'[A-Za-z0-9_-]{6,128}',code):
+            return render_template('limited_scan.html',revoked=False)
+        return redirect(url_for('profile',token=code))
+
+    @app.get('/help')
+    def public_help():
+        return render_template('help.html')
 
     @app.get('/')
     def home():
@@ -192,6 +206,8 @@ def create_app(database=None):
 
     @app.get('/student/<token>')
     def profile(token):
+        if not g.user or g.user['role'] not in ('guard','coordinator'):
+            return render_template('limited_scan.html',revoked=lifecycle.is_revoked(token))
         row, qr = lifecycle.scanned(token)
         return render_id_page(row,token,qr['state'],scan=True)
 
@@ -330,7 +346,7 @@ def create_app(database=None):
         text = payload['message']
         intent = matcher.match(text)
         loss_signal=bool(re.search(r'\b(?:nawala|nawawala|lost my|i lost|my\s+(?:student\s+|school\s+)?(?:ID|card)\s+(?:is|went)\s+(?:lost|missing)|report.*lost)\b',text,re.I))
-        found_signal=bool(re.search(r'\b(?:nakapulot|napulot|nahanap|found.*(?:ID|card)|(?:ID|card).*found)\b',text,re.I))
+        found_signal=bool(re.search(r'\b(?:nakapulot|napulot|nahanap|may nakita|nakakita|found.*(?:ID|card)|(?:ID|card).*found)\b',text,re.I))
         reschedule_request = bool(re.search(r'\breschedul(?:e|ing)\b', text, re.I) and re.search(r'\bID\b', text, re.I))
         if re.search(r"\b(status|active|lost)\b", text, re.I) and re.search(r"\bID\b", text, re.I) and not re.search(r"\b(report|schedule|appointment|lost my)\b", text, re.I):
             intent = 'id_processing_status'
@@ -338,6 +354,31 @@ def create_app(database=None):
             intent = 'lost_id_schedule'
         if loss_signal: intent='lost_id_report'
         if found_signal: intent='found_id_report'
+        if re.search(r'\b(?:friend|kaibigan|representative|authorized person|proxy|ibang tao)\b',text,re.I) and re.search(r'\b(?:collect|pickup|pick up|claim|kunin|kuha|kumuha|ID)\b',text,re.I):
+            intent='authorized_pickup'
+        role=g.user['role'] if g.user else None
+        if intent in STUDENT_INTENTS and (role!='student' or not session.get('student_verified')):
+            return jsonify(intent=intent,reply='Sign in with your verified student account to ask about your own ID. Staff can use the inventory and scanner.',error='Verified student access required.'),403 if g.user else 401
+        if intent in STAFF_INTENTS and role not in ('guard','coordinator'):
+            return jsonify(intent=intent,reply='Only staff can access the ID inventory or print/replace QR stickers.',error='Staff access required.'),403 if g.user else 401
+        public_answers={
+            'bot_help':'I can explain ID requirements, office information and QR scanning. Sign in with a verified student account for your own ID status, appointments or a lost report. Staff manage inventory and stickers.',
+            'id_requirements':lifecycle.policy_reply(),
+            'office_hours_location':'Contact the Property Management Office (PMO). Approved office hours and contact details have not been configured yet.',
+            'qr_student_details':'The QR contains only an opaque code. Public scans show limited guidance; a revoked QR says Reported lost, contact PMO. Personal details and ID images require authorized access. Turn found IDs over to PMO.',
+            'greeting':'Hello! Ask about ID requirements, office information or how QR scanning works. Sign in for your own ID information.',
+            'thanks_goodbye':'You are welcome. Contact PMO if you need further help.',
+            'talk_to_human':'Please contact the Property Management Office (PMO) for assistance.',
+            'out_of_scope':'I can help with school ID requirements and QR guidance. Sign in for your own ID status and appointments.',
+        }
+        if intent in PUBLIC_INTENTS:
+            return jsonify(intent=intent,reply=public_answers[intent])
+        if intent=='found_id_report':
+            return jsonify(intent=intent,reply='Turn the found ID over to PMO. Public scans do not reveal the owner. PMO will verify custody and notify the owner.',**({'action':'report_found'} if role in ('guard','coordinator') else {}))
+        if intent=='authorized_pickup':
+            return jsonify(intent=intent,reply='Ask PMO whether representative pickup is allowed. The authorization requirements are not configured. The chatbot cannot approve a friend or representative to collect your ID.')
+        if role is None:
+            return jsonify(intent=intent,reply='Sign in for that request.',error='Sign in required.'),401
         def normalize(value):
             value = unicodedata.normalize('NFKC', value).casefold().replace('’', "'")
             value = re.sub(r"'s\b", '', value)
@@ -375,18 +416,10 @@ def create_app(database=None):
         if g.user['role'] == 'student' and selected is None:
             selected = record(g.user['record_id'])
         answers = {
-            'greeting': 'Hello! I can help with school ID status, release schedules, pending or lost IDs, inventory, and QR stickers.',
-            'thanks_goodbye': 'You’re welcome! Come back whenever you need help with your school ID.',
-            'bot_help': 'Ask about a student by full name or student ID, or select a record to check its status or appointment. You can also filter the inventory or print a QR sticker.',
-            'talk_to_human': 'Please contact the Property Management Office staff for assistance. Office contact details have not been configured yet.',
-            'lost_id_report': ('I-verify ang student number, course at section at kumpirmahin ang pagkawala sa form sa ibaba. Magagawa ang ticket at Reported Lost status pagkatapos ng confirmation.' if g.user['role']=='student' else 'The student must sign in and verify their student number, course and section to file a lost ID report.'),
-            'found_id_report': ('Scan or enter the ID QR code below, then confirm that Security has physically received the ID.' if g.user['role'] in ('guard','coordinator') else 'Turn the found ID over to Security. Only a signed-in guard or staff member can log a physically received ID.'),
-            'id_requirements': lifecycle.policy_reply(),
-            'office_hours_location': 'Please confirm the office hours and pickup location with the Property Management Office. These details have not been configured yet.',
-            'qr_student_details': 'The QR contains only an opaque code. Signed-in guards and staff use Scan / enter QR code to view the owner and ID status. Students view their own details in their account.',
-            'qr_sticker_request': 'Use “Print sticker” on the student’s inventory card. The label has a 30 mm QR code; print at actual size and test a scan before attaching it.',
-            'id_inventory': 'Use the search box and filters above to find records by name or student ID, course, section, year, request type, or processing status.',
-            'out_of_scope': 'I can help with school IDs. Try “When is my ID release?”, “Why is my ID pending?”, or “How do I print a QR sticker?”',
+            'lost_id_report': 'I-verify ang student number, course at section at kumpirmahin ang pagkawala sa form sa ibaba. Magagawa ang ticket at Reported Lost status pagkatapos ng confirmation.',
+            'qr_sticker_request': 'Staff: use Print sticker on an inventory card. PMO issues the new replacement QR after verified processing and release. A revoked old code cannot be reused.',
+            'id_inventory': 'Staff: use the inventory search and filters to check records by name/student ID, course, section, year, request type, or status.',
+            'out_of_scope': 'Please contact PMO for assistance with that request.',
         }
         lookups = ('id_processing_status', 'pending_id', 'id_release_schedule', 'pending_id_schedule', 'lost_id_schedule')
         if intent in lookups:
@@ -395,7 +428,7 @@ def create_app(database=None):
             elif intent == 'id_processing_status':
                 answer = f'{selected["name"]}: ID status: {selected["id_status"]}. Processing status: {selected["status"]} ({selected["request_type"]}). No ID, No Entry. A status QR does not authorize entry; follow the school’s entry procedure.'
                 if selected['id_status'] in LOSS_STATES:
-                    answer += ' REPORTED LOST, kunin ang ID at ipaalam sa ID office.'
+                    answer += ' QR REVOKED: Reported lost, contact PMO.'
             elif intent == 'lost_id_schedule' and (reschedule_request or selected['id_status'] in LOSS_STATES):
                 if selected['id_status'] not in LOSS_STATES:
                     answer = f'{selected["name"]}: the ID is not currently marked Lost. Contact the coordinator to confirm the lost ID record before arranging replacement pickup.'
@@ -414,12 +447,11 @@ def create_app(database=None):
         result = {'intent': intent, 'reply': answer}
         if selected is not None and intent in lookups:
             result.update(student_name=selected['name'], id_status=selected['id_status'],
-                          processing_status=selected['status'], qr_url=url_for('qr_image', record_id=selected['id']),
+                          processing_status=selected['status'],
                           scan_url=url_for('own_id_view',record_id=selected['id']) if g.user['role']=='student' else scan_url(selected['token']))
         if selected is not None and selected['id_status'] in LOSS_STATES and intent in lookups:
             result['pickup_offer'] = pickup_offer(selected)
         if intent=='lost_id_report' and g.user['role']=='student': result['action']='report_lost'
-        if intent=='found_id_report' and g.user['role'] in ('guard','coordinator'): result['action']='report_found'
         return jsonify(result)
 
     return app

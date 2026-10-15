@@ -75,8 +75,15 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.guard.put('/api/id-policy',json=policy).status_code,403)
         self.assertEqual(self.staff.put('/api/id-policy',json=policy).status_code,200)
         self.assertEqual(self.staff.put('/api/id-policy',json={**policy,'claim_location':''}).status_code,400)
-        self.assertIn('Approved test fee',self.lost().json['reply'])
+        self.assertIn('Approved test fee',self.student.post('/api/chat',json={'message':'What are the ID requirements?'}).json['reply'])
         self.found()
+        self.assertEqual(self.student.get('/api/notifications').json['notifications'],[])
+        ticket=self.staff.get('/api/id-tickets').json['tickets'][0]
+        endpoint=f'/api/id-tickets/{ticket["id"]}/notify-owner'
+        self.assertEqual(self.guard.post(endpoint,json={'confirmed':True}).status_code,403)
+        self.assertEqual(self.staff.post(endpoint,json={'confirmed':False}).status_code,400)
+        self.assertEqual(self.staff.post(endpoint,json={'confirmed':True}).status_code,200)
+        self.assertEqual(self.staff.post(endpoint,json={'confirmed':True}).status_code,200)
         notices=self.student.get('/api/notifications').json['notifications']
         self.assertEqual(len(notices),1)
         self.assertIn('another valid ID',notices[0]['message'])
@@ -92,16 +99,16 @@ class LifecycleTests(unittest.TestCase):
         path='/student/'+self.code
         for suffix in ('','/id/front.png','/id/back.png'):
             result=self.app.test_client().get(path+suffix)
-            self.assertEqual(result.status_code,302)
+            self.assertEqual(result.status_code,200 if not suffix else 302)
             self.assertNotIn(self.owner['name'],result.get_data(as_text=True))
-            self.assertEqual(self.student.get(path+suffix).status_code,403)
+            self.assertEqual(self.student.get(path+suffix).status_code,200 if not suffix else 403)
         for suffix in ('/view','/id/front.png','/id/back.png'):
             self.assertEqual(self.student.get(self.url+suffix).status_code,200)
             self.assertEqual(self.other_student.get(self.url+suffix).status_code,403)
         page=self.guard.get(path).get_data(as_text=True)
-        self.assertIn('REPORTED LOST, kunin ang ID at ipaalam sa ID office.',page)
-        reply=self.guard.post('/api/chat',json={'message':"What is Taylor Cruz's ID status?"}).json['reply']
-        self.assertIn('REPORTED LOST',reply)
+        self.assertIn('REVOKED: Reported lost, contact PMO.',page)
+        reply=self.student.post('/api/chat',json={'message':"What is my ID status?"}).json['reply']
+        self.assertIn('REVOKED',reply)
         for code in (self.code,'https://school.example/student/'+self.code):
             result=self.guard.get('/api/qr/lookup',query_string={'code':code})
             self.assertEqual(result.json['url'],path)
@@ -109,9 +116,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.guard.get('/api/qr/lookup',query_string={'code':'https://example.org/nope'}).status_code,400)
         self.assertIn('/api/inventory/',self.student.get(self.url+'/view').get_data(as_text=True))
 
-    def test_found_requires_custody_cancels_replacement_and_claim_verification(self):
-        self.lost();slot=self.publish('Application')
-        self.student.post(self.url+'/reschedule',json={'slot_id':slot})
+    def test_found_active_id_requires_custody_and_claim_verification(self):
         before=self.current()
         self.assertEqual(self.student.post('/api/id-reports/found',json={'code':self.code,'confirmed':True}).status_code,403)
         self.assertEqual(self.guard.post('/api/id-reports/found',json={'code':self.code,'confirmed':False}).status_code,400)
@@ -119,18 +124,30 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(chat['intent'],'found_id_report')
         self.assertEqual(self.current(),before)
         self.assertEqual(self.found().status_code,200)
-        row=self.current()
-        self.assertEqual((row['id_status'],row['status'],row['schedule_date']),('Found - For Claiming','For claiming',''))
-        self.assertEqual(self.staff.get('/api/pickup-slots').json['slots'][0]['booked'],0)
-        self.assertEqual(self.student.get('/api/pickup-offer').json['offer'],None)
-        self.assertIn('Cancelled',self.student.get('/api/id-tickets').json['tickets'][1]['state'])
+        self.assertEqual(self.current()['id_status'],'Found - For Claiming')
         self.found()
-        self.assertEqual(len(self.student.get('/api/notifications').json['notifications']),1)
+        self.assertEqual(self.student.get('/api/notifications').json['notifications'],[])
+        self.assertEqual(len(self.student.get('/api/id-tickets').json['tickets']),1)
         self.assertEqual(self.update(id_status='Active',status='Released').status_code,409)
-        self.assertEqual(self.guard.post(self.url+'/claim',json={'verified':False}).status_code,400)
-        self.assertEqual(self.guard.post(self.url+'/claim',json={'verified':1}).status_code,400)
+        for value in (False,1):
+            self.assertEqual(self.guard.post(self.url+'/claim',json={'verified':value}).status_code,400)
         self.assertEqual(self.guard.post(self.url+'/claim',json={'verified':True}).status_code,200)
         self.assertEqual((self.current()['id_status'],self.current()['token']),('Active',self.code))
+
+    def test_found_revoked_id_never_reactivates_or_cancels_replacement(self):
+        self.lost();slot=self.publish('Application')
+        self.student.post(self.url+'/reschedule',json={'slot_id':slot})
+        before=self.current()
+        self.assertEqual(self.found().status_code,200)
+        self.assertEqual(self.current(),before)
+        self.assertEqual(self.staff.get('/api/pickup-slots').json['slots'][0]['booked'],1)
+        self.assertIn('REVOKED',self.app.test_client().get('/student/'+self.code).get_data(as_text=True))
+        self.assertEqual(self.student.get('/api/notifications').json['notifications'],[])
+        ticket=self.staff.get('/api/id-tickets').json['tickets'][0]
+        self.assertEqual(ticket['state'],'Revoked ID held')
+        self.staff.post(f'/api/id-tickets/{ticket["id"]}/notify-owner',json={'confirmed':True})
+        self.assertIn('REVOKED',self.student.get('/api/notifications').json['notifications'][0]['message'])
+        self.assertEqual(self.guard.post(self.url+'/claim',json={'verified':True}).status_code,409)
 
     def test_replacement_retires_original_and_preserves_archive(self):
         image=io.BytesIO();Image.new('RGB',(20,30),'red').save(image,format='PNG');image.seek(0)
@@ -165,8 +182,8 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(self.update(**fields).status_code,409,fields)
             self.assertEqual(self.current(),before)
         self.ready();self.assertEqual(self.found().status_code,200)
-        for fields in ({'status':'Released'},{'id_status':'Lost'},{'id_status':'Active'}):
-            self.assertEqual(self.update(**fields).status_code,409)
+        self.assertEqual(self.update(id_status='Active').status_code,409)
+        self.assertEqual(self.update(status='Released').status_code,200)
 
     def test_application_and_pickup_stage_capacity(self):
         self.lost();application=self.publish('Application');pickup=self.publish('Pickup','2027-12-11')
@@ -187,7 +204,7 @@ class LifecycleTests(unittest.TestCase):
     def test_unclaimed_clock_and_confirmed_stock_audit(self):
         clock=datetime(2026,10,15,8)
         with patch('lifecycle.school_now',return_value=clock):
-            self.lost();self.ready()
+            self.assertEqual(self.update(status='Ready for release').status_code,200)
         with patch('lifecycle.school_now',return_value=clock+timedelta(days=30)):
             self.assertEqual(self.current()['status'],'Ready for release')
         with patch('lifecycle.school_now',return_value=clock+timedelta(days=30,seconds=1)):
@@ -218,7 +235,7 @@ class LifecycleTests(unittest.TestCase):
             issue=executor.submit(self.update,status='Released',id_status='Active')
             found=executor.submit(self.found)
             statuses=[issue.result(timeout=10).status_code,found.result(timeout=10).status_code]
-        self.assertIn(statuses,([200,200],[409,200]))
+        self.assertEqual(statuses,[200,200])
         row=self.current()
         with sqlite3.connect(self.db) as db:
             state=db.execute('SELECT state FROM qr_codes WHERE token=?',(self.code,)).fetchone()[0]
@@ -226,8 +243,7 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(state,'retired')
             self.assertEqual(row['id_status'],'Active')
         else:
-            self.assertEqual(row['id_status'],'Found - For Claiming')
-            self.assertEqual(state,'active')
+            self.fail('Issuance must succeed even when the revoked original is found.')
 
 
 if __name__=='__main__':

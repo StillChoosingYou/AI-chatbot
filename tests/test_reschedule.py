@@ -90,7 +90,8 @@ class LostIDRescheduleTests(unittest.TestCase):
         page=self.guard.get('/student/'+row['token']).get_data(as_text=True)
         self.assertIn('2026-12-11 at 14:15',page)
         self.assertNotIn('2026-12-10',page)
-        self.assertEqual(changed.json['qr_url'],f'/qr/{row["id"]}.png')
+        self.assertNotIn('qr_url',changed.json)
+        self.assertEqual(changed.json['scan_url'],f'/api/inventory/{row["id"]}/view')
         slots=self.coordinator.get('/api/pickup-slots').json['slots']
         self.assertEqual([slot['booked'] for slot in slots],[0,1])
 
@@ -174,8 +175,8 @@ class LostIDRescheduleTests(unittest.TestCase):
             reply=self.student.post('/api/chat',json={'message':text}).json
             self.assertEqual(reply['pickup_offer']['slots'][0]['id'],slot)
             self.assertTrue(reply['pickup_offer']['can_book'])
-        guard=self.guard.post('/api/chat',json={'message':"What is Sam Reyes's ID status?"}).json
-        self.assertFalse(guard['pickup_offer']['can_book'])
+        self.assertEqual(self.guard.post('/api/chat',json={'message':"What is Sam Reyes's ID status?"}).status_code,403)
+        self.assertFalse(self.guard.get(f'/api/inventory/{self.sam["id"]}/pickup-slots').json['offer']['can_book'])
         self.assertEqual(self.current()['schedule_date'],'')
         self.coordinator.patch(f'/api/pickup-slots/{slot}',json={'enabled':False})
         self.assertIn('no available pickup dates',self.student.get('/api/pickup-offer').json['offer']['reply'])

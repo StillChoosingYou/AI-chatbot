@@ -27,6 +27,8 @@ class IDLifecycle:
                 token TEXT PRIMARY KEY,record_id INTEGER NOT NULL REFERENCES inventory(id),
                 state TEXT NOT NULL CHECK(state IN ('active','flagged','retired')),
                 issued_at TEXT NOT NULL,retired_at TEXT NOT NULL DEFAULT '')''')
+            if 'revoked_at' not in {row['name'] for row in db.execute('PRAGMA table_info(qr_codes)')}:
+                db.execute("ALTER TABLE qr_codes ADD COLUMN revoked_at TEXT NOT NULL DEFAULT ''")
             db.execute('''CREATE TABLE IF NOT EXISTS qr_images (
                 token TEXT NOT NULL REFERENCES qr_codes(token),side TEXT NOT NULL,image BLOB NOT NULL,
                 PRIMARY KEY(token,side))''')
@@ -34,6 +36,9 @@ class IDLifecycle:
                 id INTEGER PRIMARY KEY,record_id INTEGER NOT NULL REFERENCES inventory(id),
                 token TEXT NOT NULL,kind TEXT NOT NULL,state TEXT NOT NULL,
                 reported_by INTEGER NOT NULL REFERENCES accounts(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)''')
+            for column in ('owner_notified_at','owner_notified_by'):
+                if column not in {row['name'] for row in db.execute('PRAGMA table_info(id_tickets)')}:
+                    db.execute(f"ALTER TABLE id_tickets ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
             db.execute('''CREATE TABLE IF NOT EXISTS notifications (
                 id INTEGER PRIMARY KEY,record_id INTEGER NOT NULL REFERENCES inventory(id),
                 message TEXT NOT NULL,created_at TEXT NOT NULL,is_read INTEGER NOT NULL DEFAULT 0)''')
@@ -43,6 +48,7 @@ class IDLifecycle:
             db.execute('INSERT OR IGNORE INTO id_policy (id) VALUES (1)')
             for row in db.execute('SELECT * FROM inventory').fetchall():
                 self.register_code(db,row)
+            db.execute("UPDATE qr_codes SET revoked_at=? WHERE revoked_at='' AND (state='retired' OR record_id IN (SELECT id FROM inventory WHERE id_status IN ('Lost','Reported Lost')))",(self.now(),))
         self.register_routes(app)
 
     @staticmethod
@@ -51,15 +57,15 @@ class IDLifecycle:
 
     def register_code(self,db,row):
         state='flagged' if row['id_status'] in (*LOSS_STATES,'Missing from Stock') else 'active'
-        db.execute('INSERT OR IGNORE INTO qr_codes (token,record_id,state,issued_at) VALUES (?,?,?,?)',
-                   (row['token'],row['id'],state,self.now()))
+        db.execute('INSERT OR IGNORE INTO qr_codes (token,record_id,state,issued_at,revoked_at) VALUES (?,?,?,?,?)',
+                   (row['token'],row['id'],state,self.now(),self.now() if row['id_status'] in LOSS_STATES else ''))
 
     def notify(self,db,rid,message):
         db.execute('INSERT INTO notifications (record_id,message,created_at) VALUES (?,?,?)',(rid,message,self.now()))
 
     def ticket(self,db,row,kind,state='Open',token=None):
         token=token or row['token']
-        existing=db.execute("SELECT id FROM id_tickets WHERE record_id=? AND token=? AND kind=? AND state IN ('Open','Replacement Processing','For claiming') ORDER BY id DESC LIMIT 1",(row['id'],token,kind)).fetchone()
+        existing=db.execute("SELECT id FROM id_tickets WHERE record_id=? AND token=? AND kind=? AND state IN ('Open','Replacement Processing','For claiming','Revoked ID held','Retired ID held') ORDER BY id DESC LIMIT 1",(row['id'],token,kind)).fetchone()
         if existing:
             return existing['id']
         return db.execute('INSERT INTO id_tickets (record_id,token,kind,state,reported_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
@@ -114,7 +120,7 @@ class IDLifecycle:
             if open_lost and previous['status'] not in READY_STATES:
                 return 'Mark the replacement Ready for release before issuing it.'
             old=previous['token']
-            db.execute("UPDATE qr_codes SET state='retired',retired_at=? WHERE token=?",(self.now(),old))
+            db.execute("UPDATE qr_codes SET state='retired',retired_at=?,revoked_at=CASE WHEN revoked_at='' THEN ? ELSE revoked_at END WHERE token=?",(self.now(),self.now(),old))
             db.execute('INSERT OR REPLACE INTO qr_images (token,side,image) SELECT ?,side,image FROM id_images WHERE record_id=?',(old,current['id']))
             db.execute('DELETE FROM id_images WHERE record_id=?',(current['id'],))
             current['token']=new_code();current['id_status']='Active'
@@ -123,7 +129,7 @@ class IDLifecycle:
             db.execute("UPDATE id_tickets SET state='Resolved - replacement issued',updated_at=? WHERE record_id=? AND kind='lost' AND state IN ('Open','Replacement Processing')",(self.now(),current['id']))
             self.notify(db,current['id'],'Your replacement ID has been released with a new QR code. The old QR is permanently deactivated.')
         elif current['id_status']=='Lost' and previous['id_status']!='Lost':
-            db.execute("UPDATE qr_codes SET state='flagged' WHERE token=? AND state!='retired'",(previous['token'],))
+            db.execute("UPDATE qr_codes SET state='flagged',revoked_at=CASE WHEN revoked_at='' THEN ? ELSE revoked_at END WHERE token=? AND state!='retired'",(self.now(),previous['token']))
         if current['status']=='Ready for release' and previous['status'] not in READY_STATES:
             current['ready_since']=self.now()
             if current['schedule_type']=='Lost ID application':
@@ -133,6 +139,12 @@ class IDLifecycle:
             current['ready_since']=''
         return None
 
+    def is_revoked(self,token):
+        # Public output is limited to disposition, including unknown references.
+        with self.connect() as db:
+            qr=db.execute('SELECT state,revoked_at FROM qr_codes WHERE token=?',(token,)).fetchone()
+        return bool(qr and (qr['revoked_at'] or qr['state']=='retired'))
+
     def scanned(self,token):
         self.audit_unclaimed()
         with self.connect() as db:
@@ -140,7 +152,9 @@ class IDLifecycle:
             row=db.execute('SELECT * FROM inventory WHERE id=?',(qr['record_id'],)).fetchone() if qr else None
         if row is None:
             abort(404)
-        return dict(row),dict(qr)
+        qr=dict(qr)
+        if qr['revoked_at'] and qr['state']!='retired': qr['state']='revoked'
+        return dict(row),qr
 
     def register_routes(self,app):
         @app.get('/api/id-policy')
@@ -175,8 +189,8 @@ class IDLifecycle:
                 # Repeated confirmation is idempotent and cannot reset an ongoing replacement.
                 if row['id_status']!='Reported Lost':
                     db.execute("UPDATE inventory SET id_status='Reported Lost',status='Pending',request_type='Lost ID',schedule_type='',schedule_date='',schedule_time='',ready_since='' WHERE id=?",(row['id'],))
-                db.execute("UPDATE qr_codes SET state='flagged' WHERE token=? AND state!='retired'",(row['token'],))
-            return jsonify(reply=f'Ticket {self.reference(ticket)}: Reported Lost. Your QR is flagged. '+self.policy_reply(),ticket=self.reference(ticket),record=self.record(row['id']))
+                db.execute("UPDATE qr_codes SET state='flagged',revoked_at=CASE WHEN revoked_at='' THEN ? ELSE revoked_at END WHERE token=? AND state!='retired'",(self.now(),row['token']))
+            return jsonify(reply=f'Ticket {self.reference(ticket)}: Reported Lost. Your old QR is REVOKED: Reported lost, contact PMO. '+self.policy_reply(),ticket=self.reference(ticket),record=self.record(row['id']))
 
         @app.post('/api/id-reports/found')
         def report_found_id():
@@ -189,22 +203,19 @@ class IDLifecycle:
                 qr=db.execute('SELECT * FROM qr_codes WHERE token=?',(payload['code'],)).fetchone()
                 if qr is None: abort(404)
                 row=dict(db.execute('SELECT * FROM inventory WHERE id=?',(qr['record_id'],)).fetchone())
-                prior_retired=db.execute("SELECT id FROM id_tickets WHERE token=? AND kind='found' AND state='Resolved - retired ID'",(qr['token'],)).fetchone()
-                if qr['state']=='retired' and prior_retired:
-                    return jsonify(reply=f"{self.reference(prior_retired['id'])}: Found old ID already logged; this QR remains permanently deactivated.")
-                ticket=self.ticket(db,row,'found',state='For claiming' if qr['state']!='retired' else 'Resolved - retired ID',token=qr['token'])
-                if qr['state']=='retired' or qr['token']!=row['token']:
-                    reply='Found old ID logged. This QR is permanently deactivated; the current replacement and its appointments remain unchanged.'
-                    self.notify(db,row['id'],reply+' Contact '+self.policy()['claim_location']+'.')
+                held=bool(qr['revoked_at']) or qr['state']=='retired' or qr['token']!=row['token']
+                state=('Retired ID held' if qr['state']=='retired' else 'Revoked ID held') if held else 'For claiming'
+                ticket=self.ticket(db,row,'found',state=state,token=qr['token'])
+                if held:
+                    reply='Found old ID received. Its QR remains REVOKED. The replacement and appointments remain unchanged. PMO must notify the owner.'
                 elif row['id_status']!='Found - For Claiming':
-                    db.execute("UPDATE id_tickets SET state='Cancelled - original found',updated_at=? WHERE record_id=? AND kind='lost' AND state IN ('Open','Replacement Processing')",(self.now(),row['id']))
                     db.execute("UPDATE id_tickets SET state='Resolved - stock recovered',updated_at=? WHERE record_id=? AND kind='stock missing' AND state='Open'",(self.now(),row['id']))
                     db.execute("UPDATE inventory SET id_status='Found - For Claiming',status='For claiming',schedule_type='',schedule_date='',schedule_time='',ready_since='' WHERE id=?",(row['id'],))
-                    db.execute("UPDATE qr_codes SET state='active' WHERE token=? AND state!='retired'",(qr['token'],))
-                    reply='Found - For Claiming. The replacement request is cancelled and the original QR is reactivated.'
-                    self.notify(db,row['id'],reply+' Collect your ID at '+self.policy()['claim_location']+' and present another valid ID.')
+                    db.execute("UPDATE qr_codes SET state='active' WHERE token=? AND state!='retired' AND revoked_at=''",(qr['token'],))
+                    reply='Found - For Claiming. PMO must verify custody and notify the owner.'
                 else:
-                    reply='Found - For Claiming is already recorded. The student has been notified.'
+                    reply='Found - For Claiming is already recorded. PMO handles owner notification.'
+
             return jsonify(reply=f'{self.reference(ticket)}: {reply}',record=self.record(row['id']))
 
         @app.post('/api/inventory/<int:record_id>/claim')
@@ -240,6 +251,29 @@ class IDLifecycle:
                 db.execute("UPDATE qr_codes SET state='flagged' WHERE token=? AND state!='retired'",(row['token'],))
                 self.notify(db,record_id,'The ID office has recorded Missing from Stock after a stock audit. Contact the office for assistance.')
             return jsonify(reply=f'{self.reference(ticket)}: Missing from Stock recorded from a confirmed office audit.',record=self.record(record_id))
+
+        @app.post('/api/id-tickets/<int:ticket_id>/notify-owner')
+        def notify_found_owner(ticket_id):
+            if g.user['role']!='coordinator': abort(403)
+            payload=request.get_json(silent=True)
+            if not isinstance(payload,dict) or set(payload)!={'confirmed'} or payload['confirmed'] is not True:
+                return jsonify(error='PMO must confirm custody before notifying the owner.'),400
+            with self.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                ticket=db.execute("SELECT * FROM id_tickets WHERE id=? AND kind='found'",(ticket_id,)).fetchone()
+                if ticket is None: abort(404)
+                if ticket['owner_notified_at']:
+                    return jsonify(reply='PMO already notified the owner.')
+                if ticket['state'] not in ('For claiming','Revoked ID held','Retired ID held'):
+                    return jsonify(error='This report is no longer awaiting owner notification.'),409
+                policy=dict(db.execute('SELECT * FROM id_policy WHERE id=1').fetchone())
+                if ticket['state']=='For claiming':
+                    message='PMO: Found - For Claiming. Collect your ID at '+policy['claim_location']+' and present another valid ID.'
+                else:
+                    message='PMO: Your old ID was found. Its QR remains REVOKED. Contact PMO about its return; the replacement request remains unchanged.'
+                self.notify(db,ticket['record_id'],message)
+                db.execute('UPDATE id_tickets SET owner_notified_at=?,owner_notified_by=?,updated_at=? WHERE id=?',(self.now(),str(g.user['id']),self.now(),ticket_id))
+            return jsonify(reply='PMO notified the owner in their signed-in chat.')
 
         @app.get('/api/id-tickets')
         def id_tickets():

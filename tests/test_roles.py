@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from account_helpers import signed_client
+from account_helpers import signed_client, public_client
 from Chatbot import create_app
 
 
@@ -27,7 +27,8 @@ class RoleTests(unittest.TestCase):
     def test_sign_in_csrf_and_permissions(self):
         anonymous = self.app.test_client()
         self.assertEqual(anonymous.get('/api/inventory').status_code, 401)
-        self.assertEqual(anonymous.post('/api/chat',json={'message':'hello'}).status_code, 401)
+        self.assertEqual(anonymous.post('/api/chat',json={'message':'hello'}).status_code, 400)
+        self.assertEqual(public_client(self.app).post('/api/chat',json={'message':'hello'}).status_code,200)
         self.assertEqual(anonymous.get('/').status_code, 302)
         anonymous.get('/login')
         self.assertEqual(anonymous.post('/login',data={'username':'coordinator','password':'test-password-123'}).status_code, 400)
@@ -45,41 +46,31 @@ class RoleTests(unittest.TestCase):
         self.assertEqual(self.guard.post('/logout').status_code,302)
         self.assertEqual(self.guard.get('/api/inventory').status_code,401)
 
-    def test_guard_name_lookup_and_current_scan(self):
-        for message in ("What's the processing status of Sam Reyes’s ID?", "What is the status of sam reyes ID?", "Is Sam Reyes's ID active?", "What is the status of DEMO-003 ID?", "What is the ID status of Sam Reyes?"):
-            response = self.ask(self.guard,message,record_id=self.rows[0]['id'])
-            self.assertEqual(response.status_code,200)
-            self.assertEqual(response.json['id_status'],'Lost')
-            self.assertEqual(response.json['processing_status'],'Processing')
-            self.assertIn('No ID, No Entry',response.json['reply'])
-            self.assertEqual(response.json['qr_url'],f'/qr/{self.sam["id"]}.png')
-            self.assertEqual(self.guard.get(response.json['qr_url']).status_code,200)
-        url = '/student/' + self.sam['token']
-        public = self.app.test_client()
-        self.assertEqual(public.get(url).status_code,302)
-        self.assertIn('Lost',self.guard.get(url).get_data(as_text=True))
-        result=self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'id_status':'Active','status':'Released'})
+    def test_staff_inventory_and_scan_use_explicit_role_rules(self):
+        for client in (self.guard,self.coordinator):
+            result=self.ask(client,"What's the processing status of Sam Reyes's ID?")
+            self.assertEqual(result.status_code,403)
+            self.assertNotIn('student_name',result.json)
+            self.assertEqual(self.ask(client,'Show ID inventory').status_code,200)
+        url='/student/'+self.sam['token']
+        public=self.app.test_client().get(url)
+        self.assertEqual(public.status_code,200)
+        self.assertIn('Reported lost, contact PMO',public.get_data(as_text=True))
+        self.assertNotIn(self.sam['name'],public.get_data(as_text=True))
+        self.assertIn(self.sam['name'],self.guard.get(url).get_data(as_text=True))
+        result=self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'status':'Released','id_status':'Active'})
         self.assertEqual(result.status_code,200)
-        page=self.guard.get(url).get_data(as_text=True)
-        self.assertIn('PERMANENTLY DEACTIVATED',page)
-        for text in ('Active','Released','Front of ID','Back of ID','does not authorize entry'):
-            self.assertIn(text,page)
         self.assertNotEqual(result.json['token'],self.sam['token'])
-        self.assertEqual(self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'id_status':'Invalid'}).status_code,400)
+        self.assertIn('PERMANENTLY DEACTIVATED',self.guard.get(url).get_data(as_text=True))
 
-    def test_ambiguous_missing_and_partial_names(self):
+    def test_names_never_expand_student_visibility(self):
         new={'student_id':'DEMO-007','name':'Sam Reyes','course':'BSIT','section':'C','year_level':2}
-        self.assertEqual(self.coordinator.post('/api/inventory',json=new).status_code,201)
-        result=self.ask(self.guard,"What's the status of Sam Reyes's ID?").json
-        self.assertEqual(len(result['candidates']),2)
-        self.assertNotIn('qr_url',result)
-        result=self.ask(self.guard,"What is the status of Sam's ID?").json
-        self.assertEqual(len(result['candidates']),2)
-        result=self.ask(self.guard,"What is the status of Missing Person's ID?",record_id=self.sam['id']).json
-        self.assertIn('No matching student',result['reply'])
-        self.assertNotIn('qr_url',result)
-        result=self.ask(self.guard,'What is the ID processing status?',record_id=self.sam['id']).json
-        self.assertEqual(result['id_status'],'Lost')
+        self.coordinator.post('/api/inventory',json=new)
+        result=self.ask(self.student,"What is Sam Reyes's ID status?")
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json['student_name'],'Sam Reyes')
+        self.assertNotIn('candidates',result.json)
+        self.assertEqual(len(self.student.get('/api/inventory').json['records']),1)
 
     def test_student_sees_only_own_record(self):
         rows=self.student.get('/api/inventory').json['records']

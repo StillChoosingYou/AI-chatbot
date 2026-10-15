@@ -8,6 +8,10 @@ from flask import g, jsonify, redirect, render_template, request, session, url_f
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ROLES = ('student', 'coordinator', 'guard')
+PUBLIC_INTENTS = frozenset(('bot_help','id_requirements','office_hours_location','qr_student_details','greeting','thanks_goodbye','out_of_scope','talk_to_human'))
+STUDENT_INTENTS = frozenset(('id_release_schedule','id_processing_status','pending_id','pending_id_schedule','lost_id_report','lost_id_schedule','authorized_pickup'))
+STAFF_INTENTS = frozenset(('id_inventory','qr_sticker_request'))
+
 ROLE_LABELS = {'student': 'Student', 'coordinator': 'Property management coordinator', 'guard': 'Guard'}
 
 
@@ -43,18 +47,23 @@ def install_access(app, connect):
                 row = db.execute('SELECT id,username,role,record_id FROM accounts WHERE id=?', (session['account_id'],)).fetchone()
             g.user = dict(row) if row else None
         protected = request.path.startswith(('/api/', '/qr/', '/sticker/')) or request.path == '/' or request.path.startswith('/student/')
-        if protected and not g.user:
+        public_route = request.endpoint in ('chat','profile')
+        if protected and not g.user and not public_route:
             if request.path.startswith('/api/'):
                 return jsonify(error='Sign in to use the ID workspace.'), 401
             return redirect(url_for('login',next=request.path if request.path.startswith('/student/') and '/id/' not in request.path else ''))
-        if request.path.startswith('/student/') and g.user['role'] not in ('guard','coordinator'):
-            return 'Only signed-in guards or staff can view QR scan details. Students can use their own ID workspace.',403
+        if request.endpoint == 'id_image' and (not g.user or g.user['role'] not in ('guard','coordinator')):
+            return 'Only signed-in staff can view QR ID images.',403
+        if request.endpoint in ('sticker','qr_image') and g.user['role'] not in ('guard','coordinator'):
+            return jsonify(error='Only staff can print or replace QR stickers.'),403
+        if g.user and g.user['role']=='student' and protected and not public_route and not session.get('student_verified'):
+            return jsonify(error='Verify your student number and assigned account first.'),403
         if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
             supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token', '')
             if not session.get('csrf') or not secrets.compare_digest(session['csrf'], supplied):
                 return jsonify(error='Refresh the page and try again.'), 400
-            student_booking = request.endpoint == 'reschedule_lost_id' and g.user['role'] == 'student'
-            staff_claim=request.endpoint=='claim_found_id' and g.user['role']=='guard'
+            student_booking = request.endpoint == 'reschedule_lost_id' and g.user and g.user['role'] == 'student'
+            staff_claim=request.endpoint=='claim_found_id' and g.user and g.user['role']=='guard'
             if request.path.startswith('/api/inventory') and g.user['role'] != 'coordinator' and not student_booking and not staff_claim:
                 return jsonify(error='Only the property management coordinator can change records.'), 403
             if request.path.startswith('/api/pickup-slots') and g.user['role'] != 'coordinator':
@@ -67,7 +76,13 @@ def install_access(app, connect):
             with connect() as db:
                 user = db.execute('SELECT * FROM accounts WHERE username=?', (request.form.get('username', '').strip().casefold(),)).fetchone()
             if user and check_password_hash(user['password_hash'], request.form.get('password', '')):
+                if user['role']=='student':
+                    with connect() as db:
+                        student=db.execute('SELECT student_id FROM inventory WHERE id=?',(user['record_id'],)).fetchone()
+                    if not student or request.form.get('student_id','').strip().casefold()!=student['student_id'].casefold():
+                        return render_template('login.html',error='Student number and assigned account must match.'),401
                 session.clear()
+                session['student_verified']=user['role']=='student'
                 session['account_id'] = user['id']
                 session.permanent = True
                 csrf_token()

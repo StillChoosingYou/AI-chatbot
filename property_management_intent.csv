@@ -1,18 +1,19 @@
-intent,type,description,route_to,default_priority,bot_action
-greeting,conversation,Opens a school ID assistance conversation,none,none,answer
-thanks_goodbye,conversation,Closes the conversation,none,none,answer
-bot_help,conversation,Explains school ID chatbot features,none,none,answer
-talk_to_human,conversation,Requests Property Management Office staff,Property Management Office,medium,handoff
-out_of_scope,fallback,Requests outside the school ID workflow,none,none,fallback_reply
-id_release_schedule,info,Asks for the date and time an ID can be released,Property Management Office,low,lookup
-id_processing_status,info,Asks for the current processing status of an ID,Property Management Office,low,lookup
-pending_id,info,Asks why an ID is pending and what to complete,Property Management Office,low,lookup
-pending_id_schedule,request,Asks for an appointment to resolve pending ID requirements,Property Management Office,medium,schedule
-lost_id_report,report,Requests student identity verification and explicit confirmation before a lost-ID ticket,Property Management Office,medium,verify_confirm_report
-lost_id_schedule,request,Asks for a lost ID replacement appointment,Property Management Office,medium,schedule
-id_inventory,info,Searches ID inventory by course section year and status,Property Management Office,low,filter
-qr_student_details,info,Explains opaque QR codes and authenticated guard or staff access to student details,Property Management Office,low,answer
-qr_sticker_request,request,Asks to print a small QR sticker or replace a damaged sticker,Property Management Office,medium,answer
-id_requirements,info,Asks about new or replacement ID requirements and fees,Property Management Office,low,configured_policy
-office_hours_location,info,Asks for the school Property Management Office location and hours,Property Management Office,low,handoff
-found_id_report,report,Guard or staff confirms physical receipt of a found ID and notifies its owner,Security Office,medium,confirm_custody_report
+intent,type,description,route_to,default_priority,bot_action,access_role
+greeting,conversation,Opens a school ID assistance conversation,none,none,answer,public
+thanks_goodbye,conversation,Closes the conversation,none,none,answer,public
+bot_help,conversation,Explains school ID chatbot features,none,none,answer,public
+talk_to_human,conversation,Requests Property Management Office staff,Property Management Office,medium,handoff,public
+out_of_scope,fallback,Requests outside the school ID workflow,none,none,fallback_reply,public
+id_release_schedule,info,Asks for the date and time an ID can be released,Property Management Office,low,lookup,student
+id_processing_status,info,Asks for the current processing status of an ID,Property Management Office,low,lookup,student
+pending_id,info,Asks why an ID is pending and what to complete,Property Management Office,low,lookup,student
+pending_id_schedule,request,Asks for an appointment to resolve pending ID requirements,Property Management Office,medium,schedule,student
+lost_id_report,report,Requests student identity verification and explicit confirmation before a lost-ID ticket,Property Management Office,medium,verify_confirm_report,student
+lost_id_schedule,request,Asks for a lost ID replacement appointment,Property Management Office,medium,schedule,student
+id_inventory,info,Searches ID inventory by course section year and status,Property Management Office,low,filter,staff
+qr_student_details,info,Explains limited public QR guidance and revoked-code handling without owner details,Property Management Office,low,answer,public
+qr_sticker_request,request,Asks to print a small QR sticker or replace a damaged sticker,Property Management Office,medium,answer,staff
+id_requirements,info,Asks about new or replacement ID requirements and fees,Property Management Office,low,configured_policy,public
+office_hours_location,info,Asks for the school Property Management Office location and hours,Property Management Office,low,handoff,public
+found_id_report,report,Public hand-in guidance; staff logs custody and PMO explicitly notifies the owner,Security Office,medium,pmo_custody_notification,public
+authorized_pickup,info,Verified student asks whether a representative may collect their ID; PMO approval required,Property Management Office,medium,pmo_policy_handoff,student

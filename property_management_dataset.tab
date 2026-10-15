@@ -253,6 +253,21 @@ S249	Paano ireport ang napulot kong student ID	found_id_report	fil	ai_seed
 S250	Found ID ito, nasa guard na	found_id_report	tl-en	ai_seed
 S251	I-scan ang QR ng napulot na ID para maibalik	found_id_report	tl-en	ai_seed
 S252	The missing student card has been recovered	found_id_report	en	ai_seed
-S253	Nasa Security na ang ID na nakita sa canteen	found_id_report	fil	ai_seed
+S253	May nakita akong ID	found_id_report	fil	ai_seed
 S254	Cancel replacement dahil nahanap ang original ID	found_id_report	tl-en	ai_seed
 S255	Notify the owner that their ID was found	found_id_report	en	ai_seed
+S256	Pwede bang kunin ng kaibigan ko ang ID ko?	authorized_pickup	fil	ai_seed
+S257	Can my friend collect my student ID for me?	authorized_pickup	en	ai_seed
+S258	What authorization is needed for a representative to claim my ID?	authorized_pickup	en	ai_seed
+S259	Maaari bang kapatid ko ang kumuha ng school ID ko?	authorized_pickup	fil	ai_seed
+S260	My parent will pick up my ID on my behalf	authorized_pickup	en	ai_seed
+S261	Can someone else claim my school card?	authorized_pickup	en	ai_seed
+S262	Paano kung ibang tao ang kukuha ng ID ko?	authorized_pickup	fil	ai_seed
+S263	Do you allow an authorized person to collect an ID?	authorized_pickup	en	ai_seed
+S264	Need ba ng authorization letter pag friend ang kukuha ng ID?	authorized_pickup	tl-en	ai_seed
+S265	May pasok ako, pwede ba representative ang kumuha?	authorized_pickup	tl-en	ai_seed
+S266	What documents should my ID pickup representative bring?	authorized_pickup	en	ai_seed
+S267	Can my sibling claim the replacement ID for me?	authorized_pickup	en	ai_seed
+S268	Pwede bang ipasuyo sa kaklase ang pagkuha ng ID ko?	authorized_pickup	fil	ai_seed
+S269	I want to authorize a friend to receive my student card	authorized_pickup	en	ai_seed
+S270	Allowed ba ang proxy pickup ng student ID?	authorized_pickup	tl-en	ai_seed

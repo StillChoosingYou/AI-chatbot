@@ -1,52 +1,55 @@
 id,text,actual_intent,raw_prediction,served_prediction,uncalibrated_score
-S205,Can I get another copy of my QR sticker?,qr_sticker_request,qr_sticker_request,qr_sticker_request,0.9640337268965078
-S010,"Hi bot, kumusta",greeting,greeting,greeting,0.7916502953171232
-S034,Can you explain how this works?,bot_help,bot_help,bot_help,0.9667840884012056
-S151,Book an appointment for a lost ID replacement,lost_id_schedule,lost_id_schedule,lost_id_schedule,0.9821460391984352
-S170,List IDs that are ready for release,id_inventory,id_inventory,id_inventory,0.4492699567883706
-S248,Someone handed a lost ID to the Security Office,found_id_report,lost_id_report,lost_id_report,0.40997691819960175
-S187,Can I scan the sticker using my phone?,qr_student_details,qr_student_details,qr_student_details,0.7922248809850956
-S148,Nanakaw ang student ID ko,lost_id_report,lost_id_report,lost_id_report,0.7421141505558171
-S065,What is the capital of France?,out_of_scope,id_processing_status,id_processing_status,0.38205621418675295
-S112,Does my pending ID need a new photo?,pending_id,pending_id_schedule,pending_id_schedule,0.7003017017796861
-S102,Napi-print na ba ang ID ko?,id_processing_status,id_processing_status,id_processing_status,0.9295612359241208
-S174,Filter ID records by processing status,id_inventory,id_processing_status,id_processing_status,0.5596167729781241
-S186,What does my ID QR code open?,qr_student_details,qr_sticker_request,qr_sticker_request,0.5421885163222238
-S223,Anong documents ang dadalhin para sa ID?,id_requirements,id_requirements,out_of_scope,0.3088349006220621
-S243,May napulot na school ID ang guard,found_id_report,found_id_report,found_id_report,0.7613071331561684
-S081,When will my printed ID be available for pickup?,id_release_schedule,id_release_schedule,id_release_schedule,0.567754669540972
-S215,What should I bring for my ID appointment?,id_requirements,lost_id_schedule,lost_id_schedule,0.3751187512980424
-S051,Gusto ko makausap ang real person,talk_to_human,talk_to_human,talk_to_human,0.8185481331716792
-S092,Is my ID being printed?,id_processing_status,id_processing_status,id_processing_status,0.8525488720246467
-S054,"Ayoko na sa bot, staff na lang please",talk_to_human,talk_to_human,talk_to_human,0.6892100546224745
-S094,Has my school ID been released?,id_processing_status,lost_id_report,out_of_scope,0.2461755157734006
-S120,Ano ang kailangan para maproseso ang pending ID?,pending_id,pending_id,pending_id,0.6479373666704922
-S016,Thank you,thanks_goodbye,thanks_goodbye,thanks_goodbye,0.8253300658261318
-S053,Paki-connect mo ako sa human agent,talk_to_human,talk_to_human,talk_to_human,0.9394881021300381
-S063,Who won the basketball game last night?,out_of_scope,office_hours_location,office_hours_location,0.3988103782498468
-S202,What size should the QR sticker be?,qr_sticker_request,qr_sticker_request,qr_sticker_request,0.8073266938481788
-S037,Paano ko ito i-use?,bot_help,bot_help,bot_help,0.4567640068012298
-S023,"Ok na po, thanks",thanks_goodbye,thanks_goodbye,thanks_goodbye,0.9798575489730316
-S144,Please report my lost student card,lost_id_report,lost_id_report,lost_id_report,0.7811392138231303
-S255,Notify the owner that their ID was found,found_id_report,found_id_report,found_id_report,0.7089244300136212
-S006,Hello po,greeting,greeting,greeting,0.9907080798797226
-S240,Saan pupunta para sa lost ID appointment?,office_hours_location,lost_id_schedule,lost_id_schedule,0.9893462504971889
-S085,Tell me the date and time for ID releasing,id_release_schedule,out_of_scope,out_of_scope,0.32452563482857316
-S131,Pa-schedule po para sa pending ID,pending_id_schedule,pending_id_schedule,pending_id_schedule,0.9741351207665899
-S155,Can I choose a date for a lost ID replacement?,lost_id_schedule,lost_id_schedule,lost_id_schedule,0.7920765908815499
-S061,What is the weather like today?,out_of_scope,office_hours_location,out_of_scope,0.24152594007869507
-S106,Why is my student ID pending?,pending_id,id_processing_status,out_of_scope,0.2787503169755227
-S127,Show my pending ID appointment time,pending_id_schedule,pending_id_schedule,pending_id_schedule,0.9124972472225914
-S043,Anu-ano ang mga bagay na kaya mong sagutin?,bot_help,bot_help,bot_help,0.9098868841443524
-S172,Search for a student in the ID inventory,id_inventory,id_inventory,id_inventory,0.5488915646109164
-S012,Magandang hapon po,greeting,greeting,greeting,0.9518861269099506
-S136,I lost my school ID,lost_id_report,lost_id_report,lost_id_report,0.8160921064549382
-S183,Does the QR show the student name and course?,qr_student_details,qr_student_details,qr_student_details,0.8955863349754263
-S123,Book a date to submit missing ID requirements,pending_id_schedule,pending_id,out_of_scope,0.30333719780015095
-S161,Pa-schedule para sa nawalang ID,lost_id_schedule,lost_id_schedule,lost_id_schedule,0.5416104859609003
-S233,Where is the lost ID replacement desk located?,office_hours_location,lost_id_schedule,lost_id_schedule,0.3687246289539473
-S026,Salamat po,thanks_goodbye,thanks_goodbye,thanks_goodbye,0.9678811570715636
-S090,Kailan puwedeng kunin ang printed ID?,id_release_schedule,id_inventory,out_of_scope,0.1653494706739191
-S212,What documents are needed for a new student ID?,id_requirements,id_requirements,id_requirements,0.9762401841721821
-S232,Which office handles student ID cards?,office_hours_location,id_inventory,id_inventory,0.4374537716500679
-S206,Paano mag-print ng maliit na QR sticker?,qr_sticker_request,qr_sticker_request,qr_sticker_request,0.9831694306534463
+S167,Find IDs for the BSIT course,id_inventory,id_inventory,id_inventory,0.7785873397005351
+S038,Anong mga concerns ang pwede kong i-report dito?,bot_help,talk_to_human,out_of_scope,0.21068396948725496
+S223,Anong documents ang dadalhin para sa ID?,id_requirements,office_hours_location,out_of_scope,0.28141196016327136
+S201,How do I replace an unreadable QR label?,qr_sticker_request,qr_sticker_request,qr_sticker_request,0.5337504917638222
+S252,The missing student card has been recovered,found_id_report,found_id_report,out_of_scope,0.22454238169972998
+S053,Paki-connect mo ako sa human agent,talk_to_human,talk_to_human,talk_to_human,0.9439917094205734
+S202,What size should the QR sticker be?,qr_sticker_request,qr_sticker_request,qr_sticker_request,0.8314653443593624
+S230,What are the ID releasing office hours?,office_hours_location,office_hours_location,office_hours_location,0.40915524736494235
+S105,Na-release na ba ang ID ko?,id_processing_status,id_processing_status,id_processing_status,0.9519347697788496
+S096,Check my ID application progress,id_processing_status,pending_id,pending_id,0.670096022926581
+S005,Good evening,greeting,greeting,greeting,0.7360796204381721
+S112,Does my pending ID need a new photo?,pending_id,pending_id_schedule,pending_id_schedule,0.6425915955679135
+S067,Pwede mo ba akong turuan mag-code sa Python?,out_of_scope,out_of_scope,out_of_scope,0.3379623724528363
+S140,Someone stole my school ID,lost_id_report,id_processing_status,out_of_scope,0.3148741930831571
+S246,I found the original ID while replacement is processing,found_id_report,found_id_report,found_id_report,0.6975667960162171
+S250,"Found ID ito, nasa guard na",found_id_report,found_id_report,found_id_report,0.7185899940173165
+S116,Bakit pending ang ID ko?,pending_id,lost_id_report,lost_id_report,0.3770020342222758
+S061,What is the weather like today?,out_of_scope,out_of_scope,out_of_scope,0.25760543318512485
+S177,Hanapin ang IDs ng BSCS students,id_inventory,id_inventory,id_inventory,0.8476579245449135
+S136,I lost my school ID,lost_id_report,id_processing_status,out_of_scope,0.2950396924443822
+S268,Pwede bang ipasuyo sa kaklase ang pagkuha ng ID ko?,authorized_pickup,id_release_schedule,id_release_schedule,0.44255299495800127
+S077,What is my ID release date?,id_release_schedule,id_processing_status,id_processing_status,0.5885200691975342
+S198,Can I download my ID QR code?,qr_sticker_request,qr_student_details,qr_student_details,0.45300783545742296
+S088,May schedule na ba ng release ng ID ko?,id_release_schedule,id_release_schedule,id_release_schedule,0.49250328109361785
+S259,Maaari bang kapatid ko ang kumuha ng school ID ko?,authorized_pickup,authorized_pickup,out_of_scope,0.2781607376669675
+S033,What kind of concerns can you help me with?,bot_help,out_of_scope,out_of_scope,0.8876836083933091
+S226,Where is the Property Management Office?,office_hours_location,office_hours_location,office_hours_location,0.9887805884072516
+S189,Why is the QR scan showing student information?,qr_student_details,qr_student_details,qr_student_details,0.8461394371844018
+S009,gud am po,greeting,thanks_goodbye,thanks_goodbye,0.5366166292315857
+S075,Magkano ang presyo ng ginto ngayon?,out_of_scope,out_of_scope,out_of_scope,0.7271413375468606
+S211,What are the requirements for a school ID?,id_requirements,id_requirements,id_requirements,0.46141090715225436
+S127,Show my pending ID appointment time,pending_id_schedule,pending_id_schedule,pending_id_schedule,0.8457262858366854
+S130,Arrange a visit to resolve my pending ID,pending_id_schedule,pending_id_schedule,pending_id_schedule,0.544388068108643
+S228,Where should I collect my student ID?,office_hours_location,id_release_schedule,id_release_schedule,0.7305290062075249
+S080,Is there an ID collection appointment for me?,id_release_schedule,pending_id_schedule,out_of_scope,0.238743546096916
+S188,How do I check the details linked to the QR?,qr_student_details,qr_student_details,qr_student_details,0.5982863388817432
+S056,Gusto kong makausap ang isang tao,talk_to_human,talk_to_human,talk_to_human,0.9562240589271688
+S186,What does my ID QR code open?,qr_student_details,qr_student_details,qr_student_details,0.48457474144976725
+S046,I want to talk to a real person,talk_to_human,talk_to_human,talk_to_human,0.7828140784303442
+S131,Pa-schedule po para sa pending ID,pending_id_schedule,pending_id_schedule,pending_id_schedule,0.7656590980484583
+S157,I need a time slot for a lost ID request,lost_id_schedule,lost_id_schedule,lost_id_schedule,0.41898053536089236
+S020,"Goodbye, have a nice day",thanks_goodbye,id_release_schedule,out_of_scope,0.27429433859255103
+S158,Arrange an appointment to replace a stolen ID,lost_id_schedule,pending_id_schedule,pending_id_schedule,0.445839922196257
+S169,Show all first year IDs,id_inventory,id_inventory,id_inventory,0.7370506760535266
+S025,"Thanks bot, ge na",thanks_goodbye,thanks_goodbye,thanks_goodbye,0.6133385009371342
+S027,Maraming salamat po sa tulong,thanks_goodbye,thanks_goodbye,thanks_goodbye,0.9779404377555958
+S108,What do I need to submit for a pending ID?,pending_id,pending_id_schedule,pending_id_schedule,0.7478916169351213
+S100,Show the current stage of my ID,id_processing_status,id_processing_status,id_processing_status,0.6550506959263263
+S146,Nawala ang school ID ko,lost_id_report,lost_id_report,lost_id_report,0.37921109772845785
+S007,"Hi po, good morning",greeting,greeting,greeting,0.9966212488233052
+S262,Paano kung ibang tao ang kukuha ng ID ko?,authorized_pickup,authorized_pickup,out_of_scope,0.2653444371929193
+S165,Puwede bang pumili ng araw para sa lost ID replacement?,lost_id_schedule,lost_id_schedule,lost_id_schedule,0.7939938976168697
+S219,What photo size does the school require for IDs?,id_requirements,id_inventory,out_of_scope,0.24135616072812596
+S045,Anong mga serbisyo ang meron ka?,bot_help,bot_help,out_of_scope,0.30211559949496697

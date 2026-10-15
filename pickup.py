@@ -164,6 +164,6 @@ def install_pickup(app, connect, record, scan_url):
         row = record(record_id)
         reply = f'{row["name"]}: replacement {"application" if slot["purpose"]=="Application" else "pickup"} confirmed for {row["schedule_date"]} at {row["schedule_time"]} (school time, UTC+8). Your existing QR code shows the updated appointment.'
         return jsonify(record=row, reply=reply, student_name=row['name'],
-                       qr_url=url_for('qr_image',record_id=record_id), scan_url=url_for('own_id_view',record_id=record_id) if g.user['role']=='student' else scan_url(row['token']))
+                       **({'qr_url':url_for('qr_image',record_id=record_id)} if g.user['role']!='student' else {}), scan_url=url_for('own_id_view',record_id=record_id) if g.user['role']=='student' else scan_url(row['token']))
 
     return offer
