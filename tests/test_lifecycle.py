@@ -30,7 +30,7 @@ class LifecycleTests(unittest.TestCase):
         self.code=self.owner['token']
 
     def current(self):
-        return self.student.get('/api/inventory').json['records'][0]
+        return next(row for row in self.staff.get('/api/inventory').json['records'] if row['id']==self.owner['id'])
 
     def lost(self,client=None,**fields):
         payload={k:self.owner[k] for k in ('student_id','course','section')}

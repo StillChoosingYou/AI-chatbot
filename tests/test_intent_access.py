@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from account_helpers import public_client, signed_client
-from access import PUBLIC_INTENTS, STUDENT_INTENTS, STAFF_INTENTS
+from access import PUBLIC_INTENTS, STUDENT_INTENTS, STAFF_INTENTS, GUARD_INTENTS
 from Chatbot import ROOT, create_app
 
 
@@ -28,7 +28,7 @@ class IntentAccessTests(unittest.TestCase):
             catalog={row['intent']:row['access_role'] for row in csv.DictReader(f)}
         self.assertEqual(set(catalog),PUBLIC_INTENTS | STUDENT_INTENTS | STAFF_INTENTS | {'found_id_report'})
         for intent,role in catalog.items():
-            self.assertEqual(role,'student' if intent in STUDENT_INTENTS else 'staff' if intent in STAFF_INTENTS else 'public')
+            self.assertEqual(role,'student_or_guard' if intent in GUARD_INTENTS else 'student' if intent in STUDENT_INTENTS else 'coordinator' if intent in STAFF_INTENTS else 'public')
 
     def test_authorization_is_independent_of_neural_prediction(self):
         with patch('Chatbot.ANNIntentModel') as model:
@@ -40,9 +40,9 @@ class IntentAccessTests(unittest.TestCase):
                 for role,client in clients.items():
                     with self.subTest(intent=intent,role=role):
                         response=client.post('/api/chat',json={'message':'neutral request'})
-                        allowed=(intent in PUBLIC_INTENTS or intent=='found_id_report' or
+                        allowed=(role!='coordinator' and (intent in PUBLIC_INTENTS or intent=='found_id_report' or
                                  intent in STUDENT_INTENTS and role=='student' or
-                                 intent in STAFF_INTENTS and role in ('guard','coordinator'))
+                                 intent in GUARD_INTENTS and role=='guard'))
                         self.assertEqual(response.status_code,200 if allowed else 401 if role=='public' else 403)
                         if role=='public':
                             self.assertNotIn(self.owner['name'],response.get_data(as_text=True))
@@ -94,7 +94,8 @@ class IntentAccessTests(unittest.TestCase):
             path=prefix+str(self.owner['id'])+('.png' if prefix=='/qr/' else '')
             self.assertEqual(self.public.get(path).status_code,302)
             self.assertEqual(self.student.get(path).status_code,403)
-            for client in (self.guard,self.staff):self.assertEqual(client.get(path).status_code,200)
+            self.assertEqual(self.staff.get(path).status_code,200)
+            self.assertEqual(self.guard.get(path).status_code,200 if prefix=='/qr/' else 403)
         self.assertEqual(self.student.patch(f'/api/inventory/{self.owner["id"]}',json={'status':'Released'}).status_code,403)
 
     def test_public_scan_never_shows_owner_images_or_processing(self):
@@ -115,4 +116,4 @@ class IntentAccessTests(unittest.TestCase):
         response=self.student.post('/api/chat',json={'message':text})
         self.assertEqual(response.json['intent'],'authorized_pickup')
         self.assertIn('cannot approve',response.json['reply'])
-        self.assertEqual(self.student.get('/api/inventory').json['records'][0]['status'],'Released')
+        self.assertEqual(self.student.get('/api/my-id').json['record']['status'],'Released')

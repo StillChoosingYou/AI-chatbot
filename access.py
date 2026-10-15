@@ -10,6 +10,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 ROLES = ('student', 'coordinator', 'guard')
 PUBLIC_INTENTS = frozenset(('bot_help','id_requirements','office_hours_location','qr_student_details','greeting','thanks_goodbye','out_of_scope','talk_to_human'))
 STUDENT_INTENTS = frozenset(('id_release_schedule','id_processing_status','pending_id','pending_id_schedule','lost_id_report','lost_id_schedule','authorized_pickup'))
+GUARD_INTENTS = frozenset(('id_release_schedule','id_processing_status','pending_id','pending_id_schedule'))
 STAFF_INTENTS = frozenset(('id_inventory','qr_sticker_request'))
 
 ROLE_LABELS = {'student': 'Student', 'coordinator': 'Property management coordinator', 'guard': 'Guard'}
@@ -54,10 +55,18 @@ def install_access(app, connect):
             return redirect(url_for('login',next=request.path if request.path.startswith('/student/') and '/id/' not in request.path else ''))
         if request.endpoint == 'id_image' and (not g.user or g.user['role'] not in ('guard','coordinator')):
             return 'Only signed-in staff can view QR ID images.',403
-        if request.endpoint in ('sticker','qr_image') and g.user['role'] not in ('guard','coordinator'):
-            return jsonify(error='Only staff can print or replace QR stickers.'),403
+        if request.endpoint == 'sticker' and g.user['role'] != 'coordinator':
+            return jsonify(error='Only property management can print QR stickers.'),403
+        if request.endpoint == 'qr_image' and g.user['role'] not in ('guard','coordinator'):
+            return jsonify(error='Only guards and property management can view status QR codes.'),403
         if g.user and g.user['role']=='student' and protected and not public_route and not session.get('student_verified'):
             return jsonify(error='Verify your student number and assigned account first.'),403
+        if g.user and request.endpoint == 'inventory' and g.user['role'] != 'coordinator':
+            return jsonify(error='Inventory access is reserved for property management.'),403
+        if g.user and request.endpoint == 'id_tickets' and g.user['role'] == 'guard':
+            return jsonify(error='Use the chatbot to check an individual ID.'),403
+        if g.user and request.endpoint == 'chat' and g.user['role'] == 'coordinator':
+            return jsonify(error='Use your property management inventory workspace.'),403
         if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
             supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token', '')
             if not session.get('csrf') or not secrets.compare_digest(session['csrf'], supplied):

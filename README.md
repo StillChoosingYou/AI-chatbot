@@ -74,17 +74,18 @@ and HTTPS. QR details and images require guard/staff sign-in; students see their
 | Intent | Access |
 | --- | --- |
 | `bot_help`, `id_requirements`, `office_hours_location`, `qr_student_details` | Public guidance; no inventory lookup |
-| `id_release_schedule`, `id_processing_status`, `pending_id`, `pending_id_schedule`, `lost_id_report`, `lost_id_schedule` | Verified student, own record only |
-| `authorized_pickup` | Verified student; PMO policy handoff, never automatic approval |
-| `id_inventory`, `qr_sticker_request` | Staff (guard/coordinator) |
-| `found_id_report` | Public hand-in guidance; authenticated staff records physical custody; only PMO/coordinator sends the owner notification |
+| `id_release_schedule`, `id_processing_status`, `pending_id`, `pending_id_schedule` | Verified student: own record; guard: individual lookup by name/student number |
+| `lost_id_report`, `lost_id_schedule`, `authorized_pickup` | Verified student: own record only; representative pickup needs PMO approval |
+| `id_inventory`, `qr_sticker_request` | Coordinator inventory functions; chatbot directs guards/students to PMO |
+| `found_id_report` | Public hand-in guidance; guard records custody through chat/scanner; PMO notifies owner |
 
-Greetings, thanks, fallback and PMO handoff also return nonpersonal public replies.
-Every intent's scope is recorded in the catalog's `access_role` column and enforced
-by server rules. A student can see their own ID workspace; this does not grant access
-to staff inventory, QR image downloads, or printing. Direct sticker/QR routes enforce
-staff access too. Guards use inventory filters and the signed-in scanner to check
-students; personal chatbot status/appointment intents are student-only.
+### Separate workspaces
+
+- **Property management coordinator:** signs in to inventory, filters records, updates processing, uploads ID images, prints stickers, publishes appointments, manages policy and sends found-ID notifications. There is no chatbot on this workspace; `/api/chat` denies coordinator requests.
+- **Guard:** signs in to the chatbot, asks for an individual student's status by full name or student number, receives the status/QR, scans codes and logs physically received IDs. Guards cannot load the inventory feed, list all tickets, edit records, print stickers or book student appointments.
+- **Student:** signs in with their assigned account and student number to the chatbot. They can check their own ID, submit a confirmed lost report, receive PMO notices and choose available replacement appointments. They cannot browse inventory or other students' records.
+
+The server enforces these roles on direct API requests as well as the pages. `/api/inventory` is coordinator-only; `/api/my-id` returns only the signed-in student's record without its raw QR token. Individual profile and appointment endpoints retain ownership checks. Greetings, help and other public guidance remain available at `/help`. The neural network classifies intent; login and server rules enforce access. The catalog's `access_role` describes each function, and coordinator functions run through inventory controls.
 
 Public/other-student QR scans display limited guidance without name, course, student
 number, processing details or ID images. A revoked reference displays only
@@ -135,7 +136,7 @@ under **Log found ID** (`found_id_report`). A scan or chatbot question alone cha
 Notifications persist until delivered to the owner's signed-in chat. Available slots
 and notifications refresh every **15 seconds** while the tab is visible, on tab return,
 and on sign-in. These are in-app notices; email/SMS is not configured. The student sees
-only their own tickets; staff can inspect all report tickets.
+only their own tickets; only the coordinator can inspect all report tickets.
 
 ### Office stock audit and Unclaimed
 
@@ -309,7 +310,7 @@ sandbox. The Python chatbot does not automatically load an Orange trained model.
 
 1. Confirm the proposal, official status stages, required documents, fees, office hours,
    contact details, and who may set or change release appointments.
-2. Have staff test the filter → status update → appointment → chat lookup → printed QR
+2. Have PMO test inventory filters, status updates, appointments and printed QR; have guards/students test their chatbot lookups
    flow with fictional records, including pending requirements and lost IDs.
 3. Verify account assignments and student identity; add an audit trail, account/password
    administration, login throttling, a QR access/revocation policy, and backups before

@@ -1,6 +1,4 @@
-let records = [], selected = null, editing = null, imageRecord = null, rescheduling = null;
-const studentRole = document.body.dataset.role === 'student';
-let offerSignature = null, checkingOffer = false, bookingPending = false;
+let records = [], editing = null, imageRecord = null, rescheduling = null;
 const coordinator = document.body.dataset.role === 'coordinator';
 const $ = (id) => document.getElementById(id);
 const escapeText = (value) => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -12,7 +10,7 @@ async function api(url, options = {}) {
   return body;
 }
 function notify(message) { $('toast').textContent = message; }
-async function load(silentOffer=false) {
+async function load() {
   try {
     records = (await api('/api/inventory')).records;
     for (const [field, id, label] of [['course','course-filter','All courses'],['section','section-filter','All sections']]) {
@@ -21,7 +19,6 @@ async function load(silentOffer=false) {
       $(id).value = previous;
     }
     render();
-    if (studentRole) await refreshPickupOffer(silentOffer);
     if (coordinator) await loadPickupSlots();
     await loadTickets();
   } catch (error) { notify(error.message); }
@@ -32,27 +29,23 @@ function render() {
   const query = $('search').value.trim().toLowerCase();
   const shown = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query) && [['id_status','id-status-filter'],['status','status-filter'],['course','course-filter'],['year_level','year-filter'],['section','section-filter'],['request_type','kind-filter']].every(([field,id])=>!$(id).value || String(r[field])===$(id).value));
   $('count').textContent = `${shown.length} of ${records.length}`;
-  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="${studentRole ? `/api/inventory/${r.id}/view` : `/student/${encodeURIComponent(r.token)}`}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}">${studentRole ? '<span class="own-id-link">View ID</span>' : `<img src="/qr/${r.id}.png" alt="School ID QR code">`}</a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions">${!studentRole ? `<a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a>` : ''}${studentRole ? `<button data-select="${r.id}">Ask about ID</button>` : ''}${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${['Lost','Reported Lost'].includes(r.id_status) ? `<p class="replacement-availability">${['Ready for release','Unclaimed'].includes(r.status) ? 'Replacement available for pickup' : 'Replacement not yet available for pickup'}</p>${coordinator || studentRole ? `<button class="text-button replacement-action" data-reschedule="${r.id}" ${!['Pending','Ready for release','Unclaimed'].includes(r.status) ? 'disabled' : ''}>${studentRole ? 'Choose / change appointment' : 'Schedule / reschedule replacement'}</button>` : ''}` : ''}${coordinator && ['Ready for release','Unclaimed'].includes(r.status) ? `<button class="text-button" data-audit="${r.id}">Report missing stock</button>` : ''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
+  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="School ID QR code"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${['Lost','Reported Lost'].includes(r.id_status) ? `<p class="replacement-availability">${['Ready for release','Unclaimed'].includes(r.status) ? 'Replacement available for pickup' : 'Replacement not yet available for pickup'}</p>${coordinator ? `<button class="text-button replacement-action" data-reschedule="${r.id}" ${!['Pending','Ready for release','Unclaimed'].includes(r.status) ? 'disabled' : ''}>Schedule / reschedule replacement</button>` : ''}` : ''}${coordinator && ['Ready for release','Unclaimed'].includes(r.status) ? `<button class="text-button" data-audit="${r.id}">Report missing stock</button>` : ''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
 }
 for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) { $(id).addEventListener('input',render); $(id).addEventListener('change',render); }
 $('reset-filters').onclick = () => { for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) $(id).value=''; render(); };
 $('records').onclick = event => {
   const audit=event.target.closest('[data-audit]');
   if (audit) auditStock(Number(audit.dataset.audit));
-  const select = event.target.closest('[data-select]');
   const edit = event.target.closest('[data-edit]');
   const images = event.target.closest('[data-images]');
   const reschedule = event.target.closest('[data-reschedule]');
   if (reschedule) {
     const row=records.find(r=>r.id===Number(reschedule.dataset.reschedule));
-    if (studentRole) { selected=row.id; send('Can I reschedule my lost ID pickup?'); }
-    else openReschedule(row);
+    openReschedule(row);
   }
   if (images) openImages(records.find(r=>r.id===Number(images.dataset.images)));
-  if (select) { selected=Number(select.dataset.select); $('selected-student').textContent=records.find(r=>r.id===selected).name; render(); $('chat-input').focus(); }
   if (edit) openDialog(records.find(r=>r.id===Number(edit.dataset.edit)));
 };
-$('clear-selected').onclick = () => { selected=null; $('selected-student').textContent='No student selected'; render(); };
 function openDialog(row=null) {
   editing=row ? row.id : null;
   $('record-form').reset(); $('form-error').textContent='';
@@ -74,92 +67,7 @@ $('record-form').onsubmit = async event => {
   catch(error) { $('form-error').textContent=error.message; }
   finally { $('save-record').disabled=false; }
 };
-function message(text,kind) { const node=document.createElement('div'); node.className=`message ${kind}`; node.textContent=text; $('messages').appendChild(node); $('messages').scrollTop=$('messages').scrollHeight; }
-function retirePickupChoices() {
-  for (const button of document.querySelectorAll('.pickup-options button')) button.disabled=true;
-}
-function showReply(response) {
-  message(response.reply,'bot');
-  if (response.action) reportForm(response.action);
-  if (response.qr_url) {
-    const card=document.createElement('div'); card.className='message bot chat-qr';
-    const link=document.createElement('a'); link.href=response.scan_url; link.target='_blank'; link.rel='noopener';
-    const image=document.createElement('img'); image.src=response.qr_url; image.alt=`Scan to view ${response.student_name}'s ID status`;
-    link.appendChild(image); card.appendChild(link);
-    const caption=document.createElement('p'); caption.textContent=`${response.student_name} · Open your ID workspace, or ask signed-in staff to scan the code.`; card.appendChild(caption);
-    $('messages').appendChild(card);
-  }
-  if (studentRole && response.scan_url && !response.qr_url) {
-    const link=document.createElement('a');link.href=response.scan_url;link.target='_blank';link.rel='noopener';link.textContent='Open my ID details';link.className='message bot';$('messages').appendChild(link);
-  }
-  if (response.pickup_offer && response.pickup_offer.ready && response.pickup_offer.slots.length) {
-    retirePickupChoices();
-    const offer=response.pickup_offer;
-    const choices=document.createElement('div'); choices.className='message bot pickup-options';
-    for (const slot of offer.slots) {
-      const button=document.createElement('button'); button.className='pickup-choice';
-      button.textContent=`${slot.current ? 'Currently booked' : 'Book'} · ${slot.schedule_date} at ${slot.schedule_time} (UTC+8)`;
-      button.disabled=slot.current || !offer.can_book;
-      button.onclick=()=>bookPickup(offer.record_id,slot.id);
-      choices.appendChild(button);
-    }
-    $('messages').appendChild(choices);
-  }
-  if (response.candidates) {
-    const choices=document.createElement('div'); choices.className='message bot candidate-list';
-    for (const row of response.candidates) {
-      const button=document.createElement('button'); button.className='text-button';
-      button.textContent=`${row.name} · ${row.student_id} · ${row.course}, ${row.section}, Year ${row.year_level}`;
-      button.onclick=()=>{selected=row.id; $('selected-student').textContent=row.name; render(); send('What is the ID processing status?');}; choices.appendChild(button);
-    }
-    $('messages').appendChild(choices);
-  }
-  $('messages').scrollTop=$('messages').scrollHeight;
-}
-async function refreshPickupOffer(silent=false) {
-  if (!studentRole || checkingOffer || bookingPending) return;
-  checkingOffer=true;
-  try {
-    await receiveNotifications();
-    const {offer,record}=await api('/api/pickup-offer');
-    records=records.map(row=>row.id===record.id ? {...row,...record} : row); render();
-    const signature=JSON.stringify(offer);
-    if (signature!==offerSignature) {
-      retirePickupChoices();
-      offerSignature=signature;
-      if (offer && offer.ready && !silent) showReply({reply:offer.reply,pickup_offer:offer});
-    }
-  } catch(error) { notify(error.message); }
-  finally { checkingOffer=false; }
-}
-async function bookPickup(recordId,slotId) {
-  if (bookingPending) return;
-  bookingPending=true; retirePickupChoices();
-  let succeeded=false;
-  try {
-    const response=await api(`/api/inventory/${recordId}/reschedule`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slot_id:slotId})});
-    succeeded=true; showReply(response); await load(true);
-  } catch(error) {
-    message(error.message,'bot');
-    if (studentRole) offerSignature=null;
-  } finally {
-    bookingPending=false;
-    await refreshPickupOffer(succeeded);
-  }
-}
-async function send(text) {
-  message(text,'user'); $('chat-form').querySelector('button').disabled=true;
-  try {
-    const response=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,record_id:selected})});
-    if (studentRole && response.pickup_offer) offerSignature=JSON.stringify(response.pickup_offer);
-    showReply(response);
-  } catch(error) { message(error.message,'bot'); }
-  finally { $('chat-form').querySelector('button').disabled=false; }
-}
-$('chat-form').onsubmit=event=>{ event.preventDefault(); const text=$('chat-input').value.trim(); if(text){$('chat-input').value='';send(text);} };
-for(const button of document.querySelectorAll('[data-question]')) button.onclick=()=>send(button.dataset.question);
 load();
-
 function refreshImagePreviews() {
   for (const side of ['front','back']) {
     $(`${side}-preview`).src=`/student/${encodeURIComponent(imageRecord.token)}/id/${side}.png?updated=${Date.now()}`;
@@ -247,38 +155,9 @@ if (coordinator) {
     } catch(error) { notify(error.message); button.disabled=false; }
   };
 }
-if (studentRole) {
-  setInterval(()=>{if(document.visibilityState==='visible') refreshPickupOffer();},15000);
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible') refreshPickupOffer();});
-}
 
 if (coordinator) setInterval(()=>{if(document.visibilityState==='visible') loadPickupSlots().catch(error=>notify(error.message));},15000);
 
-function reportForm(action) {
-  const lost=action==='report_lost';
-  if (lost!==studentRole) return;
-  const form=document.createElement('form'); form.className='message bot report-form';
-  form.innerHTML=lost
-    ? '<strong>Confirm your lost ID report</strong><label>Student number<input name="student_id" required maxlength="100"></label><label>Course<input name="course" required maxlength="100"></label><label>Section<input name="section" required maxlength="100"></label><label><input type="checkbox" name="confirmed" required> My ID is lost. Flag its QR and request replacement.</label><button class="primary">Confirm lost report</button><p role="alert"></p>'
-    : '<strong>Log a physically received ID</strong><label>Scanned QR code<input name="code" required maxlength="500"></label><label><input type="checkbox" name="confirmed" required> Security has physically received this ID.</label><button class="primary">Confirm found report</button><p role="alert"></p>';
-  form.onsubmit=async event=>{
-    event.preventDefault(); const button=form.querySelector('button'); button.disabled=true;
-    const body=Object.fromEntries(new FormData(form)); body.confirmed=form.elements.confirmed.checked;
-    try {
-      const result=await api(`/api/id-reports/${lost ? 'lost' : 'found'}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      showReply(result); form.remove(); offerSignature=null; await load();
-    } catch(error) { form.querySelector('[role=alert]').textContent=error.message; button.disabled=false; }
-  };
-  $('messages').appendChild(form); $('messages').scrollTop=$('messages').scrollHeight;
-}
-const displayedNotices=new Set();
-async function receiveNotifications() {
-  const {notifications}=await api('/api/notifications');
-  for (const item of notifications) if (!displayedNotices.has(item.id)) {
-    message(item.message,'bot'); displayedNotices.add(item.id);
-  }
-  if (notifications.length) await api('/api/notifications/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:notifications.map(item=>item.id)})});
-}
 async function loadTickets() {
   const {tickets}=await api('/api/id-tickets');
   $('tickets').innerHTML=tickets.length ? tickets.map(ticket=>`<p><strong>${escapeText(ticket.reference)}</strong> · ${escapeText(records.find(row=>row.id===ticket.record_id)?.name || `Record ${ticket.record_id}`)} · ${escapeText(ticket.kind)} · ${escapeText(ticket.state)} · ${escapeText(ticket.created_at)} (UTC+8)${coordinator && ticket.kind==='found' && !ticket.owner_notified_at && ['For claiming','Revoked ID held','Retired ID held'].includes(ticket.state) ? `<br><button class="text-button" data-notify-owner="${ticket.id}">PMO: notify owner</button>` : ticket.kind==='found' ? `<br>${ticket.owner_notified_at ? 'PMO notified owner' : 'PMO handles owner notification'}` : ''}</p>`).join('') : '<p>No reports recorded.</p>';
@@ -302,7 +181,7 @@ if (coordinator) {
     finally { button.disabled=false; }
   };
 }
-if (!studentRole) {
+{
   let cameraStream=null, cameraTimer=null;
   function stopCamera() {
     if (cameraTimer) clearTimeout(cameraTimer);

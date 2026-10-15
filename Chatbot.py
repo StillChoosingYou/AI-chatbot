@@ -15,7 +15,7 @@ from flask import Flask, abort, g, jsonify, redirect, render_template, request, 
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from access import install_access, PUBLIC_INTENTS, STUDENT_INTENTS, STAFF_INTENTS
+from access import install_access, PUBLIC_INTENTS, STUDENT_INTENTS, STAFF_INTENTS, GUARD_INTENTS
 from id_cards import sample_card
 from intent_model import ANNIntentModel
 from lifecycle import IDLifecycle, LOSS_STATES, new_code
@@ -109,7 +109,7 @@ def create_app(database=None):
 
     @app.get('/')
     def home():
-        return render_template('index.html', statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES, id_statuses=ID_STATUSES)
+        return render_template('index.html' if g.user['role']=='coordinator' else 'chat.html', statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES, id_statuses=ID_STATUSES)
 
     @app.get('/api/inventory')
     def inventory():
@@ -122,6 +122,13 @@ def create_app(database=None):
                 (g.user['record_id'], g.user['record_id']))]
         # Only expose tokens needed to render QR links; raw student data stays out of training.
         return jsonify(records=rows, statuses=STATUSES)
+
+    @app.get('/api/my-id')
+    def my_id():
+        if g.user['role'] != 'student':
+            abort(403)
+        row = record(g.user['record_id'])
+        return jsonify(record={key: value for key, value in row.items() if key != 'token'})
 
     @app.post('/api/inventory')
     def add_record():
@@ -357,10 +364,10 @@ def create_app(database=None):
         if re.search(r'\b(?:friend|kaibigan|representative|authorized person|proxy|ibang tao)\b',text,re.I) and re.search(r'\b(?:collect|pickup|pick up|claim|kunin|kuha|kumuha|ID)\b',text,re.I):
             intent='authorized_pickup'
         role=g.user['role'] if g.user else None
-        if intent in STUDENT_INTENTS and (role!='student' or not session.get('student_verified')):
-            return jsonify(intent=intent,reply='Sign in with your verified student account to ask about your own ID. Staff can use the inventory and scanner.',error='Verified student access required.'),403 if g.user else 401
-        if intent in STAFF_INTENTS and role not in ('guard','coordinator'):
-            return jsonify(intent=intent,reply='Only staff can access the ID inventory or print/replace QR stickers.',error='Staff access required.'),403 if g.user else 401
+        if intent in STUDENT_INTENTS and not (role=='student' and session.get('student_verified') or role=='guard' and intent in GUARD_INTENTS):
+            return jsonify(intent=intent,reply='Sign in with your verified student account to ask about your own ID. Guards can check ID status by name or student number in this chat.',error='Verified student access required.'),403 if g.user else 401
+        if intent in STAFF_INTENTS:
+            return jsonify(intent=intent,reply='Property management manages inventory and QR stickers. Contact PMO for assistance.',error='Staff access required.'),403 if g.user else 401
         public_answers={
             'bot_help':'I can explain ID requirements, office information and QR scanning. Sign in with a verified student account for your own ID status, appointments or a lost report. Staff manage inventory and stickers.',
             'id_requirements':lifecycle.policy_reply(),
@@ -424,7 +431,7 @@ def create_app(database=None):
         lookups = ('id_processing_status', 'pending_id', 'id_release_schedule', 'pending_id_schedule', 'lost_id_schedule')
         if intent in lookups:
             if selected is None:
-                answer = 'Select a student record using “Ask about ID” or ask by full name or student ID so I can check its status or appointment.'
+                answer = 'Ask by full name or student ID so I can check its status or appointment.'
             elif intent == 'id_processing_status':
                 answer = f'{selected["name"]}: ID status: {selected["id_status"]}. Processing status: {selected["status"]} ({selected["request_type"]}). No ID, No Entry. A status QR does not authorize entry; follow the school’s entry procedure.'
                 if selected['id_status'] in LOSS_STATES:
@@ -449,7 +456,9 @@ def create_app(database=None):
             result.update(student_name=selected['name'], id_status=selected['id_status'],
                           processing_status=selected['status'],
                           scan_url=url_for('own_id_view',record_id=selected['id']) if g.user['role']=='student' else scan_url(selected['token']))
-        if selected is not None and selected['id_status'] in LOSS_STATES and intent in lookups:
+        if selected is not None and g.user['role']=='guard' and intent in lookups:
+            result['qr_url']=url_for('qr_image',record_id=selected['id'])
+        if selected is not None and g.user['role']=='student' and selected['id_status'] in LOSS_STATES and intent in lookups:
             result['pickup_offer'] = pickup_offer(selected)
         if intent=='lost_id_report' and g.user['role']=='student': result['action']='report_lost'
         return jsonify(result)

@@ -41,17 +41,27 @@ class RoleTests(unittest.TestCase):
                                  (f'/api/inventory/{self.sam["id"]}/images/front','delete')]:
                 self.assertEqual(getattr(client, method)(path,json={'status':'Released'}).status_code, 403)
             page=client.get('/').get_data(as_text=True)
-            self.assertIn('hidden class="primary" id="new-record"',page)
+            self.assertNotIn('id="new-record"',page)
+            self.assertNotIn('id="records"',page)
+            self.assertIn('id="chat-form"',page)
+            self.assertEqual(client.get('/api/inventory').status_code,403)
         self.assertEqual(self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'id_status':'Active'}, headers={'X-CSRF-Token':'bad'}).status_code,400)
         self.assertEqual(self.guard.post('/logout').status_code,302)
         self.assertEqual(self.guard.get('/api/inventory').status_code,401)
 
     def test_staff_inventory_and_scan_use_explicit_role_rules(self):
-        for client in (self.guard,self.coordinator):
-            result=self.ask(client,"What's the processing status of Sam Reyes's ID?")
-            self.assertEqual(result.status_code,403)
-            self.assertNotIn('student_name',result.json)
-            self.assertEqual(self.ask(client,'Show ID inventory').status_code,200)
+        result=self.ask(self.guard,"What's the processing status of Sam Reyes's ID?")
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json['student_name'],'Sam Reyes')
+        self.assertIn('qr_url',result.json)
+        self.assertNotIn('pickup_offer',result.json)
+        self.assertEqual(self.ask(self.guard,'Show ID inventory').status_code,403)
+        for text in ('hello','Show ID inventory',"What's the status of Sam Reyes's ID?"):
+            self.assertEqual(self.ask(self.coordinator,text).status_code,403)
+        page=self.coordinator.get('/').get_data(as_text=True)
+        self.assertIn('id="records"',page)
+        self.assertNotIn('id="chat-form"',page)
+        self.assertEqual(self.guard.get('/api/id-tickets').status_code,403)
         url='/student/'+self.sam['token']
         public=self.app.test_client().get(url)
         self.assertEqual(public.status_code,200)
@@ -70,11 +80,14 @@ class RoleTests(unittest.TestCase):
         self.assertEqual(result.status_code,200)
         self.assertEqual(result.json['student_name'],'Sam Reyes')
         self.assertNotIn('candidates',result.json)
-        self.assertEqual(len(self.student.get('/api/inventory').json['records']),1)
+        self.assertEqual(self.student.get('/api/my-id').json['record']['id'],self.sam['id'])
 
     def test_student_sees_only_own_record(self):
-        rows=self.student.get('/api/inventory').json['records']
+        rows=[self.student.get('/api/my-id').json['record']]
         self.assertEqual([row['id'] for row in rows],[self.sam['id']])
+        self.assertNotIn('token',rows[0])
+        self.assertEqual(self.guard.get('/api/my-id').status_code,403)
+        self.assertEqual(self.coordinator.get('/api/my-id').status_code,403)
         result=self.ask(self.student,'What is my ID processing status?').json
         self.assertEqual(result['student_name'],'Sam Reyes')
         other=next(r for r in self.rows if r['id']!=self.sam['id'])
