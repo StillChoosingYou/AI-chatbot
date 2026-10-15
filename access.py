@@ -51,8 +51,11 @@ def install_access(app, connect):
             supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token', '')
             if not session.get('csrf') or not secrets.compare_digest(session['csrf'], supplied):
                 return jsonify(error='Refresh the page and try again.'), 400
-            if request.path.startswith('/api/inventory') and g.user['role'] != 'coordinator':
+            student_booking = request.endpoint == 'reschedule_lost_id' and g.user['role'] == 'student'
+            if request.path.startswith('/api/inventory') and g.user['role'] != 'coordinator' and not student_booking:
                 return jsonify(error='Only the property management coordinator can change records.'), 403
+            if request.path.startswith('/api/pickup-slots') and g.user['role'] != 'coordinator':
+                return jsonify(error='Only the coordinator can publish pickup availability.'), 403
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():

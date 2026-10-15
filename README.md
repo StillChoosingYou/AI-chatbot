@@ -20,8 +20,9 @@ Records, accounts, and appointments persist in `data/inventory.sqlite3`. Back up
 The interface supports search, course, section, year, request type, and status filters.
 QR codes appear on the left; status, appointments, and updates appear on the right.
 Sign in as a coordinator, add a record, choose **Update / schedule**, set a status and appointment, then choose
-**Ask about ID** to ask the chatbot about that record. Chat requests do not submit reports
-or book appointments; staff use the inventory form to save changes.
+**Ask about ID** to ask the chatbot about that record. Students confirm a replacement
+pickup booking by clicking an available date in the chat. Text questions alone do not
+submit reports or change appointments. Coordinators manage records and publish availability.
 
 ### Roles and sign-in
 
@@ -51,7 +52,7 @@ one assigned role; student accounts are linked to one inventory record.
 
 | Role | Access |
 | --- | --- |
-| Student | View their own inventory record; ask about their status, appointment, or QR; print their sticker |
+| Student | View their own record; receive available pickup dates and book/reschedule their own ready replacement ID; ask about status or QR; print their sticker |
 | Property management coordinator | Search all records; add records; update ID status, processing, pending reasons, and appointments; manage ID images |
 | Guard | Search all records; ask about a student's ID; view status and share/print its QR; no record changes |
 
@@ -86,25 +87,33 @@ activate an ID; set ID status independently after confirming issuance/replacemen
 The chatbot repeats **“No ID, No Entry.”** It reports inventory facts and does not
 approve entry or treat a status QR as a substitute for wearing an ID.
 
-### Schedule or reschedule pickup for a lost ID
+### Student chooses an available replacement pickup date
 
-1. The coordinator marks the student's ID **Lost** and tracks replacement processing.
-2. When the replacement is physically available for pickup, set processing status to
-   **Ready for release** using **Update / schedule**.
-3. Choose **Schedule / reschedule replacement pickup** on that student's card.
-   Confirm an available pickup date/time with the student and save. Saving replaces
-   the current appointment with a **Lost ID replacement** appointment.
-4. The student can ask **“Can I reschedule my lost ID pickup?”** to see readiness,
-   the saved appointment, and a QR link. The coordinator confirms and saves changes;
-   the chat itself does not change appointments. The existing QR page shows updates.
-5. After the student collects the replacement, the coordinator sets ID status to
-   **Active** and processing status to **Released**.
+1. The coordinator opens **Available replacement pickup dates**, publishes each date
+   and time, and sets **Students per slot** (1–500). Use school time, **UTC+8** (PGPC,
+   Philippines). Only future dates can be published. There are no invented default dates.
+2. Track the student's lost ID as **Lost**. Once the replacement is physically
+   available, set processing status to **Ready for release**.
+3. The student's chatbot automatically shows the published dates/times that have space.
+   It checks every **15 seconds** while the workspace is visible and also on sign-in
+   or return to the tab. If the student is away, the offer appears next time they open
+   the workspace. This is an in-app message; email/SMS delivery is not configured.
+4. The student clicks **Book · date at time** in the chat. The appointment is saved
+   immediately and confirmed with a QR link. They can ask **“Can I reschedule my lost
+   ID pickup?”** or choose **Choose / change pickup date** to select another slot.
+5. Booking a new slot replaces the previous appointment and frees its space. The same
+   QR page shows the latest date/time. If a slot fills before the click, the previous
+   appointment stays intact and the chatbot refreshes available choices.
+6. After collection, the coordinator marks the ID **Active** and **Released**.
 
-Students and guards cannot save appointment changes. The dedicated pickup action is
-blocked until the current ID is Lost and the replacement is Ready for release.
-Availability is confirmed by the coordinator; there is no automatic office calendar,
-capacity check, or notification service. Existing general appointment forms remain
-available for replacement processing appointments before pickup readiness.
+Only authenticated students can book their own ready replacement; guards cannot book
+or change availability. The coordinator can also book a published slot for a student.
+Capacity is checked in one SQLite transaction, including competing booking attempts.
+Legacy lost ID appointments at the same date/time count toward capacity. Closed,
+full, and past slots are not offered for new bookings. Closing a slot stops new
+bookings and preserves confirmed appointments; reopen it if it is still in the future.
+The coordinator's general form still supports replacement processing appointments;
+assignments to a published slot also respect capacity.
 
 ### QR printing and phone scanning
 
@@ -257,7 +266,7 @@ sandbox. The Python chatbot does not automatically load an Orange trained model.
    train and evaluate the final classifier with a held-out set.
 5. Add approved appointment availability and reminders once the office workflow is agreed.
 
-School dates/times are stored as local wall time. Office capacity, conflicts, holidays,
+School dates/times are stored as local wall time. Pickup slots have capacity checks. Automatic holiday calendars, email/SMS
 notifications, fee payment, and lost ID report submission are not implemented.
 
 For an isolated local preview/test database, set `SCHOOL_ID_DATABASE` to an alternate SQLite file path. The default remains `data/inventory.sqlite3`.

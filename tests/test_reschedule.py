@@ -1,6 +1,11 @@
+import sqlite3
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from account_helpers import signed_client
 from Chatbot import create_app
@@ -8,91 +13,169 @@ from Chatbot import create_app
 
 class LostIDRescheduleTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db = Path(self.temp.name) / 'inventory.sqlite3'
-        self.app = create_app(self.db)
-        self.coordinator = signed_client(self.app)
-        self.rows = self.coordinator.get('/api/inventory').json['records']
-        self.sam = next(r for r in self.rows if r['name'] == 'Sam Reyes')
-        self.student = signed_client(self.app, 'student', self.sam['id'])
-        self.guard = signed_client(self.app, 'guard')
-        self.url = f'/api/inventory/{self.sam["id"]}/reschedule'
-        self.appointment = {'schedule_date':'2026-12-10','schedule_time':'10:30'}
+        self.clock=patch('pickup.school_now',return_value=datetime(2026,10,15,8))
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
+        app_clock=patch('Chatbot.school_now',return_value=datetime(2026,10,15,8))
+        app_clock.start()
+        self.addCleanup(app_clock.stop)
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.db=Path(self.temp.name)/'inventory.sqlite3'
+        self.app=create_app(self.db)
+        self.coordinator=signed_client(self.app)
+        self.rows=self.coordinator.get('/api/inventory').json['records']
+        self.sam=next(row for row in self.rows if row['name']=='Sam Reyes')
+        self.alex=next(row for row in self.rows if row['name']=='Alex Rivera')
+        self.student=signed_client(self.app,'student',self.sam['id'])
+        self.other_student=signed_client(self.app,'student',self.alex['id'],username='alex')
+        self.guard=signed_client(self.app,'guard')
+        self.url=f'/api/inventory/{self.sam["id"]}/reschedule'
 
-    def tearDown(self):
-        self.temp.cleanup()
+    def publish(self,date='2026-12-10',time='10:30',capacity=1):
+        response=self.coordinator.post('/api/pickup-slots',json={'schedule_date':date,'schedule_time':time,'capacity':capacity})
+        self.assertEqual(response.status_code,201,response.json)
+        return response.json['id']
 
-    def current(self):
-        return next(r for r in self.coordinator.get('/api/inventory').json['records'] if r['id'] == self.sam['id'])
+    def ready(self,row=None):
+        row=row or self.sam
+        self.assertEqual(self.coordinator.patch(f'/api/inventory/{row["id"]}',json={'id_status':'Lost','status':'Ready for release'}).status_code,200)
 
-    def ready(self):
-        self.assertEqual(self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'status':'Ready for release'}).status_code,200)
+    def current(self,rid=None):
+        rid=rid or self.sam['id']
+        return next(row for row in self.coordinator.get('/api/inventory').json['records'] if row['id']==rid)
 
-    def test_readiness_and_role_gates(self):
-        before = self.current()
-        self.assertEqual(self.coordinator.post(self.url,json=self.appointment).status_code,409)
-        self.assertEqual(self.current(),before)
+    def test_student_booking_readiness_ownership_and_csrf(self):
+        slot=self.publish()
+        self.assertEqual(self.student.post(self.url,json={'slot_id':slot}).status_code,409)
         self.ready()
+        for client,code in ((self.guard,403),(self.app.test_client(),401)):
+            self.assertEqual(client.post(self.url,json={'slot_id':slot}).status_code,code)
+        self.assertEqual(self.student.post(self.url,json={'slot_id':slot},headers={'X-CSRF-Token':'bad'}).status_code,400)
+        self.assertEqual(self.other_student.post(self.url,json={'slot_id':slot}).status_code,403)
         for client in (self.student,self.guard):
-            self.assertEqual(client.post(self.url,json=self.appointment).status_code,403)
-        self.assertEqual(self.app.test_client().post(self.url,json=self.appointment).status_code,401)
-        self.assertEqual(self.coordinator.post(self.url,json=self.appointment,headers={'X-CSRF-Token':'bad'}).status_code,400)
-        other=next(r for r in self.rows if r['name']=='Alex Rivera')
-        self.assertEqual(self.coordinator.post(f'/api/inventory/{other["id"]}/reschedule',json=self.appointment).status_code,409)
-        self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'status':'Released','id_status':'Active'})
-        self.assertEqual(self.coordinator.post(self.url,json=self.appointment).status_code,409)
+            self.assertEqual(client.post('/api/pickup-slots',json={}).status_code,403)
+            self.assertEqual(client.patch(f'/api/pickup-slots/{slot}',json={'enabled':False}).status_code,403)
+            self.assertEqual(client.get('/api/pickup-slots').status_code,403)
+        self.assertEqual(self.student.get(f'/api/inventory/{self.alex["id"]}/pickup-slots').status_code,403)
+        self.assertEqual(self.coordinator.get('/api/pickup-offer').status_code,403)
+        self.assertEqual(self.student.post(self.url,json={'slot_id':slot}).status_code,200)
+        # Student still cannot change statuses or images through the general inventory APIs.
+        self.assertEqual(self.student.patch(f'/api/inventory/{self.sam["id"]}',json={'id_status':'Active'}).status_code,403)
+        self.assertEqual(self.student.post(f'/api/inventory/{self.sam["id"]}/images',data={}).status_code,403)
 
-    def test_reschedule_persists_and_updates_existing_qr(self):
+    def test_available_offer_booking_reschedule_persistence_and_qr(self):
+        first=self.publish()
+        second=self.publish('2026-12-11','14:15')
+        waiting=self.student.get('/api/pickup-offer').json['offer']
+        self.assertFalse(waiting['ready'])
+        self.assertEqual(waiting['slots'],[])
         self.ready()
-        first=self.coordinator.post(self.url,json=self.appointment)
-        self.assertEqual(first.status_code,200)
-        self.assertEqual(first.json['record']['schedule_type'],'Lost ID replacement')
-        second={'schedule_date':'2026-12-11','schedule_time':'14:15'}
-        response=self.coordinator.post(self.url,json=second)
-        self.assertEqual(response.status_code,200)
-        row=response.json['record']
-        self.assertEqual(row['token'],self.sam['token'])
-        self.assertEqual(row['id_status'],'Lost')
-        self.assertEqual(row['status'],'Ready for release')
+        offered=self.student.get('/api/pickup-offer').json['offer']
+        self.assertEqual([slot['id'] for slot in offered['slots']],[first,second])
+        self.assertIn('2026-12-10 at 10:30',offered['reply'])
+        self.assertEqual(self.current()['schedule_date'],'')
+        booked=self.student.post(self.url,json={'slot_id':first})
+        self.assertEqual(booked.status_code,200)
+        self.assertIn('confirmed',booked.json['reply'])
+        self.assertTrue(self.student.get('/api/pickup-offer').json['offer']['slots'][0]['current'])
+        # Booking the current slot again is idempotent, even at capacity one.
+        self.assertEqual(self.student.post(self.url,json={'slot_id':first}).status_code,200)
+        changed=self.student.post(self.url,json={'slot_id':second})
+        self.assertEqual(changed.status_code,200)
+        row=changed.json['record']
+        self.assertEqual((row['id_status'],row['status'],row['token']),('Lost','Ready for release',self.sam['token']))
         restored=signed_client(create_app(self.db)).get('/api/inventory').json['records']
-        self.assertEqual(next(r for r in restored if r['id']==row['id']),row | {'has_front_image':0,'has_back_image':0})
-        page=self.app.test_client().get('/student/'+self.sam['token']).get_data(as_text=True)
+        self.assertEqual(next(r for r in restored if r['id']==row['id'])['schedule_date'],'2026-12-11')
+        page=self.app.test_client().get('/student/'+row['token']).get_data(as_text=True)
         self.assertIn('2026-12-11 at 14:15',page)
         self.assertNotIn('2026-12-10',page)
-        self.assertIn('Available for pickup',page)
-        reply=self.student.post('/api/chat',json={'message':'Can I reschedule my lost ID pickup?'}).json
-        for phrase in ('available for pickup','2026-12-11 at 14:15','has not changed'):
-            self.assertIn(phrase,reply['reply'])
-        self.assertEqual(reply['qr_url'],f'/qr/{row["id"]}.png')
-        self.assertEqual(self.current()['schedule_date'],'2026-12-11')
+        self.assertEqual(changed.json['qr_url'],f'/qr/{row["id"]}.png')
+        slots=self.coordinator.get('/api/pickup-slots').json['slots']
+        self.assertEqual([slot['booked'] for slot in slots],[0,1])
 
-    def test_invalid_requests_leave_previous_appointment(self):
-        self.ready()
-        self.coordinator.post(self.url,json=self.appointment)
+    def test_full_closed_expired_and_failed_reschedule_keep_appointment(self):
+        first=self.publish()
+        second=self.publish('2026-12-11','14:15')
+        self.ready(); self.ready(self.alex)
+        self.student.post(self.url,json={'slot_id':first})
+        other_url=f'/api/inventory/{self.alex["id"]}/reschedule'
+        self.other_student.post(other_url,json={'slot_id':second})
         before=self.current()
-        for payload in ({}, {'schedule_date':'2026-12-11'},
-                        {'schedule_date':'2026-02-30','schedule_time':'10:30'},
-                        {'schedule_date':'2026-12-11','schedule_time':'25:00'},
-                        {'schedule_date':'2026-1-1','schedule_time':'9:00'},
-                        {'schedule_date':False,'schedule_time':'10:00'},
-                        {**self.appointment,'id_status':'Active'}, [], None):
-            with self.subTest(payload=payload):
-                self.assertEqual(self.coordinator.post(self.url,json=payload).status_code,400)
-                self.assertEqual(self.current(),before)
-        self.assertEqual(self.coordinator.post('/api/inventory/9999/reschedule',json=self.appointment).status_code,404)
+        self.assertEqual(self.student.post(self.url,json={'slot_id':second}).status_code,409)
+        self.assertEqual(self.current(),before)
+        self.assertIn('No other pickup dates',self.student.get('/api/pickup-offer').json['offer']['reply'])
+        offered=self.student.get('/api/pickup-offer').json['offer']['slots']
+        self.assertNotIn(second,[slot['id'] for slot in offered])
+        self.coordinator.patch(f'/api/pickup-slots/{first}',json={'enabled':False})
+        self.assertEqual(self.student.post(self.url,json={'slot_id':first}).status_code,409)
+        self.assertEqual(self.current(),before)
+        self.assertEqual(self.student.get('/api/pickup-offer').json['offer']['slots'],[])
+        # Past availability disappears automatically, even if the slot is still enabled.
+        with patch('pickup.school_now',return_value=datetime(2027,1,1)):
+            self.assertEqual(self.student.post(self.url,json={'slot_id':second}).status_code,409)
+            self.assertEqual(self.coordinator.patch(f'/api/pickup-slots/{first}',json={'enabled':True}).status_code,409)
+        self.assertEqual(self.current(),before)
 
-    def test_chat_waiting_available_and_not_lost(self):
-        messages=('Can I reschedule my lost ID pickup?', 'I need to reschedule my ID', 'Rescheduling my lost ID appointment')
-        for text in messages:
-            response=self.student.post('/api/chat',json={'message':text})
-            self.assertEqual(response.json['intent'],'lost_id_schedule')
-            self.assertIn('not available for pickup yet',response.json['reply'])
-        page=self.student.get('/student/'+self.sam['token']).get_data(as_text=True)
-        self.assertIn('Not yet available for pickup',page)
+    def test_slot_validation_duplicate_and_existing_appointment_capacity(self):
+        for payload in ({}, [], {'schedule_date':'2026-02-30','schedule_time':'10:30','capacity':1},
+                        {'schedule_date':'2026-10-14','schedule_time':'10:30','capacity':1},
+                        {'schedule_date':'2026-12-10','schedule_time':'10:30','capacity':True},
+                        {'schedule_date':'2026-12-10','schedule_time':'10:30','capacity':501},
+                        {'schedule_date':'2026-12-10','schedule_time':'25:30','capacity':1}):
+            with self.subTest(payload=payload):
+                self.assertEqual(self.coordinator.post('/api/pickup-slots',json=payload).status_code,400)
+        slot=self.publish()
+        self.assertEqual(self.coordinator.post('/api/pickup-slots',json={'schedule_date':'2026-12-10','schedule_time':'10:30','capacity':1}).status_code,409)
         self.ready()
-        response=self.student.post('/api/chat',json={'message':messages[0]}).json
-        self.assertIn('No replacement pickup appointment',response['reply'])
+        before=self.current()
+        for payload in ({}, [], None, {'slot_id':True}, {'slot_id':'1'}, {'slot_id':slot,'record_id':self.alex['id']}, {'schedule_date':'2026-12-10','schedule_time':'10:30'}):
+            self.assertEqual(self.student.post(self.url,json=payload).status_code,400)
+            self.assertEqual(self.current(),before)
+        self.assertEqual(self.student.post(self.url,json={'slot_id':9999}).status_code,409)
+        self.assertEqual(self.coordinator.patch('/api/pickup-slots/9999',json={'enabled':False}).status_code,404)
+        self.assertEqual(self.coordinator.patch(f'/api/pickup-slots/{slot}',json={'enabled':1}).status_code,400)
+        # Existing coordinator appointments count toward available capacity.
+        self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'schedule_type':'Lost ID replacement','schedule_date':'2026-12-10','schedule_time':'10:30'})
+        self.ready(self.alex)
+        self.assertNotIn(slot,[s['id'] for s in self.other_student.get('/api/pickup-offer').json['offer']['slots']])
+        blocked=self.coordinator.patch(f'/api/inventory/{self.alex["id"]}',json={'schedule_type':'Lost ID replacement','schedule_date':'2026-12-10','schedule_time':'10:30'})
+        self.assertEqual(blocked.status_code,409)
+        noncanonical=self.coordinator.patch(f'/api/inventory/{self.alex["id"]}',json={'schedule_type':'Lost ID replacement','schedule_date':'2026-12-10','schedule_time':'010:30'})
+        self.assertEqual(noncanonical.status_code,400)
+        self.coordinator.patch(f'/api/pickup-slots/{slot}',json={'enabled':False})
+        closed=self.coordinator.patch(f'/api/inventory/{self.alex["id"]}',json={'schedule_type':'Lost ID replacement','schedule_date':'2026-12-10','schedule_time':'10:30'})
+        self.assertEqual(closed.status_code,409)
+        self.coordinator.patch(f'/api/pickup-slots/{slot}',json={'enabled':True})
+        # Release frees capacity; closing publication preserves the old appointment.
+        self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'status':'Released','id_status':'Active'})
+        self.assertIn(slot,[s['id'] for s in self.other_student.get('/api/pickup-offer').json['offer']['slots']])
+        self.assertIsNone(self.student.get('/api/pickup-offer').json['offer'])
+
+    def test_competing_bookings_do_not_overbook(self):
+        slot=self.publish(); self.ready(); self.ready(self.alex)
+        barrier=threading.Barrier(2)
+        def book(client,rid):
+            barrier.wait(timeout=5)
+            return client.post(f'/api/inventory/{rid}/reschedule',json={'slot_id':slot}).status_code
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            one=executor.submit(book,self.student,self.sam['id'])
+            two=executor.submit(book,self.other_student,self.alex['id'])
+            self.assertEqual(sorted([one.result(timeout=10),two.result(timeout=10)]),[200,409])
+        self.assertEqual(self.coordinator.get('/api/pickup-slots').json['slots'][0]['booked'],1)
+
+    def test_chat_automatically_includes_choices_for_ready_lost_id(self):
+        slot=self.publish()
+        waiting=self.student.post('/api/chat',json={'message':'Can I reschedule my lost ID pickup?'}).json
+        self.assertIn('not available for pickup yet',waiting['reply'])
+        self.assertEqual(waiting['pickup_offer']['slots'],[])
+        self.ready()
+        for text in ('Can I reschedule my lost ID pickup?','What is my ID status?'):
+            reply=self.student.post('/api/chat',json={'message':text}).json
+            self.assertEqual(reply['pickup_offer']['slots'][0]['id'],slot)
+            self.assertTrue(reply['pickup_offer']['can_book'])
+        guard=self.guard.post('/api/chat',json={'message':"What is Sam Reyes's ID status?"}).json
+        self.assertFalse(guard['pickup_offer']['can_book'])
         self.assertEqual(self.current()['schedule_date'],'')
-        self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'id_status':'Active','status':'Released'})
-        response=self.student.post('/api/chat',json={'message':messages[0]}).json
-        self.assertIn('not currently marked Lost',response['reply'])
+        self.coordinator.patch(f'/api/pickup-slots/{slot}',json={'enabled':False})
+        self.assertIn('no available pickup dates',self.student.get('/api/pickup-offer').json['offer']['reply'])

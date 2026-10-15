@@ -1,4 +1,6 @@
 let records = [], selected = null, editing = null, imageRecord = null, rescheduling = null;
+const studentRole = document.body.dataset.role === 'student';
+let offerSignature = null, checkingOffer = false, bookingPending = false;
 const coordinator = document.body.dataset.role === 'coordinator';
 const $ = (id) => document.getElementById(id);
 const escapeText = (value) => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -10,7 +12,7 @@ async function api(url, options = {}) {
   return body;
 }
 function notify(message) { $('toast').textContent = message; }
-async function load() {
+async function load(silentOffer=false) {
   try {
     records = (await api('/api/inventory')).records;
     for (const [field, id, label] of [['course','course-filter','All courses'],['section','section-filter','All sections']]) {
@@ -19,6 +21,8 @@ async function load() {
       $(id).value = previous;
     }
     render();
+    if (studentRole) await refreshPickupOffer(silentOffer);
+    if (coordinator) await loadPickupSlots();
   } catch (error) { notify(error.message); }
 }
 function render() {
@@ -27,7 +31,7 @@ function render() {
   const query = $('search').value.trim().toLowerCase();
   const shown = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query) && [['id_status','id-status-filter'],['status','status-filter'],['course','course-filter'],['year_level','year-filter'],['section','section-filter'],['request_type','kind-filter']].every(([field,id])=>!$(id).value || String(r[field])===$(id).value));
   $('count').textContent = `${shown.length} of ${records.length}`;
-  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${r.id_status==='Lost' ? `<p class="replacement-availability">${r.status==='Ready for release' ? 'Replacement available for pickup' : 'Replacement not yet available for pickup'}</p>${coordinator ? `<button class="text-button replacement-action" data-reschedule="${r.id}" ${r.status!=='Ready for release' ? 'disabled' : ''}>Schedule / reschedule replacement pickup</button>` : ''}` : ''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
+  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${r.id_status==='Lost' ? `<p class="replacement-availability">${r.status==='Ready for release' ? 'Replacement available for pickup' : 'Replacement not yet available for pickup'}</p>${coordinator || studentRole ? `<button class="text-button replacement-action" data-reschedule="${r.id}" ${r.status!=='Ready for release' ? 'disabled' : ''}>${studentRole ? 'Choose / change pickup date' : 'Schedule / reschedule replacement pickup'}</button>` : ''}` : ''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
 }
 for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) { $(id).addEventListener('input',render); $(id).addEventListener('change',render); }
 $('reset-filters').onclick = () => { for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) $(id).value=''; render(); };
@@ -36,7 +40,11 @@ $('records').onclick = event => {
   const edit = event.target.closest('[data-edit]');
   const images = event.target.closest('[data-images]');
   const reschedule = event.target.closest('[data-reschedule]');
-  if (reschedule) openReschedule(records.find(r=>r.id===Number(reschedule.dataset.reschedule)));
+  if (reschedule) {
+    const row=records.find(r=>r.id===Number(reschedule.dataset.reschedule));
+    if (studentRole) { selected=row.id; send('Can I reschedule my lost ID pickup?'); }
+    else openReschedule(row);
+  }
   if (images) openImages(records.find(r=>r.id===Number(images.dataset.images)));
   if (select) { selected=Number(select.dataset.select); $('selected-student').textContent=records.find(r=>r.id===selected).name; render(); $('chat-input').focus(); }
   if (edit) openDialog(records.find(r=>r.id===Number(edit.dataset.edit)));
@@ -61,28 +69,80 @@ $('record-form').onsubmit = async event => {
   finally { $('save-record').disabled=false; }
 };
 function message(text,kind) { const node=document.createElement('div'); node.className=`message ${kind}`; node.textContent=text; $('messages').appendChild(node); $('messages').scrollTop=$('messages').scrollHeight; }
+function retirePickupChoices() {
+  for (const button of document.querySelectorAll('.pickup-options button')) button.disabled=true;
+}
+function showReply(response) {
+  message(response.reply,'bot');
+  if (response.qr_url) {
+    const card=document.createElement('div'); card.className='message bot chat-qr';
+    const link=document.createElement('a'); link.href=response.scan_url; link.target='_blank'; link.rel='noopener';
+    const image=document.createElement('img'); image.src=response.qr_url; image.alt=`Scan to view ${response.student_name}'s ID status`;
+    link.appendChild(image); card.appendChild(link);
+    const caption=document.createElement('p'); caption.textContent=`${response.student_name} · Scan or open to view current status and ID images.`; card.appendChild(caption);
+    $('messages').appendChild(card);
+  }
+  if (response.pickup_offer && response.pickup_offer.ready && response.pickup_offer.slots.length) {
+    retirePickupChoices();
+    const offer=response.pickup_offer;
+    const choices=document.createElement('div'); choices.className='message bot pickup-options';
+    for (const slot of offer.slots) {
+      const button=document.createElement('button'); button.className='pickup-choice';
+      button.textContent=`${slot.current ? 'Currently booked' : 'Book'} · ${slot.schedule_date} at ${slot.schedule_time} (UTC+8)`;
+      button.disabled=slot.current || !offer.can_book;
+      button.onclick=()=>bookPickup(offer.record_id,slot.id);
+      choices.appendChild(button);
+    }
+    $('messages').appendChild(choices);
+  }
+  if (response.candidates) {
+    const choices=document.createElement('div'); choices.className='message bot candidate-list';
+    for (const row of response.candidates) {
+      const button=document.createElement('button'); button.className='text-button';
+      button.textContent=`${row.name} · ${row.student_id} · ${row.course}, ${row.section}, Year ${row.year_level}`;
+      button.onclick=()=>{selected=row.id; $('selected-student').textContent=row.name; render(); send('What is the ID processing status?');}; choices.appendChild(button);
+    }
+    $('messages').appendChild(choices);
+  }
+  $('messages').scrollTop=$('messages').scrollHeight;
+}
+async function refreshPickupOffer(silent=false) {
+  if (!studentRole || checkingOffer || bookingPending) return;
+  checkingOffer=true;
+  try {
+    const {offer,record}=await api('/api/pickup-offer');
+    records=records.map(row=>row.id===record.id ? {...row,...record} : row); render();
+    const signature=JSON.stringify(offer);
+    if (signature!==offerSignature) {
+      retirePickupChoices();
+      offerSignature=signature;
+      if (offer && offer.ready && !silent) showReply({reply:offer.reply,pickup_offer:offer});
+    }
+  } catch(error) { notify(error.message); }
+  finally { checkingOffer=false; }
+}
+async function bookPickup(recordId,slotId) {
+  if (bookingPending) return;
+  bookingPending=true; retirePickupChoices();
+  let succeeded=false;
+  try {
+    const response=await api(`/api/inventory/${recordId}/reschedule`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slot_id:slotId})});
+    succeeded=true; showReply(response); await load(true);
+  } catch(error) {
+    message(error.message,'bot');
+    if (studentRole) offerSignature=null;
+  } finally {
+    bookingPending=false;
+    await refreshPickupOffer(succeeded);
+  }
+}
 async function send(text) {
   message(text,'user'); $('chat-form').querySelector('button').disabled=true;
-  try { const response=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,record_id:selected})}); message(response.reply,'bot');
-    if (response.qr_url) {
-      const card = document.createElement('div'); card.className='message bot chat-qr';
-      const link = document.createElement('a'); link.href=response.scan_url; link.target='_blank'; link.rel='noopener';
-      const image = document.createElement('img'); image.src=response.qr_url; image.alt=`Scan to view ${response.student_name}'s ID status`;
-      link.appendChild(image); card.appendChild(link);
-      const caption=document.createElement('p'); caption.textContent=`${response.student_name} · Scan or open to view current status and ID images.`; card.appendChild(caption);
-      $('messages').appendChild(card);
-    }
-    if (response.candidates) {
-      const choices=document.createElement('div'); choices.className='message bot candidate-list';
-      for (const row of response.candidates) {
-        const button=document.createElement('button'); button.className='text-button';
-        button.textContent=`${row.name} · ${row.student_id} · ${row.course}, ${row.section}, Year ${row.year_level}`;
-        button.onclick=()=>{selected=row.id; $('selected-student').textContent=row.name; render(); send('What is the ID processing status?');}; choices.appendChild(button);
-      }
-      $('messages').appendChild(choices);
-    }
-    $('messages').scrollTop=$('messages').scrollHeight; }
-  catch(error) { message(error.message,'bot'); }
+  try {
+    const response=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,record_id:selected})});
+    if (studentRole && response.pickup_offer) offerSignature=JSON.stringify(response.pickup_offer);
+    showReply(response);
+  } catch(error) { message(error.message,'bot'); }
   finally { $('chat-form').querySelector('button').disabled=false; }
 }
 $('chat-form').onsubmit=event=>{ event.preventDefault(); const text=$('chat-input').value.trim(); if(text){$('chat-input').value='';send(text);} };
@@ -128,27 +188,57 @@ for(const side of ['front','back']) $(`remove-${side}`).onclick=async()=>{
 };
 
 
-function openReschedule(row) {
-  rescheduling = row.id;
+async function openReschedule(row) {
+  rescheduling=row.id;
   $('reschedule-form').reset(); $('reschedule-error').textContent='';
   $('reschedule-title').textContent=`Replacement pickup · ${row.name}`;
   $('previous-appointment').textContent=row.schedule_date
     ? `Current appointment: ${row.schedule_type} · ${row.schedule_date} at ${row.schedule_time}`
     : 'No appointment is currently recorded.';
-  if (row.schedule_type==='Lost ID replacement') {
-    $('reschedule-form').elements.schedule_date.value=row.schedule_date;
-    $('reschedule-form').elements.schedule_time.value=row.schedule_time;
-  }
-  $('reschedule-dialog').showModal();
+  $('reschedule-slots').innerHTML='<option value="">Loading available dates…</option>';
+  $('save-reschedule').disabled=true; $('reschedule-dialog').showModal();
+  try {
+    const {offer}=await api(`/api/inventory/${row.id}/pickup-slots`);
+    $('reschedule-slots').innerHTML='<option value="">Choose a published date and time</option>'+offer.slots.map(slot=>`<option value="${slot.id}">${slot.schedule_date} · ${slot.schedule_time}${slot.current ? ' · Current appointment' : ''}</option>`).join('');
+    if (!offer.slots.length) $('reschedule-error').textContent='No dates are available. Publish a pickup slot first.';
+    $('save-reschedule').disabled=!offer.slots.length;
+  } catch(error) { $('reschedule-error').textContent=error.message; }
 }
 $('close-reschedule').onclick=()=>$('reschedule-dialog').close();
 $('reschedule-form').onsubmit=async event=>{
   event.preventDefault(); $('save-reschedule').disabled=true; $('reschedule-error').textContent='';
-  const body=Object.fromEntries(new FormData(event.target));
-  const targetId=rescheduling;
   try {
-    const response=await api(`/api/inventory/${targetId}/reschedule`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    $('reschedule-dialog').close(); await load(); notify(response.message);
+    const response=await api(`/api/inventory/${rescheduling}/reschedule`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slot_id:Number($('reschedule-slots').value)})});
+    $('reschedule-dialog').close(); await load(); notify(response.reply);
   } catch(error) { $('reschedule-error').textContent=error.message; }
   finally { $('save-reschedule').disabled=false; }
 };
+async function loadPickupSlots() {
+  const {slots}=await api('/api/pickup-slots');
+  $('published-slots').innerHTML=slots.length ? slots.map(slot=>`<article class="published-slot"><span><strong>${slot.schedule_date} · ${slot.schedule_time}</strong> (UTC+8)<br>${slot.booked} / ${slot.capacity} students booked · ${slot.expired ? 'Past' : slot.enabled ? 'Open' : 'Closed'}</span>${!slot.expired ? `<button class="text-button" data-slot="${slot.id}" data-enabled="${slot.enabled ? 'false' : 'true'}">${slot.enabled ? 'Close' : 'Reopen'}</button>` : ''}</article>`).join('') : '<p>No pickup dates published yet.</p>';
+}
+if (coordinator) {
+  $('slot-form').onsubmit=async event=>{
+    event.preventDefault(); $('publish-slot').disabled=true; $('slot-error').textContent='';
+    const body=Object.fromEntries(new FormData(event.target)); body.capacity=Number(body.capacity);
+    try {
+      await api('/api/pickup-slots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      event.target.reset(); await loadPickupSlots(); notify('Pickup date published. Ready students will see it in the chatbot.');
+    } catch(error) { $('slot-error').textContent=error.message; }
+    finally { $('publish-slot').disabled=false; }
+  };
+  $('published-slots').onclick=async event=>{
+    const button=event.target.closest('[data-slot]'); if (!button) return;
+    button.disabled=true;
+    try {
+      await api(`/api/pickup-slots/${button.dataset.slot}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:button.dataset.enabled==='true'})});
+      await loadPickupSlots();
+    } catch(error) { notify(error.message); button.disabled=false; }
+  };
+}
+if (studentRole) {
+  setInterval(()=>{if(document.visibilityState==='visible') refreshPickupOffer();},15000);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible') refreshPickupOffer();});
+}
+
+if (coordinator) setInterval(()=>{if(document.visibilityState==='visible') loadPickupSlots().catch(error=>notify(error.message));},15000);

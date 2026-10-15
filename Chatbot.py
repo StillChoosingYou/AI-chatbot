@@ -18,6 +18,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from access import install_access
 from id_cards import sample_card
 from intent_model import ANNIntentModel
+from pickup import install_pickup, school_now, slot_usage
 
 ROOT = Path(__file__).resolve().parent
 STATUSES = ('Pending', 'Processing', 'Ready for release', 'Released')
@@ -87,6 +88,8 @@ def create_app(database=None):
         path = url_for('profile', token=token)
         return public_base + path if public_base else url_for('profile', token=token, _external=True)
 
+    pickup_offer = install_pickup(app, connect, record, scan_url)
+
     @app.get('/')
     def home():
         return render_template('index.html', statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES, id_statuses=ID_STATUSES)
@@ -136,49 +139,36 @@ def create_app(database=None):
             return jsonify(error='Supply status, pending reason, or schedule fields.'), 400
         if any(not isinstance(v, str) or len(v) > 500 for v in payload.values()):
             return jsonify(error='Fields must be text of up to 500 characters.'), 400
-        current.update(payload)
-        if current['id_status'] not in ID_STATUSES or current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
-            return jsonify(error='Choose a valid status and appointment type.'), 400
-        schedule = [current[k] for k in ('schedule_type','schedule_date','schedule_time')]
-        if any(schedule):
-            if not all(schedule):
-                return jsonify(error='Appointment type, date, and time must be filled together.'), 400
-            try:
-                datetime.strptime(current['schedule_date'] + ' ' + current['schedule_time'], '%Y-%m-%d %H:%M')
-            except ValueError:
-                return jsonify(error='Use a valid date and time.'), 400
         with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            fresh = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
+            if fresh is None:
+                abort(404)
+            current = dict(fresh)
+            current.update(payload)
+            if current['id_status'] not in ID_STATUSES or current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
+                return jsonify(error='Choose a valid status and appointment type.'), 400
+            schedule = [current[k] for k in ('schedule_type','schedule_date','schedule_time')]
+            if any(schedule):
+                if not all(schedule):
+                    return jsonify(error='Appointment type, date, and time must be filled together.'), 400
+                try:
+                    appointment = datetime.strptime(current['schedule_date'] + ' ' + current['schedule_time'], '%Y-%m-%d %H:%M')
+                    if appointment.strftime('%Y-%m-%d %H:%M') != current['schedule_date']+' '+current['schedule_time']:
+                        raise ValueError
+                except ValueError:
+                    return jsonify(error='Use a valid date and time.'), 400
+            slot = db.execute('SELECT * FROM pickup_slots WHERE schedule_date=? AND schedule_time=?',
+                              (current['schedule_date'],current['schedule_time'])).fetchone()
+            assignment_changed = any(current[key] != fresh[key] for key in ('schedule_type','schedule_date','schedule_time'))
+            if slot and assignment_changed and current['schedule_type']=='Lost ID replacement':
+                if not slot['enabled'] or current['schedule_date']+' '+current['schedule_time'] <= school_now().strftime('%Y-%m-%d %H:%M'):
+                    return jsonify(error='That pickup date is no longer available.'), 409
+            if slot and current['id_status']=='Lost' and current['status']!='Released' and current['schedule_type']=='Lost ID replacement':
+                if slot_usage(db,current['schedule_date'],current['schedule_time'],record_id) >= slot['capacity']:
+                    return jsonify(error='That pickup time is full. Choose another available date.'), 409
             db.execute('UPDATE inventory SET id_status=?,status=?,pending_reason=?,schedule_type=?,schedule_date=?,schedule_time=? WHERE id=?', (*[current[k] for k in allowed],record_id))
         return jsonify(record(record_id))
-
-    @app.post('/api/inventory/<int:record_id>/reschedule')
-    def reschedule_lost_id(record_id):
-        record(record_id)
-        payload = request.get_json(silent=True)
-        if not isinstance(payload, dict) or set(payload) != {'schedule_date', 'schedule_time'}:
-            return jsonify(error='Supply the replacement pickup date and time.'), 400
-        if any(not isinstance(value, str) for value in payload.values()):
-            return jsonify(error='Use a valid date and time.'), 400
-        date, time = payload['schedule_date'], payload['schedule_time']
-        try:
-            appointment = datetime.strptime(date + ' ' + time, '%Y-%m-%d %H:%M')
-            if appointment.strftime('%Y-%m-%d %H:%M') != date + ' ' + time:
-                raise ValueError
-        except ValueError:
-            return jsonify(error='Use a valid date (YYYY-MM-DD) and time (HH:MM).'), 400
-        with connect() as db:
-            # Check availability and save in one transaction, including concurrent staff updates.
-            db.execute('BEGIN IMMEDIATE')
-            current = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
-            if current is None:
-                abort(404)
-            if current['id_status'] != 'Lost':
-                return jsonify(error='This action is for a student whose ID is currently marked Lost.'), 409
-            if current['status'] != 'Ready for release':
-                return jsonify(error='The replacement ID is not available for pickup yet. Mark it Ready for release once it is available.'), 409
-            db.execute("UPDATE inventory SET schedule_type='Lost ID replacement',schedule_date=?,schedule_time=? WHERE id=?",
-                       (date, time, record_id))
-        return jsonify(record=record(record_id), message='Replacement pickup appointment saved. The student can view it using the existing QR code.')
 
     def scanned_record(token):
         with connect() as db:
@@ -364,15 +354,8 @@ def create_app(database=None):
             elif intent == 'lost_id_schedule' and reschedule_request:
                 if selected['id_status'] != 'Lost':
                     answer = f'{selected["name"]}: the ID is not currently marked Lost. Contact the coordinator to confirm the lost ID record before arranging replacement pickup.'
-                elif selected['status'] != 'Ready for release':
-                    answer = f'{selected["name"]}: the replacement ID is not available for pickup yet (processing status: {selected["status"]}). The coordinator can schedule or reschedule pickup once it is Ready for release.'
                 else:
-                    answer = f'{selected["name"]}: the replacement ID is available for pickup. '
-                    if selected['schedule_type'] == 'Lost ID replacement':
-                        answer += f'Current appointment: {selected["schedule_date"]} at {selected["schedule_time"]} (school local time). '
-                    else:
-                        answer += 'No replacement pickup appointment is recorded yet. '
-                    answer += 'The coordinator can use “Schedule / reschedule replacement pickup” to confirm a date and time with you. This chat has not changed the appointment.'
+                    answer = pickup_offer(selected)['reply']
             elif intent == 'pending_id':
                 answer = f'{selected["name"]}: status is {selected["status"]}. ' + (selected['pending_reason'] or 'No pending reason has been recorded. Ask staff to confirm any missing requirements.')
             else:
@@ -388,6 +371,8 @@ def create_app(database=None):
             result.update(student_name=selected['name'], id_status=selected['id_status'],
                           processing_status=selected['status'], qr_url=url_for('qr_image', record_id=selected['id']),
                           scan_url=scan_url(selected['token']))
+        if selected is not None and selected['id_status']=='Lost' and intent in lookups:
+            result['pickup_offer'] = pickup_offer(selected)
         return jsonify(result)
 
     return app
