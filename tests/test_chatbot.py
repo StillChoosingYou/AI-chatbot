@@ -27,7 +27,7 @@ class SchoolIDTests(unittest.TestCase):
             rows = list(csv.DictReader(f))
         with (ROOT/'property_management_intent.csv').open() as f:
             intents = {r['intent'] for r in csv.DictReader(f)}
-        self.assertEqual(len(rows),240)
+        self.assertEqual(len(rows),255)
         self.assertEqual(len({r['id'] for r in rows}),len(rows))
         self.assertEqual(len({r['text'].lower() for r in rows}),len(rows))
         self.assertEqual({r['intent'] for r in rows},intents)
@@ -40,6 +40,7 @@ class SchoolIDTests(unittest.TestCase):
             ('Why is my school ID pending?', 'pending_id'),
             ('Book a pending ID appointment', 'pending_id_schedule'),
             ('I lost my school ID', 'lost_id_report'),
+            ('I found a student card', 'found_id_report'),
             ('Schedule my lost ID replacement appointment', 'lost_id_schedule'),
             ('How can I print a QR sticker?', 'qr_sticker_request'),
             ('What information shows after scanning the QR code?', 'qr_student_details'),
@@ -87,7 +88,7 @@ class SchoolIDTests(unittest.TestCase):
             image=signed_client(app).get(f'/qr/{self.row["id"]}.png')
             self.assertEqual(image.status_code,200)
             self.assertTrue(image.data.startswith(b'\x89PNG'))
-            add.assert_called_once_with('https://school.example/student/'+self.row['token'])
+            add.assert_called_once_with(self.row['token'])
         profile=self.client.get('/student/'+self.row['token'])
         page=profile.get_data(as_text=True)
         for field in ('name','course','section','year_level'):

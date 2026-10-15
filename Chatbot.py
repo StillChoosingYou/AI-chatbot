@@ -18,13 +18,14 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from access import install_access
 from id_cards import sample_card
 from intent_model import ANNIntentModel
+from lifecycle import IDLifecycle, LOSS_STATES, new_code
 from pickup import install_pickup, school_now, slot_usage
 
 ROOT = Path(__file__).resolve().parent
-STATUSES = ('Pending', 'Processing', 'Ready for release', 'Released')
-ID_STATUSES = ('Not issued', 'Active', 'Lost')
+STATUSES = ('Pending', 'Processing', 'Replacement Processing', 'Ready for release', 'Released', 'For claiming', 'Unclaimed')
+ID_STATUSES = ('Not issued', 'Active', 'Lost', 'Reported Lost', 'Found - For Claiming', 'Missing from Stock')
 KINDS = ('New ID', 'Pending ID', 'Lost ID')
-SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
+SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID application', 'Lost ID replacement')
 
 
 def create_app(database=None):
@@ -76,6 +77,7 @@ def create_app(database=None):
     can_read = install_access(app, connect)
 
     def record(record_id):
+        lifecycle.audit_unclaimed()
         with connect() as db:
             row = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
         if row is None:
@@ -88,6 +90,7 @@ def create_app(database=None):
         path = url_for('profile', token=token)
         return public_base + path if public_base else url_for('profile', token=token, _external=True)
 
+    lifecycle = IDLifecycle(app, connect, record)
     pickup_offer = install_pickup(app, connect, record, scan_url)
 
     @app.get('/')
@@ -96,6 +99,7 @@ def create_app(database=None):
 
     @app.get('/api/inventory')
     def inventory():
+        lifecycle.audit_unclaimed()
         with connect() as db:
             rows = [dict(row) for row in db.execute('''SELECT inventory.*,
                 EXISTS(SELECT 1 FROM id_images WHERE record_id=inventory.id AND side='front') AS has_front_image,
@@ -124,8 +128,9 @@ def create_app(database=None):
             return jsonify(error='Choose a valid request type.'), 400
         try:
             with connect() as db:
-                cursor = db.execute('INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token,id_status) VALUES (?,?,?,?,?,?,?,?,?)', (*fields.values(),int(year),'Pending',kind,secrets.token_urlsafe(18),'Lost' if kind == 'Lost ID' else 'Not issued'))
+                cursor = db.execute('INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token,id_status) VALUES (?,?,?,?,?,?,?,?,?)', (*fields.values(),int(year),'Pending',kind,new_code(),'Lost' if kind == 'Lost ID' else 'Not issued'))
                 new_id = cursor.lastrowid
+                lifecycle.register_code(db,dict(db.execute('SELECT * FROM inventory WHERE id=?',(new_id,)).fetchone()))
         except sqlite3.IntegrityError:
             return jsonify(error='That student ID already exists.'), 409
         return jsonify(record(new_id)), 201
@@ -161,47 +166,72 @@ def create_app(database=None):
             slot = db.execute('SELECT * FROM pickup_slots WHERE schedule_date=? AND schedule_time=?',
                               (current['schedule_date'],current['schedule_time'])).fetchone()
             assignment_changed = any(current[key] != fresh[key] for key in ('schedule_type','schedule_date','schedule_time'))
-            if slot and assignment_changed and current['schedule_type']=='Lost ID replacement':
+            if slot and assignment_changed and current['schedule_type'] in ('Lost ID application','Lost ID replacement'):
                 if not slot['enabled'] or current['schedule_date']+' '+current['schedule_time'] <= school_now().strftime('%Y-%m-%d %H:%M'):
                     return jsonify(error='That pickup date is no longer available.'), 409
-            if slot and current['id_status']=='Lost' and current['status']!='Released' and current['schedule_type']=='Lost ID replacement':
+            if slot and assignment_changed and current['id_status'] in LOSS_STATES and current['schedule_type'] in ('Lost ID application','Lost ID replacement'):
+                required_purpose='Application' if current['schedule_type']=='Lost ID application' else 'Pickup'
+                if slot['purpose']!=required_purpose:
+                    return jsonify(error='The published appointment purpose does not match the selected schedule type.'),409
+            if slot and current['id_status'] in LOSS_STATES and current['status']!='Released' and current['schedule_type'] in ('Lost ID application','Lost ID replacement'):
                 if slot_usage(db,current['schedule_date'],current['schedule_time'],record_id) >= slot['capacity']:
                     return jsonify(error='That pickup time is full. Choose another available date.'), 409
+            error=lifecycle.transition(db,current,dict(fresh))
+            if error:
+                return jsonify(error=error),409
+            db.execute('UPDATE inventory SET ready_since=? WHERE id=?',(current['ready_since'],record_id))
             db.execute('UPDATE inventory SET id_status=?,status=?,pending_reason=?,schedule_type=?,schedule_date=?,schedule_time=? WHERE id=?', (*[current[k] for k in allowed],record_id))
         return jsonify(record(record_id))
 
-    def scanned_record(token):
+    def render_id_page(row, token, qr_state, scan=False):
         with connect() as db:
-            row = db.execute('SELECT * FROM inventory WHERE token=?', (token,)).fetchone()
-        if row is None:
-            abort(404)
-        return row
+            table = 'qr_images' if qr_state=='retired' else 'id_images'
+            key, value = ('token', token) if qr_state=='retired' else ('record_id', row['id'])
+            uploaded = {image['side'] for image in db.execute(f'SELECT side FROM {table} WHERE {key}=?', (value,))}
+        return render_template('profile.html', student=row, token=token, uploaded=uploaded, qr_state=qr_state, scan=scan)
 
     @app.get('/student/<token>')
     def profile(token):
-        row = scanned_record(token)
+        row, qr = lifecycle.scanned(token)
+        return render_id_page(row,token,qr['state'],scan=True)
+
+    @app.get('/api/inventory/<int:record_id>/view')
+    def own_id_view(record_id):
+        row = record(record_id)
         with connect() as db:
-            uploaded = {image['side'] for image in db.execute('SELECT side FROM id_images WHERE record_id=?', (row['id'],))}
-        return render_template('profile.html', student=row, token=token, uploaded=uploaded)
+            qr = db.execute('SELECT state FROM qr_codes WHERE token=?',(row['token'],)).fetchone()
+        return render_id_page(row,row['token'],qr['state'])
+
+    def image_response(row,token,side,retired=False):
+        if side not in ('front','back'): abort(404)
+        with connect() as db:
+            if retired:
+                stored=db.execute('SELECT image FROM qr_images WHERE token=? AND side=?',(token,side)).fetchone()
+            else:
+                stored=db.execute('SELECT image FROM id_images WHERE record_id=? AND side=?',(row['id'],side)).fetchone()
+        if stored:
+            stream=io.BytesIO(stored['image'])
+        else:
+            stream=io.BytesIO()
+            sample_card(row,side,token).save(stream,format='PNG')
+            stream.seek(0)
+        return send_file(stream,mimetype='image/png')
 
     @app.get('/student/<token>/id/<side>.png')
-    def id_image(token, side):
-        if side not in ('front','back'):
-            abort(404)
-        row = scanned_record(token)
-        with connect() as db:
-            stored = db.execute('SELECT image FROM id_images WHERE record_id=? AND side=?', (row['id'],side)).fetchone()
-        if stored:
-            stream = io.BytesIO(stored['image'])
-        else:
-            stream = io.BytesIO()
-            sample_card(row, side, scan_url(token)).save(stream, format='PNG')
-            stream.seek(0)
-        return send_file(stream, mimetype='image/png')
+    def id_image(token,side):
+        row,qr=lifecycle.scanned(token)
+        return image_response(row,token,side,qr['state']=='retired')
+
+    @app.get('/api/inventory/<int:record_id>/id/<side>.png')
+    def own_id_image(record_id,side):
+        row=record(record_id)
+        return image_response(row,row['token'],side)
 
     @app.post('/api/inventory/<int:record_id>/images')
     def upload_id_images(record_id):
-        record(record_id)
+        current=record(record_id)
+        if current['id_status'] in LOSS_STATES:
+            return jsonify(error='Issue the replacement before uploading its new ID images. The current images belong to the flagged original ID.'),409
         if set(request.files) - {'front','back'} or request.form:
             return jsonify(error='Supply front and/or back image files.'), 400
         images = {}
@@ -237,16 +267,24 @@ def create_app(database=None):
         if not images:
             return jsonify(error='Choose a front or back ID image to upload.'), 400
         with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            fresh=db.execute('SELECT token,id_status FROM inventory WHERE id=?',(record_id,)).fetchone()
+            if fresh['token']!=current['token'] or fresh['id_status'] in LOSS_STATES:
+                return jsonify(error='The ID changed during upload. Refresh and try again.'),409
             db.executemany('INSERT INTO id_images (record_id,side,image) VALUES (?,?,?) ON CONFLICT(record_id,side) DO UPDATE SET image=excluded.image',
                            [(record_id,side,content) for side,content in images.items()])
         return jsonify(saved=list(images))
 
     @app.delete('/api/inventory/<int:record_id>/images/<side>')
     def remove_id_image(record_id, side):
-        record(record_id)
+        current=record(record_id)
         if side not in ('front','back'):
             abort(404)
         with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            fresh=db.execute('SELECT token,id_status FROM inventory WHERE id=?',(record_id,)).fetchone()
+            if fresh['token']!=current['token'] or fresh['id_status'] in LOSS_STATES:
+                return jsonify(error='Flagged original ID images must be preserved. Refresh after issuance.'),409
             db.execute('DELETE FROM id_images WHERE record_id=? AND side=?', (record_id,side))
         return jsonify(removed=side)
 
@@ -266,7 +304,7 @@ def create_app(database=None):
         row = record(record_id)
         stream = io.BytesIO()
         code = qrcode.QRCode(box_size=8, border=4, error_correction=qrcode.constants.ERROR_CORRECT_M)
-        code.add_data(scan_url(row['token']))
+        code.add_data(row['token'])
         code.make(fit=True)
         code.make_image(fill_color='black', back_color='white').save(stream, format='PNG')
         stream.seek(0)
@@ -275,7 +313,7 @@ def create_app(database=None):
     @app.get('/sticker/<int:record_id>')
     def sticker(record_id):
         row = record(record_id)
-        return render_template('sticker.html', student=row, scan_url=scan_url(row['token']))
+        return render_template('sticker.html', student=row, scan_url=url_for('own_id_view',record_id=record_id) if g.user['role']=='student' else scan_url(row['token']))
 
     @app.after_request
     def private_pages(response):
@@ -291,11 +329,15 @@ def create_app(database=None):
             return jsonify(error='Enter a message of 1–1000 characters.'), 400
         text = payload['message']
         intent = matcher.match(text)
+        loss_signal=bool(re.search(r'\b(?:nawala|nawawala|lost my|i lost|my\s+(?:student\s+|school\s+)?(?:ID|card)\s+(?:is|went)\s+(?:lost|missing)|report.*lost)\b',text,re.I))
+        found_signal=bool(re.search(r'\b(?:nakapulot|napulot|nahanap|found.*(?:ID|card)|(?:ID|card).*found)\b',text,re.I))
         reschedule_request = bool(re.search(r'\breschedul(?:e|ing)\b', text, re.I) and re.search(r'\bID\b', text, re.I))
         if re.search(r"\b(status|active|lost)\b", text, re.I) and re.search(r"\bID\b", text, re.I) and not re.search(r"\b(report|schedule|appointment|lost my)\b", text, re.I):
             intent = 'id_processing_status'
         if reschedule_request:
             intent = 'lost_id_schedule'
+        if loss_signal: intent='lost_id_report'
+        if found_signal: intent='found_id_report'
         def normalize(value):
             value = unicodedata.normalize('NFKC', value).casefold().replace('’', "'")
             value = re.sub(r"'s\b", '', value)
@@ -337,10 +379,11 @@ def create_app(database=None):
             'thanks_goodbye': 'You’re welcome! Come back whenever you need help with your school ID.',
             'bot_help': 'Ask about a student by full name or student ID, or select a record to check its status or appointment. You can also filter the inventory or print a QR sticker.',
             'talk_to_human': 'Please contact the Property Management Office staff for assistance. Office contact details have not been configured yet.',
-            'lost_id_report': 'Please report the missing ID to the Property Management Office. Staff can record a Lost ID request and arrange a replacement appointment. This chat has not submitted a report.',
-            'id_requirements': 'Ask the Property Management Office to confirm the required documents, photo specifications, and any fees. School requirements have not been configured yet.',
+            'lost_id_report': ('I-verify ang student number, course at section at kumpirmahin ang pagkawala sa form sa ibaba. Magagawa ang ticket at Reported Lost status pagkatapos ng confirmation.' if g.user['role']=='student' else 'The student must sign in and verify their student number, course and section to file a lost ID report.'),
+            'found_id_report': ('Scan or enter the ID QR code below, then confirm that Security has physically received the ID.' if g.user['role'] in ('guard','coordinator') else 'Turn the found ID over to Security. Only a signed-in guard or staff member can log a physically received ID.'),
+            'id_requirements': lifecycle.policy_reply(),
             'office_hours_location': 'Please confirm the office hours and pickup location with the Property Management Office. These details have not been configured yet.',
-            'qr_student_details': 'Scan the QR sticker with your phone camera. It opens the front and back ID images, plus the student’s name, course, section, and year level. Your phone must be able to reach this app’s URL.',
+            'qr_student_details': 'The QR contains only an opaque code. Signed-in guards and staff use Scan / enter QR code to view the owner and ID status. Students view their own details in their account.',
             'qr_sticker_request': 'Use “Print sticker” on the student’s inventory card. The label has a 30 mm QR code; print at actual size and test a scan before attaching it.',
             'id_inventory': 'Use the search box and filters above to find records by name or student ID, course, section, year, request type, or processing status.',
             'out_of_scope': 'I can help with school IDs. Try “When is my ID release?”, “Why is my ID pending?”, or “How do I print a QR sticker?”',
@@ -351,8 +394,10 @@ def create_app(database=None):
                 answer = 'Select a student record using “Ask about ID” or ask by full name or student ID so I can check its status or appointment.'
             elif intent == 'id_processing_status':
                 answer = f'{selected["name"]}: ID status: {selected["id_status"]}. Processing status: {selected["status"]} ({selected["request_type"]}). No ID, No Entry. A status QR does not authorize entry; follow the school’s entry procedure.'
-            elif intent == 'lost_id_schedule' and reschedule_request:
-                if selected['id_status'] != 'Lost':
+                if selected['id_status'] in LOSS_STATES:
+                    answer += ' REPORTED LOST, kunin ang ID at ipaalam sa ID office.'
+            elif intent == 'lost_id_schedule' and (reschedule_request or selected['id_status'] in LOSS_STATES):
+                if selected['id_status'] not in LOSS_STATES:
                     answer = f'{selected["name"]}: the ID is not currently marked Lost. Contact the coordinator to confirm the lost ID record before arranging replacement pickup.'
                 else:
                     answer = pickup_offer(selected)['reply']
@@ -370,9 +415,11 @@ def create_app(database=None):
         if selected is not None and intent in lookups:
             result.update(student_name=selected['name'], id_status=selected['id_status'],
                           processing_status=selected['status'], qr_url=url_for('qr_image', record_id=selected['id']),
-                          scan_url=scan_url(selected['token']))
-        if selected is not None and selected['id_status']=='Lost' and intent in lookups:
+                          scan_url=url_for('own_id_view',record_id=selected['id']) if g.user['role']=='student' else scan_url(selected['token']))
+        if selected is not None and selected['id_status'] in LOSS_STATES and intent in lookups:
             result['pickup_offer'] = pickup_offer(selected)
+        if intent=='lost_id_report' and g.user['role']=='student': result['action']='report_lost'
+        if intent=='found_id_report' and g.user['role'] in ('guard','coordinator'): result['action']='report_found'
         return jsonify(result)
 
     return app

@@ -42,17 +42,20 @@ def install_access(app, connect):
             with connect() as db:
                 row = db.execute('SELECT id,username,role,record_id FROM accounts WHERE id=?', (session['account_id'],)).fetchone()
             g.user = dict(row) if row else None
-        protected = request.path.startswith(('/api/', '/qr/', '/sticker/')) or request.path == '/'
+        protected = request.path.startswith(('/api/', '/qr/', '/sticker/')) or request.path == '/' or request.path.startswith('/student/')
         if protected and not g.user:
             if request.path.startswith('/api/'):
                 return jsonify(error='Sign in to use the ID workspace.'), 401
-            return redirect(url_for('login'))
-        if request.method in ('POST', 'PATCH', 'DELETE'):
+            return redirect(url_for('login',next=request.path if request.path.startswith('/student/') and '/id/' not in request.path else ''))
+        if request.path.startswith('/student/') and g.user['role'] not in ('guard','coordinator'):
+            return 'Only signed-in guards or staff can view QR scan details. Students can use their own ID workspace.',403
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
             supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token', '')
             if not session.get('csrf') or not secrets.compare_digest(session['csrf'], supplied):
                 return jsonify(error='Refresh the page and try again.'), 400
             student_booking = request.endpoint == 'reschedule_lost_id' and g.user['role'] == 'student'
-            if request.path.startswith('/api/inventory') and g.user['role'] != 'coordinator' and not student_booking:
+            staff_claim=request.endpoint=='claim_found_id' and g.user['role']=='guard'
+            if request.path.startswith('/api/inventory') and g.user['role'] != 'coordinator' and not student_booking and not staff_claim:
                 return jsonify(error='Only the property management coordinator can change records.'), 403
             if request.path.startswith('/api/pickup-slots') and g.user['role'] != 'coordinator':
                 return jsonify(error='Only the coordinator can publish pickup availability.'), 403
@@ -68,7 +71,8 @@ def install_access(app, connect):
                 session['account_id'] = user['id']
                 session.permanent = True
                 csrf_token()
-                return redirect(url_for('home'))
+                next_path=request.args.get('next','')
+                return redirect(next_path if next_path.startswith('/student/') and not next_path.startswith('//') else url_for('home'))
             error = 'Incorrect username or password.'
         return render_template('login.html', error=error), 401 if error else 200
 

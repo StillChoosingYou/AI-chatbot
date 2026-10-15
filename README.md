@@ -21,7 +21,7 @@ The interface supports search, course, section, year, request type, and status f
 QR codes appear on the left; status, appointments, and updates appear on the right.
 Sign in as a coordinator, add a record, choose **Update / schedule**, set a status and appointment, then choose
 **Ask about ID** to ask the chatbot about that record. Students confirm a replacement
-pickup booking by clicking an available date in the chat. Text questions alone do not
+pickup booking by clicking an available date in the chat. Text questions open a confirmation form; they do not
 submit reports or change appointments. Coordinators manage records and publish availability.
 
 ### Roles and sign-in
@@ -52,16 +52,16 @@ one assigned role; student accounts are linked to one inventory record.
 
 | Role | Access |
 | --- | --- |
-| Student | View their own record; receive available pickup dates and book/reschedule their own ready replacement ID; ask about status or QR; print their sticker |
-| Property management coordinator | Search all records; add records; update ID status, processing, pending reasons, and appointments; manage ID images |
-| Guard | Search all records; ask about a student's ID; view status and share/print its QR; no record changes |
+| Student | View their own record and ID images; verify/confirm a lost report; receive notices; choose application/pickup dates; print their sticker |
+| Property management coordinator | Manage inventory/images, policy and appointment availability; process/issue replacements; log custody, claims and stock audits |
+| Guard | Search records; scan QR and view ID images/status; confirm physical receipt of found IDs and verified claiming; cannot edit inventory or issue replacements |
 
 Permissions are checked on the server. Passwords are hashed; sessions expire after
 8 hours and form/API writes require a CSRF token. `data/.session-key` is generated
 locally and must stay private; preserve it across restarts, or remove it to invalidate
 existing sessions. There is no password reset, account administration screen, or
 login throttling yet; deployment for real students needs these operational controls
-and HTTPS. QR links remain shareable links to student details and images.
+and HTTPS. QR details and images require guard/staff sign-in; students see their own images through their authenticated workspace.
 
 ### Guard lookup and school entry policy
 
@@ -72,63 +72,85 @@ and curly/straight possessive apostrophes; partial names such as **Sam** work in
 **“What is the status of Sam's ID?”**. Multiple matches require choosing a record;
 missing names never silently return another student's status.
 
-The reply gives **ID status**, **processing status**, and a QR link. Scan it to see
-current statuses, the appointment if recorded, and front/back ID images. The same
-QR reflects later coordinator updates; it is not a snapshot of the original status.
-Students' authenticated inventory/chat access is limited to their own record.
+The reply gives **ID status**, **processing status**, and a QR code. Guards/staff use
+**Scan / enter QR code** in their signed-in workspace. The scan page displays the
+owner's name, course, section, year level, front/back ID images, and live status.
+Students use their own ID workspace; another student's record/images are forbidden.
+Anonymous scan links redirect to sign-in without showing personal details.
 
-- ID status: **Not issued**, **Active**, or **Lost**.
-- Processing status: **Pending**, **Processing**, **Ready for release**, or **Released**.
+**No ID, No Entry.** Inventory status and a digital QR never grant campus entry.
 
-Existing databases migrate automatically: Lost ID requests initially become Lost;
-released IDs become Active; other IDs become Not issued. The coordinator should
-verify these migrated statuses. Changing processing status does not automatically
-activate an ID; set ID status independently after confirming issuance/replacement.
-The chatbot repeats **“No ID, No Entry.”** It reports inventory facts and does not
-approve entry or treat a status QR as a substitute for wearing an ID.
+### Confirmed lost/found ID workflow
 
-### Student chooses an available replacement pickup date
+1. The student says **“Nawala ang ID ko”** (`lost_id_report`) and enters their student
+   number, course and section. These must match the signed-in student's inventory
+   record. The student must tick the loss confirmation before a ticket is created.
+2. Status becomes **Reported Lost / Pending**. The original QR is flagged; staff
+   scanning it see **“REPORTED LOST, kunin ang ID at ipaalam sa ID office.”**
+   No scan activity, inactivity, or gate attendance can create a lost report.
+3. The bot returns the configured replacement requirements/fee. The coordinator enters
+   the approved values under **Approved ID policy**. Blank values explicitly say
+   **Hindi pa configured—confirm sa ID office**; the app invents no fees or requirements.
+4. The coordinator publishes future **Application** slots (date/time/capacity, UTC+8).
+   The student's chat automatically offers available slots. Clicking a date books it;
+   choosing another date frees the old slot. There are no invented dates.
+5. Use **Update / schedule** to move the confirmed request to **Replacement Processing**,
+   then **Ready for release** when the replacement is physically ready. The application
+   appointment is cleared when processing starts. Publish **Pickup** slots for collection.
+   The student chooses an available pickup date in the chat. Both booking stages enforce
+   capacity inside a SQLite write transaction.
+6. On actual collection, the coordinator sets **Released**. This issues a new opaque QR,
+   makes the replacement **Active**, permanently retires the old QR, and archives the
+   original's uploaded images. Print the **new sticker** and upload the replacement's
+   images after issuance. The old QR can never reactivate, including after a found report.
 
-1. The coordinator opens **Available replacement pickup dates**, publishes each date
-   and time, and sets **Students per slot** (1–500). Use school time, **UTC+8** (PGPC,
-   Philippines). Only future dates can be published. There are no invented default dates.
-2. Track the student's lost ID as **Lost**. Once the replacement is physically
-   available, set processing status to **Ready for release**.
-3. The student's chatbot automatically shows the published dates/times that have space.
-   It checks every **15 seconds** while the workspace is visible and also on sign-in
-   or return to the tab. If the student is away, the offer appears next time they open
-   the workspace. This is an in-app message; email/SMS delivery is not configured.
-4. The student clicks **Book · date at time** in the chat. The appointment is saved
-   immediately and confirmed with a QR link. They can ask **“Can I reschedule my lost
-   ID pickup?”** or choose **Choose / change pickup date** to select another slot.
-5. Booking a new slot replaces the previous appointment and frees its space. The same
-   QR page shows the latest date/time. If a slot fills before the click, the previous
-   appointment stays intact and the chatbot refreshes available choices.
-6. After collection, the coordinator marks the ID **Active** and **Released**.
+For a found ID, the guard/staff scans or enters the QR, physically receives the ID,
+and ticks the custody confirmation under **Log found ID** (`found_id_report`). A scan
+alone does not change inventory. Before replacement issuance, the original becomes
+**Found - For Claiming**, the replacement ticket/appointment is cancelled, and the
+original QR reactivates. The owner receives an in-app notice to collect at the
+configured claim location (default **Security Office**) with another valid ID.
+Staff verifies that ID and uses **Confirm claiming** to return the original to **Active / Released**.
+Finding an already retired original logs its recovery without changing the replacement
+or its appointments. Repeated confirmations do not duplicate an open ticket.
 
-Only authenticated students can book their own ready replacement; guards cannot book
-or change availability. The coordinator can also book a published slot for a student.
-Capacity is checked in one SQLite transaction, including competing booking attempts.
-Legacy lost ID appointments at the same date/time count toward capacity. Closed,
-full, and past slots are not offered for new bookings. Closing a slot stops new
-bookings and preserves confirmed appointments; reopen it if it is still in the future.
-The coordinator's general form still supports replacement processing appointments;
-assignments to a published slot also respect capacity.
+Notifications persist until delivered to the owner's signed-in chat. Available slots
+and notifications refresh every **15 seconds** while the tab is visible, on tab return,
+and on sign-in. These are in-app notices; email/SMS is not configured. The student sees
+only their own tickets; staff can inspect all report tickets.
 
-### QR printing and phone scanning
+### Office stock audit and Unclaimed
 
-Set `PUBLIC_BASE_URL` to the reachable URL of this application before printing:
+- **Report missing stock** requires a coordinator to confirm a physical office audit
+  of a ready/unclaimed ID. It records **Missing from Stock**, creates a ticket, flags
+  its QR, clears appointments and notifies the student. Use found custody/claim actions
+  after physical recovery; a general edit cannot clear that flag.
+- An ID still **Ready for release** after **more than 30 days** becomes **Unclaimed**
+  on the next inventory/profile/offer check. This uses the stored ready date, never the
+  last scan. Existing ready inventory starts its clock on migration because its prior
+  age is unknown. Pickup remains available for ready/unclaimed replacements.
+- Optional gate-pattern prompts are outside this implementation.
 
-```bash
-PUBLIC_BASE_URL=https://your-school-app.example .venv/bin/python Chatbot.py
-```
+ID states: **Not issued**, **Active**, legacy **Lost**, **Reported Lost**,
+**Found - For Claiming**, **Missing from Stock**. Processing states include **Pending**,
+**Processing**, **Replacement Processing**, **Ready for release**, **For claiming**,
+**Unclaimed**, **Released**. Legacy Lost requests remain supported; verified new reports
+use the student confirmation flow. Existing inventory/accounts/images are migrated in place.
+Back up your local SQLite database before updating.
 
-Without it, QR codes use the URL used to request the image. A localhost QR cannot be
-opened from another phone. A QR contains an opaque URL token; scanning displays the front and back ID images plus
-name, course, section, and year level. Anyone with that URL can view those details and the uploaded ID images.
-**Print sticker** creates a 30 mm QR area with a student ID caption; print at 100%
-and check legibility with a phone. A caption or label can require extra space beyond 30 mm.
-Long URLs increase density; test with the final hostname and physical sticker.
+### QR printing and scanning
+
+The QR contains **only an opaque code**, such as `PGPC-…`; it contains no name,
+student number or other personal details. **Print sticker** makes a 30 mm QR area with
+its opaque code caption. Print at 100% and physically test the final sticker.
+
+A normal phone camera shows the raw code. Guards/staff open the deployed application,
+sign in, then use **Scan with camera** or paste the code into **Scan / enter QR code**.
+The camera scanner needs HTTPS (or localhost), camera permission, and a browser with
+QR `BarcodeDetector` support. Manual entry is always available. Legacy stickers with
+`/student/<code>` URLs also resolve through the staff scanner and require staff sign-in.
+Use the school's reachable application URL on phones. `PUBLIC_BASE_URL` can set the
+origin for shared staff links; it does not add a URL or personal data to new QR codes.
 
 ### Front and back ID images
 
@@ -141,16 +163,17 @@ Until you upload an image, each side shows the PGPC reference layout marked **SA
 signature. The school header and a person-free campus crop are included as sanitized assets;
 no face, personal name, signature, address, phone number or original QR is copied.
 The back follows the emergency-contact/reminder/QR/signatory/year layout. The back QR
-is generated from the same student's application link. Source artwork is blurred:
+contains the same opaque ID code. Source artwork is blurred:
 a clean blank PGPC template is needed for pixel-exact campus artwork and typography. Upload only approved student ID images.
 
 Images persist in the `id_images` table of the existing SQLite inventory database.
 Existing inventories upgrade automatically without changing records or QR tokens.
 Each image must be a single JPEG/PNG, at most 5 MB and 20 megapixels. Uploads are
 normalized to PNG, resized proportionally to fit 1600 × 2400 pixels, and stripped of
-embedded metadata. Both sides are validated before either is saved. The QR destination
-still requires a phone-reachable `PUBLIC_BASE_URL`; actual ID images are visible to
-anyone who has that link. Shareable QR access still needs the school’s approved policy before using real student data.
+embedded metadata. Both sides are validated before either is saved. Images require
+authentication. Flagged original images are preserved until replacement issuance; upload
+the replacement images afterward. Retired QR scans show the archived original images
+and a permanent-deactivation warning, with the current inventory status labeled separately.
 
 ### Windows PowerShell
 
@@ -164,14 +187,14 @@ From the extracted project folder, use your existing `venv` directly:
 
 If the environment is missing, create it first with `py -3.11 -m venv venv`. When
 updating an existing installation, keep `venv/` and `data/`; replace the Python files,
-`templates/`, `static/`, and `assets/`, install requirements, and restart the app. This role/status update does not require retraining an existing model whose CSVs remain unchanged. Create the role accounts once using the commands above.
+`templates/`, `static/`, and `assets/`, install requirements, and restart the app. This update adds `found_id_report`: retrain with `python train_model.py` after replacing both CSVs, then restart. A stale model is rejected. Create the role accounts once using the commands above.
 
 ## Dataset and intents
 
-- `property_management_dataset.csv`: 240 synthetic utterances, 15 per intent, with
+- `property_management_dataset.csv`: 255 synthetic utterances, 15 per intent, with
   `id,text,intent,language,author` columns. Generic conversational examples retained
   from the supplied CSV; school ID examples replace general campus support requests.
-- `property_management_intent.csv`: 16 intent definitions and staff actions.
+- `property_management_intent.csv`: 17 intent definitions and staff actions.
 - `property_management_dataset.tab`: Orange version with `intent` as the class,
   `text` as a string meta, and identifiers/language/author as metadata.
 
@@ -179,7 +202,7 @@ updating an existing installation, keep `venv/` and `data/`; replace the Python 
 
 The guide allows a locally trained Artificial Neural Network. `train_model.py` builds
 TF-IDF word/bigram features and a scikit-learn `MLPClassifier`: one 32-neuron ReLU
-hidden layer and 16 output intents. It uses L-BFGS, L2 regularization (`alpha=0.1`),
+hidden layer and 17 output intents. It uses L-BFGS, L2 regularization (`alpha=0.1`),
 seed 42, and at most 600 iterations. No external AI service or pretrained model is used.
 
 ```bash
@@ -187,8 +210,8 @@ seed 42, and at most 600 iterations. No external AI service or pretrained model 
 .venv/bin/python Chatbot.py
 ```
 
-The script evaluates a stratified 80/20 split (192 training, 48 test examples), fitting
-vocabulary and IDF only on the training partition. It then refits on all 240 source
+The script evaluates a stratified 80/20 split (204 training, 51 test examples), fitting
+vocabulary and IDF only on the training partition. It then refits on all 255 source
 examples and saves `data/intent_model.joblib`. `Chatbot.py` loads that model. Train before
 starting the app; retrain and restart after changing either CSV or scikit-learn version.
 Only load model files produced by your own training script: joblib uses Python pickle.
@@ -260,13 +283,12 @@ sandbox. The Python chatbot does not automatically load an Orange trained model.
    flow with fictional records, including pending requirements and lost IDs.
 3. Verify account assignments and student identity; add an audit trail, account/password
    administration, login throttling, a QR access/revocation policy, and backups before
-   using actual student records. The QR profile deliberately displays the requested
-   student details to anyone holding its link.
+   using actual student records. QR details require staff sign-in; review staff access and account assignments.
 4. Collect varied English/Filipino/Taglish questions, improve confusing intents, then
    train and evaluate the final classifier with a held-out set.
-5. Add approved appointment availability and reminders once the office workflow is agreed.
+5. Enter the approved replacement policy, publish real appointment availability, and test the lost/found/claim flow with staff.
 
 School dates/times are stored as local wall time. Pickup slots have capacity checks. Automatic holiday calendars, email/SMS
-notifications, fee payment, and lost ID report submission are not implemented.
+notifications and fee payment are not implemented. Lost/found submissions and in-app notifications are implemented.
 
 For an isolated local preview/test database, set `SCHOOL_ID_DATABASE` to an alternate SQLite file path. The default remains `data/inventory.sqlite3`.

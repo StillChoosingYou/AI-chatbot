@@ -56,13 +56,15 @@ class RoleTests(unittest.TestCase):
             self.assertEqual(self.guard.get(response.json['qr_url']).status_code,200)
         url = '/student/' + self.sam['token']
         public = self.app.test_client()
-        self.assertIn('Lost',public.get(url).get_data(as_text=True))
+        self.assertEqual(public.get(url).status_code,302)
+        self.assertIn('Lost',self.guard.get(url).get_data(as_text=True))
         result=self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'id_status':'Active','status':'Released'})
         self.assertEqual(result.status_code,200)
-        page=public.get(url).get_data(as_text=True)
+        page=self.guard.get(url).get_data(as_text=True)
+        self.assertIn('PERMANENTLY DEACTIVATED',page)
         for text in ('Active','Released','Front of ID','Back of ID','does not authorize entry'):
             self.assertIn(text,page)
-        self.assertEqual(result.json['token'],self.sam['token'])
+        self.assertNotEqual(result.json['token'],self.sam['token'])
         self.assertEqual(self.coordinator.patch(f'/api/inventory/{self.sam["id"]}',json={'id_status':'Invalid'}).status_code,400)
 
     def test_ambiguous_missing_and_partial_names(self):

@@ -63,7 +63,7 @@ class IDImageTests(unittest.TestCase):
         with patch('id_cards.qrcode.QRCode.add_data') as add:
             response=self.client.get(f'{self.profile}/id/back.png')
         self.assertEqual(response.status_code,200)
-        add.assert_called_once_with('http://localhost'+self.profile)
+        add.assert_called_once_with(self.row['token'])
 
     def test_upload_both_sides_persist_strip_metadata_and_remove(self):
         result=self.post_upload(self.upload,data={'front':(fixture('red',True),'../../front.png'),

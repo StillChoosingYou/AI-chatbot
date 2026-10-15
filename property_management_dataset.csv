@@ -239,3 +239,18 @@ S237,Anong oras bukas ang ID office?,office_hours_location,taglish,ai_seed
 S238,Saan kukunin ang school ID?,office_hours_location,taglish,ai_seed
 S239,Bukas ba ang opisina para sa ID ngayon?,office_hours_location,taglish,ai_seed
 S240,Saan pupunta para sa lost ID appointment?,office_hours_location,taglish,ai_seed
+S241,I found a student ID in the hallway,found_id_report,en,ai_seed
+S242,Nakapulot ako ng ID,found_id_report,fil,ai_seed
+S243,May napulot na school ID ang guard,found_id_report,fil,ai_seed
+S244,Report a found student card,found_id_report,en,ai_seed
+S245,Log this recovered school ID at Security,found_id_report,en,ai_seed
+S246,I found the original ID while replacement is processing,found_id_report,en,ai_seed
+S247,Nahanap na ang nawawalang ID,found_id_report,fil,ai_seed
+S248,Someone handed a lost ID to the Security Office,found_id_report,en,ai_seed
+S249,Paano ireport ang napulot kong student ID,found_id_report,fil,ai_seed
+S250,"Found ID ito, nasa guard na",found_id_report,tl-en,ai_seed
+S251,I-scan ang QR ng napulot na ID para maibalik,found_id_report,tl-en,ai_seed
+S252,The missing student card has been recovered,found_id_report,en,ai_seed
+S253,Nasa Security na ang ID na nakita sa canteen,found_id_report,fil,ai_seed
+S254,Cancel replacement dahil nahanap ang original ID,found_id_report,tl-en,ai_seed
+S255,Notify the owner that their ID was found,found_id_report,en,ai_seed

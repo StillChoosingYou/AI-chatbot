@@ -1,13 +1,13 @@
 # School ID ANN evaluation
 
-Training: 192 examples. Held-out test: 48 examples.
+Training: 204 examples. Held-out test: 51 examples.
 
-- Raw intent accuracy: 70.8%
-- Raw macro F1: 0.689
-- Accuracy including fallback: 68.8%
-- Macro F1 including fallback: 0.669
+- Raw intent accuracy: 68.6%
+- Raw macro F1: 0.665
+- Accuracy including fallback: 68.6%
+- Macro F1 including fallback: 0.682
 
-Deployment model fitted on 240 source examples after evaluation. Scores above describe the evaluation model.
+Deployment model fitted on 255 source examples after evaluation. Scores above describe the evaluation model.
 
 - Small synthetic dataset; holdout scores do not establish real-world accuracy.
 - Review/group near-duplicate paraphrases before formal evaluation.

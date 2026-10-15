@@ -87,7 +87,7 @@ class LostIDRescheduleTests(unittest.TestCase):
         self.assertEqual((row['id_status'],row['status'],row['token']),('Lost','Ready for release',self.sam['token']))
         restored=signed_client(create_app(self.db)).get('/api/inventory').json['records']
         self.assertEqual(next(r for r in restored if r['id']==row['id'])['schedule_date'],'2026-12-11')
-        page=self.app.test_client().get('/student/'+row['token']).get_data(as_text=True)
+        page=self.guard.get('/student/'+row['token']).get_data(as_text=True)
         self.assertIn('2026-12-11 at 14:15',page)
         self.assertNotIn('2026-12-10',page)
         self.assertEqual(changed.json['qr_url'],f'/qr/{row["id"]}.png')

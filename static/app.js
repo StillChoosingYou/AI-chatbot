@@ -23,6 +23,7 @@ async function load(silentOffer=false) {
     render();
     if (studentRole) await refreshPickupOffer(silentOffer);
     if (coordinator) await loadPickupSlots();
+    await loadTickets();
   } catch (error) { notify(error.message); }
 }
 function render() {
@@ -31,11 +32,13 @@ function render() {
   const query = $('search').value.trim().toLowerCase();
   const shown = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query) && [['id_status','id-status-filter'],['status','status-filter'],['course','course-filter'],['year_level','year-filter'],['section','section-filter'],['request_type','kind-filter']].every(([field,id])=>!$(id).value || String(r[field])===$(id).value));
   $('count').textContent = `${shown.length} of ${records.length}`;
-  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${r.id_status==='Lost' ? `<p class="replacement-availability">${r.status==='Ready for release' ? 'Replacement available for pickup' : 'Replacement not yet available for pickup'}</p>${coordinator || studentRole ? `<button class="text-button replacement-action" data-reschedule="${r.id}" ${r.status!=='Ready for release' ? 'disabled' : ''}>${studentRole ? 'Choose / change pickup date' : 'Schedule / reschedule replacement pickup'}</button>` : ''}` : ''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
+  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="${studentRole ? `/api/inventory/${r.id}/view` : `/student/${encodeURIComponent(r.token)}`}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${['Lost','Reported Lost'].includes(r.id_status) ? `<p class="replacement-availability">${['Ready for release','Unclaimed'].includes(r.status) ? 'Replacement available for pickup' : 'Replacement not yet available for pickup'}</p>${coordinator || studentRole ? `<button class="text-button replacement-action" data-reschedule="${r.id}" ${!['Pending','Ready for release','Unclaimed'].includes(r.status) ? 'disabled' : ''}>${studentRole ? 'Choose / change appointment' : 'Schedule / reschedule replacement'}</button>` : ''}` : ''}${coordinator && ['Ready for release','Unclaimed'].includes(r.status) ? `<button class="text-button" data-audit="${r.id}">Report missing stock</button>` : ''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
 }
 for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) { $(id).addEventListener('input',render); $(id).addEventListener('change',render); }
 $('reset-filters').onclick = () => { for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) $(id).value=''; render(); };
 $('records').onclick = event => {
+  const audit=event.target.closest('[data-audit]');
+  if (audit) auditStock(Number(audit.dataset.audit));
   const select = event.target.closest('[data-select]');
   const edit = event.target.closest('[data-edit]');
   const images = event.target.closest('[data-images]');
@@ -58,12 +61,15 @@ function openDialog(row=null) {
   for (const input of $('identity-fields').querySelectorAll('input,select')) input.disabled=!!row;
   for (const input of $('processing-fields').querySelectorAll('input,select,textarea')) input.disabled=!row;
   if (row) for (const key of ['id_status','status','schedule_type','schedule_date','schedule_time','pending_reason']) $('record-form').elements[key].value=row[key];
+  for (const option of $('record-form').elements.id_status.options) option.disabled=['Reported Lost','Found - For Claiming','Missing from Stock'].includes(option.value) && option.value!==row?.id_status;
   $('record-dialog').showModal();
 }
 $('new-record').onclick=()=>openDialog(); $('close-dialog').onclick=()=>$('record-dialog').close();
 $('record-form').onsubmit = async event => {
   event.preventDefault(); $('save-record').disabled=true;
   const body = Object.fromEntries(new FormData(event.target));
+  const original=records.find(row=>row.id===editing);
+  if (original && ['Lost','Reported Lost'].includes(original.id_status) && body.status==='Released' && !confirm('Confirm actual collection: issue the replacement with a NEW QR and permanently deactivate the original QR? Print the new sticker after saving.')) { $('save-record').disabled=false; return; }
   try { await api(editing ? `/api/inventory/${editing}` : '/api/inventory',{method:editing?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); $('record-dialog').close(); await load(); notify('Record saved.'); }
   catch(error) { $('form-error').textContent=error.message; }
   finally { $('save-record').disabled=false; }
@@ -74,12 +80,13 @@ function retirePickupChoices() {
 }
 function showReply(response) {
   message(response.reply,'bot');
+  if (response.action) reportForm(response.action);
   if (response.qr_url) {
     const card=document.createElement('div'); card.className='message bot chat-qr';
     const link=document.createElement('a'); link.href=response.scan_url; link.target='_blank'; link.rel='noopener';
     const image=document.createElement('img'); image.src=response.qr_url; image.alt=`Scan to view ${response.student_name}'s ID status`;
     link.appendChild(image); card.appendChild(link);
-    const caption=document.createElement('p'); caption.textContent=`${response.student_name} · Scan or open to view current status and ID images.`; card.appendChild(caption);
+    const caption=document.createElement('p'); caption.textContent=`${response.student_name} · Open your ID workspace, or ask signed-in staff to scan the code.`; card.appendChild(caption);
     $('messages').appendChild(card);
   }
   if (response.pickup_offer && response.pickup_offer.ready && response.pickup_offer.slots.length) {
@@ -110,6 +117,7 @@ async function refreshPickupOffer(silent=false) {
   if (!studentRole || checkingOffer || bookingPending) return;
   checkingOffer=true;
   try {
+    await receiveNotifications();
     const {offer,record}=await api('/api/pickup-offer');
     records=records.map(row=>row.id===record.id ? {...row,...record} : row); render();
     const signature=JSON.stringify(offer);
@@ -215,7 +223,7 @@ $('reschedule-form').onsubmit=async event=>{
 };
 async function loadPickupSlots() {
   const {slots}=await api('/api/pickup-slots');
-  $('published-slots').innerHTML=slots.length ? slots.map(slot=>`<article class="published-slot"><span><strong>${slot.schedule_date} · ${slot.schedule_time}</strong> (UTC+8)<br>${slot.booked} / ${slot.capacity} students booked · ${slot.expired ? 'Past' : slot.enabled ? 'Open' : 'Closed'}</span>${!slot.expired ? `<button class="text-button" data-slot="${slot.id}" data-enabled="${slot.enabled ? 'false' : 'true'}">${slot.enabled ? 'Close' : 'Reopen'}</button>` : ''}</article>`).join('') : '<p>No pickup dates published yet.</p>';
+  $('published-slots').innerHTML=slots.length ? slots.map(slot=>`<article class="published-slot"><span><strong>${escapeText(slot.purpose)} · ${slot.schedule_date} · ${slot.schedule_time}</strong> (UTC+8)<br>${slot.booked} / ${slot.capacity} students booked · ${slot.expired ? 'Past' : slot.enabled ? 'Open' : 'Closed'}</span>${!slot.expired ? `<button class="text-button" data-slot="${slot.id}" data-enabled="${slot.enabled ? 'false' : 'true'}">${slot.enabled ? 'Close' : 'Reopen'}</button>` : ''}</article>`).join('') : '<p>No pickup dates published yet.</p>';
 }
 if (coordinator) {
   $('slot-form').onsubmit=async event=>{
@@ -223,7 +231,7 @@ if (coordinator) {
     const body=Object.fromEntries(new FormData(event.target)); body.capacity=Number(body.capacity);
     try {
       await api('/api/pickup-slots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      event.target.reset(); await loadPickupSlots(); notify('Pickup date published. Ready students will see it in the chatbot.');
+      event.target.reset(); await loadPickupSlots(); notify('Appointment published. Eligible students will see it in the chatbot.');
     } catch(error) { $('slot-error').textContent=error.message; }
     finally { $('publish-slot').disabled=false; }
   };
@@ -242,3 +250,93 @@ if (studentRole) {
 }
 
 if (coordinator) setInterval(()=>{if(document.visibilityState==='visible') loadPickupSlots().catch(error=>notify(error.message));},15000);
+
+function reportForm(action) {
+  const lost=action==='report_lost';
+  if (lost!==studentRole) return;
+  const form=document.createElement('form'); form.className='message bot report-form';
+  form.innerHTML=lost
+    ? '<strong>Confirm your lost ID report</strong><label>Student number<input name="student_id" required maxlength="100"></label><label>Course<input name="course" required maxlength="100"></label><label>Section<input name="section" required maxlength="100"></label><label><input type="checkbox" name="confirmed" required> My ID is lost. Flag its QR and request replacement.</label><button class="primary">Confirm lost report</button><p role="alert"></p>'
+    : '<strong>Log a physically received ID</strong><label>Scanned QR code<input name="code" required maxlength="500"></label><label><input type="checkbox" name="confirmed" required> Security has physically received this ID.</label><button class="primary">Confirm found report</button><p role="alert"></p>';
+  form.onsubmit=async event=>{
+    event.preventDefault(); const button=form.querySelector('button'); button.disabled=true;
+    const body=Object.fromEntries(new FormData(form)); body.confirmed=form.elements.confirmed.checked;
+    try {
+      const result=await api(`/api/id-reports/${lost ? 'lost' : 'found'}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      showReply(result); form.remove(); offerSignature=null; await load();
+    } catch(error) { form.querySelector('[role=alert]').textContent=error.message; button.disabled=false; }
+  };
+  $('messages').appendChild(form); $('messages').scrollTop=$('messages').scrollHeight;
+}
+const displayedNotices=new Set();
+async function receiveNotifications() {
+  const {notifications}=await api('/api/notifications');
+  for (const item of notifications) if (!displayedNotices.has(item.id)) {
+    message(item.message,'bot'); displayedNotices.add(item.id);
+  }
+  if (notifications.length) await api('/api/notifications/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:notifications.map(item=>item.id)})});
+}
+async function loadTickets() {
+  const {tickets}=await api('/api/id-tickets');
+  $('tickets').innerHTML=tickets.length ? tickets.map(ticket=>`<p><strong>${escapeText(ticket.reference)}</strong> · ${escapeText(records.find(row=>row.id===ticket.record_id)?.name || `Record ${ticket.record_id}`)} · ${escapeText(ticket.kind)} · ${escapeText(ticket.state)} · ${escapeText(ticket.created_at)} (UTC+8)</p>`).join('') : '<p>No reports recorded.</p>';
+}
+$('refresh-tickets').onclick=()=>loadTickets().catch(error=>notify(error.message));
+async function auditStock(id) {
+  if (!confirm('Confirm: you physically checked office stock and this ready ID is missing?')) return;
+  try {
+    const result=await api(`/api/inventory/${id}/audit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed:true})});
+    notify(result.reply); await load();
+  } catch(error) { notify(error.message); }
+}
+if (coordinator) {
+  api('/api/id-policy').then(policy=>{for (const key of ['requirements','fee','claim_location']) $('policy-form').elements[key].value=policy[key];}).catch(error=>notify(error.message));
+  $('policy-form').onsubmit=async event=>{
+    event.preventDefault(); const button=event.target.querySelector('button'); button.disabled=true;
+    try {
+      await api('/api/id-policy',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(event.target)))});
+      $('policy-result').textContent='Approved policy saved.';
+    } catch(error) { $('policy-result').textContent=error.message; }
+    finally { button.disabled=false; }
+  };
+}
+if (!studentRole) {
+  let cameraStream=null, cameraTimer=null;
+  function stopCamera() {
+    if (cameraTimer) clearTimeout(cameraTimer);
+    cameraTimer=null;
+    if (cameraStream) for (const track of cameraStream.getTracks()) track.stop();
+    cameraStream=null; $('scanner-video').srcObject=null; $('scanner-video').hidden=true;
+    $('stop-camera').hidden=true; $('start-camera').disabled=false;
+  }
+  async function openCode(code) {
+    const result=await api(`/api/qr/lookup?code=${encodeURIComponent(code)}`);
+    stopCamera(); location.assign(result.url);
+  }
+  $('scanner-form').onsubmit=async event=>{
+    event.preventDefault();
+    try { await openCode($('scan-code').value.trim()); }
+    catch(error) { $('scanner-result').textContent=error.message; }
+  };
+  $('stop-camera').onclick=stopCamera;
+  $('start-camera').onclick=async()=>{
+    $('start-camera').disabled=true;
+    try {
+      if (!('BarcodeDetector' in window) || !(await BarcodeDetector.getSupportedFormats()).includes('qr_code')) throw new Error('Camera QR detection is unavailable in this browser. Scan with your phone camera and paste the code above.');
+      cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+      $('scanner-video').srcObject=cameraStream; $('scanner-video').hidden=false; $('stop-camera').hidden=false;
+      await $('scanner-video').play();
+      const detector=new BarcodeDetector({formats:['qr_code']});
+      const scan=async()=>{
+        if (!cameraStream) return;
+        try {
+          const codes=await detector.detect($('scanner-video'));
+          if (!cameraStream) return;
+          if (codes.length) { $('scan-code').value=codes[0].rawValue; await openCode(codes[0].rawValue); return; }
+          cameraTimer=setTimeout(scan,300);
+        } catch(error) { stopCamera(); $('scanner-result').textContent=error.message; }
+      };
+      cameraTimer=setTimeout(scan,300);
+    } catch(error) { stopCamera(); $('scanner-result').textContent=error.message+' Camera access requires HTTPS or localhost.'; }
+  };
+  window.addEventListener('pagehide',stopCamera);
+}

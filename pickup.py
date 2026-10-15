@@ -9,8 +9,8 @@ def school_now():
 
 
 def slot_usage(db, date, time, excluding=None):
-    return db.execute('''SELECT COUNT(*) FROM inventory WHERE schedule_type='Lost ID replacement'
-        AND schedule_date=? AND schedule_time=? AND id_status='Lost' AND status!='Released'
+    return db.execute('''SELECT COUNT(*) FROM inventory WHERE schedule_type IN ('Lost ID replacement','Lost ID application')
+        AND schedule_date=? AND schedule_time=? AND id_status IN ('Lost','Reported Lost') AND status!='Released'
         AND (? IS NULL OR id!=?)''', (date, time, excluding, excluding)).fetchone()[0]
 
 
@@ -22,34 +22,44 @@ def install_pickup(app, connect, record, scan_url):
             enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
             UNIQUE(schedule_date,schedule_time))''')
 
+        if 'purpose' not in {row['name'] for row in db.execute('PRAGMA table_info(pickup_slots)')}:
+            db.execute("ALTER TABLE pickup_slots ADD COLUMN purpose TEXT NOT NULL DEFAULT 'Pickup' CHECK(purpose IN ('Application','Pickup'))")
+
+    def phase(row):
+        if row['id_status'] not in ('Lost','Reported Lost'): return None
+        if row['status']=='Pending': return 'Application'
+        if row['status'] in ('Ready for release','Unclaimed'): return 'Pickup'
+        return None
+
     def available_slots(row):
-        if row['id_status'] != 'Lost' or row['status'] != 'Ready for release':
+        if not phase(row):
             return []
         now = school_now().strftime('%Y-%m-%d %H:%M')
         with connect() as db:
             slots = [dict(slot) for slot in db.execute('''SELECT * FROM pickup_slots
-                WHERE enabled=1 AND schedule_date||' '||schedule_time>?
-                ORDER BY schedule_date,schedule_time''', (now,))]
+                WHERE enabled=1 AND purpose=? AND schedule_date||' '||schedule_time>?
+                ORDER BY schedule_date,schedule_time''', (phase(row),now))]
             result = []
             for slot in slots:
                 remaining = slot['capacity'] - slot_usage(db, slot['schedule_date'], slot['schedule_time'], row['id'])
                 if remaining > 0:
                     result.append({'id':slot['id'], 'schedule_date':slot['schedule_date'], 'schedule_time':slot['schedule_time'],
-                                   'remaining':remaining, 'current':row['schedule_type']=='Lost ID replacement'
+                                   'remaining':remaining, 'current':row['schedule_type'] in ('Lost ID replacement','Lost ID application')
                                    and row['schedule_date']==slot['schedule_date'] and row['schedule_time']==slot['schedule_time']})
         return result
 
     def offer(row):
-        ready = row['id_status']=='Lost' and row['status']=='Ready for release'
+        purpose=phase(row)
+        ready=purpose is not None
         slots = available_slots(row)
         if not ready:
             reply = f'{row["name"]}: the replacement ID is not available for pickup yet (processing status: {row["status"]}). Available pickup dates will appear here once it is Ready for release.'
         else:
-            reply = f'{row["name"]}: your replacement ID is available for pickup. '
-            if row['schedule_type']=='Lost ID replacement' and row['schedule_date']:
+            reply = f'{row["name"]}: '+('your lost ID report is recorded. Choose a replacement application appointment. ' if purpose=='Application' else 'your replacement ID is available for pickup. ')
+            if row['schedule_type'] in ('Lost ID replacement','Lost ID application') and row['schedule_date']:
                 reply += f'Current appointment: {row["schedule_date"]} at {row["schedule_time"]} (school time, UTC+8). '
             else:
-                reply += 'No replacement pickup appointment is recorded yet. '
+                reply += 'No replacement appointment is recorded yet. '
             if slots and any(not slot['current'] for slot in slots):
                 dates = ', '.join(f'{slot["schedule_date"]} at {slot["schedule_time"]}' for slot in slots)
                 reply += f'Available dates and times (school time, UTC+8): {dates}. Choose a date and time below to book or reschedule.'
@@ -57,15 +67,17 @@ def install_pickup(app, connect, record, scan_url):
                 reply += 'Your current appointment remains booked. No other pickup dates are available yet.'
             else:
                 reply += 'There are no available pickup dates right now. New dates will appear here when the coordinator publishes availability.'
+        if purpose=='Application':
+            reply=reply.replace('pickup dates','application dates')
         return {'record_id':row['id'], 'ready':ready, 'slots':slots, 'reply':reply,
-                'can_book':g.user['role'] in ('student','coordinator')}
+                'purpose':purpose, 'can_book':g.user['role'] in ('student','coordinator')}
 
     @app.get('/api/pickup-offer')
     def student_pickup_offer():
         if g.user['role'] != 'student':
             abort(403)
         row = record(g.user['record_id'])
-        return jsonify(offer=offer(row) if row['id_status']=='Lost' else None, record=row)
+        return jsonify(offer=offer(row) if row['id_status'] in ('Lost','Reported Lost') else None, record=row)
 
     @app.get('/api/inventory/<int:record_id>/pickup-slots')
     def record_pickup_slots(record_id):
@@ -86,8 +98,11 @@ def install_pickup(app, connect, record, scan_url):
     @app.post('/api/pickup-slots')
     def publish_pickup_slot():
         payload = request.get_json(silent=True)
-        if not isinstance(payload, dict) or set(payload) != {'schedule_date','schedule_time','capacity'}:
+        if not isinstance(payload, dict) or set(payload) not in ({'schedule_date','schedule_time','capacity'},{'schedule_date','schedule_time','capacity','purpose'}):
             return jsonify(error='Supply a pickup date, time, and capacity.'), 400
+        purpose=payload.get('purpose','Pickup')
+        if purpose not in ('Application','Pickup'):
+            return jsonify(error='Choose Application or Pickup.'),400
         date, time, capacity = payload['schedule_date'], payload['schedule_time'], payload['capacity']
         if not isinstance(date,str) or not isinstance(time,str) or type(capacity) is not int or not 1 <= capacity <= 500:
             return jsonify(error='Use a valid date/time and a capacity of 1–500 students.'), 400
@@ -103,7 +118,7 @@ def install_pickup(app, connect, record, scan_url):
                 return jsonify(error='That date and time already exist. Reopen the slot if it was closed.'), 409
             if slot_usage(db,date,time) > capacity:
                 return jsonify(error='Capacity cannot be below the number of existing appointments at that time.'), 409
-            cursor = db.execute('INSERT INTO pickup_slots (schedule_date,schedule_time,capacity) VALUES (?,?,?)', (date,time,capacity))
+            cursor = db.execute('INSERT INTO pickup_slots (schedule_date,schedule_time,capacity,purpose) VALUES (?,?,?,?)', (date,time,capacity,purpose))
         return jsonify(id=cursor.lastrowid), 201
 
     @app.patch('/api/pickup-slots/<int:slot_id>')
@@ -133,20 +148,22 @@ def install_pickup(app, connect, record, scan_url):
             current = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
             if current is None:
                 abort(404)
-            if current['id_status'] != 'Lost':
+            if current['id_status'] not in ('Lost','Reported Lost'):
                 return jsonify(error='This action is for a student whose ID is currently marked Lost.'), 409
-            if current['status'] != 'Ready for release':
+            if not phase(current):
                 return jsonify(error='The replacement ID is not available for pickup yet.'), 409
             slot = db.execute('SELECT * FROM pickup_slots WHERE id=?', (payload['slot_id'],)).fetchone()
             if slot is None or not slot['enabled'] or slot['schedule_date']+' '+slot['schedule_time'] <= school_now().strftime('%Y-%m-%d %H:%M'):
                 return jsonify(error='That pickup date is no longer available. Please choose another date.'), 409
+            if slot['purpose']!=phase(current):
+                return jsonify(error='Choose an appointment for the current replacement stage.'),409
             if slot_usage(db,slot['schedule_date'],slot['schedule_time'],record_id) >= slot['capacity']:
                 return jsonify(error='That pickup time is now full. Please choose another available date.'), 409
-            db.execute("UPDATE inventory SET schedule_type='Lost ID replacement',schedule_date=?,schedule_time=? WHERE id=?",
-                       (slot['schedule_date'],slot['schedule_time'],record_id))
+            db.execute("UPDATE inventory SET schedule_type=?,schedule_date=?,schedule_time=? WHERE id=?",
+                       ('Lost ID application' if slot['purpose']=='Application' else 'Lost ID replacement',slot['schedule_date'],slot['schedule_time'],record_id))
         row = record(record_id)
-        reply = f'{row["name"]}: replacement pickup confirmed for {row["schedule_date"]} at {row["schedule_time"]} (school time, UTC+8). Your existing QR code shows the updated appointment.'
+        reply = f'{row["name"]}: replacement {"application" if slot["purpose"]=="Application" else "pickup"} confirmed for {row["schedule_date"]} at {row["schedule_time"]} (school time, UTC+8). Your existing QR code shows the updated appointment.'
         return jsonify(record=row, reply=reply, student_name=row['name'],
-                       qr_url=url_for('qr_image',record_id=record_id), scan_url=scan_url(row['token']))
+                       qr_url=url_for('qr_image',record_id=record_id), scan_url=url_for('own_id_view',record_id=record_id) if g.user['role']=='student' else scan_url(row['token']))
 
     return offer
