@@ -1,4 +1,3 @@
-let selected = null;
 const studentRole = document.body.dataset.role === 'student';
 let offerSignature = null, checkingOffer = false, bookingPending = false;
 const $ = (id) => document.getElementById(id);
@@ -11,22 +10,16 @@ async function api(url, options = {}) {
 }
 function notify(message) { $('toast').textContent = message; }
 async function load() { if(studentRole) await refreshPickupOffer(); }
-if (!studentRole) $('clear-selected').onclick=()=>{selected=null;$('selected-student').textContent='Ask by name or student number';};
 function message(text,kind) { const node=document.createElement('div'); node.className=`message ${kind}`; node.textContent=text; $('messages').appendChild(node); $('messages').scrollTop=$('messages').scrollHeight; }
 function retirePickupChoices() {
   for (const button of document.querySelectorAll('.pickup-options button')) button.disabled=true;
 }
 function showReply(response) {
   message(response.reply,'bot');
-  if (response.action) reportForm(response.action);
-  if (response.qr_url) {
-    const card=document.createElement('div'); card.className='message bot chat-qr';
-    const link=document.createElement('a'); link.href=response.scan_url; link.target='_blank'; link.rel='noopener';
-    const image=document.createElement('img'); image.src=response.qr_url; image.alt=`Scan to view ${response.student_name}'s ID status`;
-    link.appendChild(image); card.appendChild(link);
-    const caption=document.createElement('p'); caption.textContent=`${response.student_name} · Scan to check ID status. Students must sign in to their own chatbot for personal details.`; card.appendChild(caption);
-    $('messages').appendChild(card);
-  }
+  if (response.action==='scan_id' && !studentRole) {
+    $('id-scanner').scrollIntoView({behavior:'smooth',block:'start'});
+    $('scan-code').focus({preventScroll:true});
+  } else if (response.action) reportForm(response.action);
   if (studentRole && response.scan_url && !response.qr_url) {
     const link=document.createElement('a');link.href=response.scan_url;link.target='_blank';link.rel='noopener';link.textContent='Open my ID details';link.className='message bot';$('messages').appendChild(link);
   }
@@ -40,15 +33,6 @@ function showReply(response) {
       button.disabled=slot.current || !offer.can_book;
       button.onclick=()=>bookPickup(offer.record_id,slot.id);
       choices.appendChild(button);
-    }
-    $('messages').appendChild(choices);
-  }
-  if (response.candidates) {
-    const choices=document.createElement('div'); choices.className='message bot candidate-list';
-    for (const row of response.candidates) {
-      const button=document.createElement('button'); button.className='text-button';
-      button.textContent=`${row.name} · ${row.student_id} · ${row.course}, ${row.section}, Year ${row.year_level}`;
-      button.onclick=()=>{selected=row.id; $('selected-student').textContent=row.name;  send('What is the ID processing status?');}; choices.appendChild(button);
     }
     $('messages').appendChild(choices);
   }
@@ -87,7 +71,7 @@ async function bookPickup(recordId,slotId) {
 async function send(text) {
   message(text,'user'); $('chat-form').querySelector('button').disabled=true;
   try {
-    const response=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,record_id:selected})});
+    const response=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
     if (studentRole && response.pickup_offer) offerSignature=JSON.stringify(response.pickup_offer);
     showReply(response);
   } catch(error) { message(error.message,'bot'); }

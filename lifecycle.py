@@ -3,7 +3,7 @@ import secrets
 from datetime import timedelta
 from urllib.parse import urlparse
 
-from flask import abort, g, jsonify, request, url_for
+from flask import abort, g, jsonify, request, session, url_for
 
 from pickup import school_now
 
@@ -152,6 +152,8 @@ class IDLifecycle:
             row=db.execute('SELECT * FROM inventory WHERE id=?',(qr['record_id'],)).fetchone() if qr else None
         if row is None:
             abort(404)
+        if g.user and g.user['role']=='guard':
+            session['scanned_record_id']=row['id']
         qr=dict(qr)
         if qr['revoked_at'] and qr['state']!='retired': qr['state']='revoked'
         return dict(row),qr
@@ -198,6 +200,7 @@ class IDLifecycle:
             payload=request.get_json(silent=True)
             if not isinstance(payload,dict) or set(payload)!={'code','confirmed'} or not isinstance(payload['code'],str) or payload['confirmed'] is not True:
                 return jsonify(error='Scan the QR code and confirm the physical ID was received by Security.'),400
+            self.scanned(payload['code'])
             with self.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
                 qr=db.execute('SELECT * FROM qr_codes WHERE token=?',(payload['code'],)).fetchone()

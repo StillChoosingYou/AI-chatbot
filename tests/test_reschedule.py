@@ -176,7 +176,7 @@ class LostIDRescheduleTests(unittest.TestCase):
             self.assertEqual(reply['pickup_offer']['slots'][0]['id'],slot)
             self.assertTrue(reply['pickup_offer']['can_book'])
         self.assertEqual(self.guard.post('/api/chat',json={'message':"What is Sam Reyes's ID status?"}).status_code,200)
-        self.assertFalse(self.guard.get(f'/api/inventory/{self.sam["id"]}/pickup-slots').json['offer']['can_book'])
+        self.assertEqual(self.guard.get(f'/api/inventory/{self.sam["id"]}/pickup-slots').status_code,403)
         self.assertEqual(self.current()['schedule_date'],'')
         self.coordinator.patch(f'/api/pickup-slots/{slot}',json={'enabled':False})
         self.assertIn('no available pickup dates',self.student.get('/api/pickup-offer').json['offer']['reply'])

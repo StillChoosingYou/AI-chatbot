@@ -57,8 +57,12 @@ def install_access(app, connect):
             return 'Only signed-in staff can view QR ID images.',403
         if request.endpoint == 'sticker' and g.user['role'] != 'coordinator':
             return jsonify(error='Only property management can print QR stickers.'),403
-        if request.endpoint == 'qr_image' and g.user['role'] not in ('guard','coordinator'):
-            return jsonify(error='Only guards and property management can view status QR codes.'),403
+        if request.endpoint == 'qr_image' and g.user['role'] != 'coordinator':
+            return jsonify(error='Only property management can generate QR codes. Scan the code on the ID to check its status.'),403
+        if g.user and g.user['role']=='guard' and request.endpoint in ('own_id_view','own_id_image','record_pickup_slots'):
+            return jsonify(error='Scan the QR code on the student ID to view its status.'),403
+        if g.user and g.user['role']=='guard' and request.endpoint=='claim_found_id' and session.get('scanned_record_id')!=request.view_args['record_id']:
+            return jsonify(error='Scan this ID before confirming claiming.'),403
         if g.user and g.user['role']=='student' and protected and not public_route and not session.get('student_verified'):
             return jsonify(error='Verify your student number and assigned account first.'),403
         if g.user and request.endpoint == 'inventory' and g.user['role'] != 'coordinator':

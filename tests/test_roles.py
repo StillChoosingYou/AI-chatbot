@@ -52,9 +52,9 @@ class RoleTests(unittest.TestCase):
     def test_staff_inventory_and_scan_use_explicit_role_rules(self):
         result=self.ask(self.guard,"What's the processing status of Sam Reyes's ID?")
         self.assertEqual(result.status_code,200)
-        self.assertEqual(result.json['student_name'],'Sam Reyes')
-        self.assertIn('qr_url',result.json)
-        self.assertNotIn('pickup_offer',result.json)
+        self.assertEqual(result.json['action'],'scan_id')
+        for key in ('student_name','qr_url','id_status','processing_status','pickup_offer','candidates'):
+            self.assertNotIn(key,result.json)
         self.assertEqual(self.ask(self.guard,'Show ID inventory').status_code,403)
         for text in ('hello','Show ID inventory',"What's the status of Sam Reyes's ID?"):
             self.assertEqual(self.ask(self.coordinator,text).status_code,403)
@@ -72,6 +72,37 @@ class RoleTests(unittest.TestCase):
         self.assertEqual(result.status_code,200)
         self.assertNotEqual(result.json['token'],self.sam['token'])
         self.assertIn('PERMANENTLY DEACTIVATED',self.guard.get(url).get_data(as_text=True))
+
+    def test_guard_status_requires_code_and_cannot_use_numeric_routes(self):
+        # Neither names nor forged selections may leak records before OR after a scan.
+        texts=["What is Sam Reyes's ID status?", "What is DEMO-003 ID status?",
+               "What is the ID processing status?"]
+        def assert_no_lookup():
+            for text in texts:
+                response=self.ask(self.guard,text,record_id=self.sam['id'])
+                self.assertEqual(response.status_code,200)
+                self.assertEqual(response.json['action'],'scan_id')
+                self.assertNotIn('Sam Reyes',response.json['reply'])
+                for key in ('student_name','qr_url','scan_url','id_status','processing_status','candidates','record'):
+                    self.assertNotIn(key,response.json)
+            for suffix in ('/view','/id/front.png','/id/back.png','/pickup-slots'):
+                self.assertEqual(self.guard.get(f'/api/inventory/{self.sam["id"]}'+suffix).status_code,403)
+            self.assertEqual(self.guard.get(f'/qr/{self.sam["id"]}.png').status_code,403)
+        assert_no_lookup()
+        self.assertEqual(self.guard.post(f'/api/inventory/{self.sam["id"]}/claim',json={'verified':True}).status_code,403)
+        for code in ('Sam Reyes','DEMO-003','unknown-code'):
+            response=self.guard.get('/api/qr/lookup',query_string={'code':code})
+            self.assertEqual(response.status_code,404)
+            self.assertNotIn('Sam Reyes',response.get_data(as_text=True))
+        scan=self.guard.get('/api/qr/lookup',query_string={'code':self.sam['token']})
+        self.assertEqual(scan.status_code,200)
+        page=self.guard.get(scan.json['url']).get_data(as_text=True)
+        self.assertIn('Sam Reyes',page)
+        self.assertIn('Processing status:',page)
+        self.assertIn('REVOKED',page)
+        for side in ('front','back'):
+            self.assertEqual(self.guard.get('/student/'+self.sam['token']+'/id/'+side+'.png').status_code,200)
+        assert_no_lookup()
 
     def test_names_never_expand_student_visibility(self):
         new={'student_id':'DEMO-007','name':'Sam Reyes','course':'BSIT','section':'C','year_level':2}

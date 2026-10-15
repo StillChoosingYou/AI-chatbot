@@ -19,7 +19,7 @@ Open http://localhost:5000. Six fictional demo records are created on the first 
 Records, accounts, and appointments persist in `data/inventory.sqlite3`. Back up your local database before updating. Avoid committing runtime database changes.
 The interface supports search, course, section, year, request type, and status filters.
 QR codes appear on the left; status, appointments, and updates appear on the right.
-Sign in as a coordinator, add a record, and use **Update / schedule** for processing and appointments. Verified students use **Ask about ID** for their own record. Public guidance is at **/help**, also linked from sign-in. Students confirm a replacement
+Sign in as a coordinator, add a record, and use **Update / schedule** for processing and appointments. Verified students use **ID status** in their chatbot for their own record. Public guidance is at **/help**, also linked from sign-in. Students confirm a replacement
 pickup booking by clicking an available date in the chat. Text questions open a confirmation form; they do not
 submit reports or change appointments. Coordinators manage records and publish availability.
 
@@ -74,7 +74,7 @@ and HTTPS. QR details and images require guard/staff sign-in; students see their
 | Intent | Access |
 | --- | --- |
 | `bot_help`, `id_requirements`, `office_hours_location`, `qr_student_details` | Public guidance; no inventory lookup |
-| `id_release_schedule`, `id_processing_status`, `pending_id`, `pending_id_schedule` | Verified student: own record; guard: individual lookup by name/student number |
+| `id_release_schedule`, `id_processing_status`, `pending_id`, `pending_id_schedule` | Verified student: own record; guard: scan guidance only; status requires the ID QR code |
 | `lost_id_report`, `lost_id_schedule`, `authorized_pickup` | Verified student: own record only; representative pickup needs PMO approval |
 | `id_inventory`, `qr_sticker_request` | Coordinator inventory functions; chatbot directs guards/students to PMO |
 | `found_id_report` | Public hand-in guidance; guard records custody through chat/scanner; PMO notifies owner |
@@ -82,7 +82,7 @@ and HTTPS. QR details and images require guard/staff sign-in; students see their
 ### Separate workspaces
 
 - **Property management coordinator:** signs in to inventory, filters records, updates processing, uploads ID images, prints stickers, publishes appointments, manages policy and sends found-ID notifications. There is no chatbot on this workspace; `/api/chat` denies coordinator requests.
-- **Guard:** signs in to the chatbot, asks for an individual student's status by full name or student number, receives the status/QR, scans codes and logs physically received IDs. Guards cannot load the inventory feed, list all tickets, edit records, print stickers or book student appointments.
+- **Guard:** signs in to the chatbot, scans the QR code on the student's ID to view ID status and processing status and logs physically received IDs. Name, student number and numeric record IDs cannot reveal status or generate a QR for guards. Guards cannot load the inventory feed, list all tickets, edit records, print stickers or book student appointments.
 - **Student:** signs in with their assigned account and student number to the chatbot. They can check their own ID, submit a confirmed lost report, receive PMO notices and choose available replacement appointments. They cannot browse inventory or other students' records.
 
 The server enforces these roles on direct API requests as well as the pages. `/api/inventory` is coordinator-only; `/api/my-id` returns only the signed-in student's record without its raw QR token. Individual profile and appointment endpoints retain ownership checks. Greetings, help and other public guidance remain available at `/help`. The neural network classifies intent; login and server rules enforce access. The catalog's `access_role` describes each function, and coordinator functions run through inventory controls.

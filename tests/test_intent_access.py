@@ -48,6 +48,10 @@ class IntentAccessTests(unittest.TestCase):
                             self.assertNotIn(self.owner['name'],response.get_data(as_text=True))
                             self.assertNotIn('qr_url',response.json)
                             self.assertNotIn('record',response.json)
+                        if role=='guard' and intent in GUARD_INTENTS:
+                            self.assertEqual(response.json['action'],'scan_id')
+                            for key in ('student_name','id_status','processing_status','qr_url','scan_url','candidates','record'):
+                                self.assertNotIn(key,response.json)
                         if not allowed:
                             self.assertNotIn('student_name',response.json)
 
@@ -95,7 +99,7 @@ class IntentAccessTests(unittest.TestCase):
             self.assertEqual(self.public.get(path).status_code,302)
             self.assertEqual(self.student.get(path).status_code,403)
             self.assertEqual(self.staff.get(path).status_code,200)
-            self.assertEqual(self.guard.get(path).status_code,200 if prefix=='/qr/' else 403)
+            self.assertEqual(self.guard.get(path).status_code,403)
         self.assertEqual(self.student.patch(f'/api/inventory/{self.owner["id"]}',json={'status':'Released'}).status_code,403)
 
     def test_public_scan_never_shows_owner_images_or_processing(self):
