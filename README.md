@@ -34,6 +34,31 @@ submit reports or change appointments. Coordinators manage records and publish a
 
 The calendar endpoint `/api/my-appointment.ics` requires a verified student session and always exports that student's saved appointment. PMO continues using the inventory workspace. The ANN classifier and existing dataset are unchanged by these UI tools. No external AI API or additional Python packages are needed. The pinned QR decoder, integrity and Apache-2.0 license are documented in `static/vendor/README.md`.
 
+### Updating an older checkout
+
+The role-separated app is on `coderabbit/school-property-inventory-chatbot/80999f17`.
+Back up your database and save local changes, then switch to that branch and update:
+
+```bash
+git fetch origin
+git switch coderabbit/school-property-inventory-chatbot/80999f17
+git pull --ff-only
+```
+
+Restart `Chatbot.py` and refresh the page. Static asset URLs include content versions,
+so updated scripts and styles do not reuse an older cached version.
+The layout adapts to phones, tablets and desktops; dialogs scroll on small screens.
+Inventory and chat requests time out with a useful message so controls can be retried.
+
+If an older combined app stops with `crypto.randomUUID is not a function` on a LAN
+HTTP address, apply the separately provided `main-http-startup-fix.patch` from its
+project root (`git apply main-http-startup-fix.patch`), then restart and hard refresh.
+That compatibility patch is for the older `main` app; use the task branch above for
+roles and the complete updated interface.
+Camera and voice typing require HTTPS or localhost and browser permission/support.
+On LAN HTTP, use QR photo upload, pasted scanned codes and typed chat.
+QR photo decoding is available to both guards and PMO and does not upload the photo.
+
 ### Roles and sign-in
 
 There is no public role picker or shared default password. Create accounts on the

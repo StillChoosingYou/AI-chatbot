@@ -1,5 +1,6 @@
 """Local school ID management prototype. Run with .venv/bin/python Chatbot.py."""
 import io
+import hashlib
 import os
 import re
 import secrets
@@ -30,6 +31,11 @@ SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID application', 'Lost ID rep
 
 def create_app(database=None):
     app = Flask(__name__)
+    # A changed script must not reuse an older browser-cached asset after updating.
+    def asset_url(filename):
+        version = hashlib.sha256((ROOT / 'static' / filename).read_bytes()).hexdigest()[:12]
+        return url_for('static', filename=filename, v=version)
+    app.jinja_env.globals['asset_url'] = asset_url
     app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
     app.config['DATABASE'] = str(database or os.environ.get('SCHOOL_ID_DATABASE') or ROOT / 'data' / 'inventory.sqlite3')
     public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')

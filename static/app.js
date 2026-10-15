@@ -3,11 +3,18 @@ const coordinator = document.body.dataset.role === 'coordinator';
 const $ = (id) => document.getElementById(id);
 const escapeText = (value) => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 async function api(url, options = {}) {
-  options.headers = {...options.headers, 'X-CSRF-Token': document.body.dataset.csrf};
-  const response = await fetch(url, options);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || 'Unable to complete the request.');
-  return body;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),20000);
+  try {
+    const response=await fetch(url,{...options,signal:controller.signal,headers:{...options.headers,'X-CSRF-Token':document.body.dataset.csrf}});
+    const body=await response.json();
+    if (!response.ok) throw new Error(response.status===401 ? 'Your session has expired. Sign in again.' : body.error || 'Unable to complete the request.');
+    return body;
+  } catch(error) {
+    if (error.name==='AbortError') throw new Error('The request timed out. Check your connection and try again.');
+    if (error instanceof TypeError) throw new Error('Unable to connect. Check your connection and try again.');
+    throw error;
+  } finally { clearTimeout(timeout); }
 }
 function notify(message) { $('toast').textContent = message; }
 async function load() {
@@ -181,48 +188,6 @@ if (coordinator) {
     finally { button.disabled=false; }
   };
 }
-{
-  let cameraStream=null, cameraTimer=null;
-  function stopCamera() {
-    if (cameraTimer) clearTimeout(cameraTimer);
-    cameraTimer=null;
-    if (cameraStream) for (const track of cameraStream.getTracks()) track.stop();
-    cameraStream=null; $('scanner-video').srcObject=null; $('scanner-video').hidden=true;
-    $('stop-camera').hidden=true; $('start-camera').disabled=false;
-  }
-  async function openCode(code) {
-    const result=await api(`/api/qr/lookup?code=${encodeURIComponent(code)}`);
-    stopCamera(); location.assign(result.url);
-  }
-  $('scanner-form').onsubmit=async event=>{
-    event.preventDefault();
-    try { await openCode($('scan-code').value.trim()); }
-    catch(error) { $('scanner-result').textContent=error.message; }
-  };
-  $('stop-camera').onclick=stopCamera;
-  $('start-camera').onclick=async()=>{
-    $('start-camera').disabled=true;
-    try {
-      if (!('BarcodeDetector' in window) || !(await BarcodeDetector.getSupportedFormats()).includes('qr_code')) throw new Error('Camera QR detection is unavailable in this browser. Scan with your phone camera and paste the code above.');
-      cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
-      $('scanner-video').srcObject=cameraStream; $('scanner-video').hidden=false; $('stop-camera').hidden=false;
-      await $('scanner-video').play();
-      const detector=new BarcodeDetector({formats:['qr_code']});
-      const scan=async()=>{
-        if (!cameraStream) return;
-        try {
-          const codes=await detector.detect($('scanner-video'));
-          if (!cameraStream) return;
-          if (codes.length) { $('scan-code').value=codes[0].rawValue; await openCode(codes[0].rawValue); return; }
-          cameraTimer=setTimeout(scan,300);
-        } catch(error) { stopCamera(); $('scanner-result').textContent=error.message; }
-      };
-      cameraTimer=setTimeout(scan,300);
-    } catch(error) { stopCamera(); $('scanner-result').textContent=error.message+' Camera access requires HTTPS or localhost.'; }
-  };
-  window.addEventListener('pagehide',stopCamera);
-}
-
 $('tickets').onclick=async event=>{
   const button=event.target.closest('[data-notify-owner]'); if(!button) return;
   if(!confirm('PMO: confirm the physical ID is in custody and notify its owner?')) return;

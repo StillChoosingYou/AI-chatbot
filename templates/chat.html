@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>School ID · ID assistant</title>
-  <link rel="stylesheet" href="/static/style.css">
-  {% if g.user.role == 'guard' %}<script src="/static/vendor/jsQR-1.4.0.js" defer></script>{% endif %}
-  <script src="/static/chat.js" defer></script>
+  <link rel="stylesheet" href="{{asset_url('style.css')}}">
+  {% if g.user.role == 'guard' %}<script src="{{asset_url('vendor/jsQR-1.4.0.js')}}" defer></script>{% endif %}
+  <script src="{{asset_url('chat.js')}}" defer></script>
+  {% if g.user.role == 'guard' %}<script src="{{asset_url('qr-scanner.js')}}" defer></script>{% endif %}
 </head>
 <body data-role="{{g.user.role}}" data-csrf="{{csrf_token()}}">
 <a class="skip-link" href="#chat-input">Skip to chat</a>
