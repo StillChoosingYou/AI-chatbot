@@ -1,6 +1,84 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>School ID · ID assistant</title><link rel="stylesheet" href="/static/style.css"><script src="/static/chat.js" defer></script></head>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>School ID · ID assistant</title>
+  <link rel="stylesheet" href="/static/style.css">
+  {% if g.user.role == 'guard' %}<script src="/static/vendor/jsQR-1.4.0.js" defer></script>{% endif %}
+  <script src="/static/chat.js" defer></script>
+</head>
 <body data-role="{{g.user.role}}" data-csrf="{{csrf_token()}}">
-<aside class="sidebar"><a class="brand" href="/" aria-label="School ID home"><span class="brand-icon">▦</span><span>School ID<small>PROPERTY MANAGEMENT</small></span></a><div class="nav-label">WORKSPACE</div><a class="nav active" href="#assistant">◌ &nbsp; ID assistant</a><div class="sidebar-bottom"><span class="avatar">{{{"student":"ST","coordinator":"PM","guard":"GD"}[g.user.role]}}</span><div>{{g.user.username}}<small>{{role_labels[g.user.role]}}</small></div></div></aside>
-<main><header class="topbar"><span>Workspace <span class="slash">/</span> ID assistant</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="text-button">Sign out</button></form></header>
-<section class="content"><div class="heading"><div class="eyebrow">STUDENT SERVICES</div><h1>{{role_labels[g.user.role]}} chatbot</h1><p>{{"Your ID status, reports, and appointments." if g.user.role == "student" else "Scan student ID codes to check status and record found IDs."}}</p></div><p class="entry-policy"><strong>No ID, No Entry.</strong> A status QR does not authorize entry.</p><section class="assistant-panel" id="assistant"><div class="assistant-intro"><span class="assistant-icon">✦</span><h2>Your ID assistant</h2><p>{{"Ask about your own ID status, appointments, or a lost report." if g.user.role == "student" else "Scan the QR code on the student ID to view its status. Log physically received IDs; PMO notifies the owner."}}</p></div><div class="chat-area"><div id="messages" role="log" aria-live="polite"><div class="message bot">{% if g.user.role == "student" %}Hi! Ask about your ID status or appointment. When your replacement ID is ready, I’ll show available pickup dates here. Choose one to book or reschedule.{% else %}Hi! Scan the QR code on the ID before checking its status. Names and student numbers do not reveal ID status. You can also report a physically received ID here; PMO will notify the owner.{% endif %}</div></div><div class="suggestions">{% if g.user.role == "student" %}<button data-question="Nawala ang ID ko">Report lost ID</button>{% else %}<button data-question="Nakapulot ako ng ID">Report found ID</button>{% endif %}{% if g.user.role == "student" %}<button data-question="Pwede bang kunin ng kaibigan ko ang ID ko?">Representative pickup</button><button data-question="What is the status of my student ID?">ID status</button><button data-question="When can I collect my school ID?">Release schedule</button><button data-question="Can I reschedule my lost ID pickup?">Lost ID reschedule</button>{% else %}<button data-question="What is the ID processing status?">Scan to check ID status</button>{% endif %}</div><form id="chat-form"><label class="sr-only" for="chat-input">Message to ID assistant</label><input id="chat-input" placeholder="Ask about your school ID…" maxlength="1000" required><button class="primary" type="submit">Send ↗</button></form></div></section>{% if g.user.role != 'student' %}<section class="pickup-calendar" id="id-scanner"><h2>Scan ID QR code</h2><p>Scan with your camera, or paste the code read by your phone camera. A valid code is required before any ID status appears. Confirm physical custody separately when reporting a found ID.</p><form id="scanner-form" class="slot-form"><label>QR code<input id="scan-code" required maxlength="500" placeholder="PGPC-… or existing sticker URL"></label><button class="primary">Open ID details</button><button type="button" id="start-camera" class="text-button">Scan with camera</button><button type="button" id="stop-camera" class="text-button" hidden>Stop camera</button></form><video id="scanner-video" hidden playsinline muted style="max-width:100%"></video><p id="scanner-result" role="status"></p></section>{% endif %}<p id="toast" role="status" aria-live="polite"></p></section></main></body></html>
+<a class="skip-link" href="#chat-input">Skip to chat</a>
+<aside class="sidebar">
+  <a class="brand" href="/" aria-label="School ID home"><span class="brand-icon">▦</span><span>School ID<small>PROPERTY MANAGEMENT</small></span></a>
+  <div class="nav-label">WORKSPACE</div><a class="nav active" href="#assistant">◌ &nbsp; ID assistant</a>
+  {% if g.user.role == 'student' %}<a class="nav" href="#my-progress">◷ &nbsp; My progress</a>{% else %}<a class="nav" href="#id-scanner">▦ &nbsp; Scan an ID</a>{% endif %}
+  <div class="sidebar-bottom"><span class="avatar">{{'ST' if g.user.role == 'student' else 'GD'}}</span><div>{{g.user.username}}<small>{{role_labels[g.user.role]}}</small></div></div>
+</aside>
+<main>
+  <header class="topbar"><span>Workspace <span class="slash">/</span> ID assistant</span><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="text-button">Sign out</button></form></header>
+  <section class="content">
+    <div class="heading"><div class="eyebrow">STUDENT SERVICES</div><h1>{{role_labels[g.user.role]}} chatbot</h1><p>{{"Your ID status, reports, and appointments in one place." if g.user.role == "student" else "Scan student ID codes to check status and record found IDs."}}</p></div>
+    <p class="entry-policy"><strong>No ID, No Entry.</strong> A status QR does not authorize entry.</p>
+    {% if g.user.role == 'student' %}
+    <section class="experience-card" id="my-progress" aria-labelledby="progress-title">
+      <div class="tools-heading"><h2 id="progress-title">My ID progress</h2><button class="text-button" id="refresh-progress">Refresh</button></div>
+      <p id="progress-error" role="status"></p>
+      <div id="progress-summary" aria-live="polite">Loading your record…</div>
+      <ol id="progress-steps" class="progress-steps" aria-label="ID processing stages"></ol>
+      <div class="appointment-card" id="my-appointment"></div>
+      <a class="calendar-link" id="download-calendar" href="/api/my-appointment.ics" hidden>＋ Add appointment to calendar (.ics)</a>
+      <details class="report-tracker"><summary>My report tickets <span id="ticket-count"></span></summary><div id="my-tickets">Loading your reports…</div></details>
+      <p class="tool-note">Only your assigned record is shown. Updates refresh while this page is open.</p>
+    </section>
+    {% endif %}
+    <section class="assistant-panel" id="assistant">
+      <div class="assistant-intro"><span class="assistant-icon">✦</span><h2>Your ID assistant</h2>
+        <p>{{"Ask about your ID, choose an available date, or report a lost ID." if g.user.role == "student" else "A valid QR scan is required to see status. PMO handles found-ID owner notifications."}}</p>
+        <details class="quick-guide"><summary>How to use this assistant</summary>
+          <ol>{% if g.user.role == 'student' %}<li>Tap a quick question or type in English or Filipino.</li><li>Choose a published appointment date when offered.</li><li>Confirm a lost report only after checking your details.</li>{% else %}<li>Scan with the camera, upload a QR photo, or paste its scanned code.</li><li>Check the scan result and any lost or revoked warning.</li><li>Confirm physical custody separately for a found ID.</li>{% endif %}</ol>
+          <p>Reports need confirmation. Calendar downloads do not book appointments.</p>
+        </details>
+        <button class="text-button" id="start-over" type="button">Start a new conversation</button>
+      </div>
+      <div class="chat-area">
+        <div id="messages" role="log" aria-live="polite" aria-label="Conversation" tabindex="0">
+          <div class="message bot">{% if g.user.role == 'student' %}Hi! Ask about your ID status or appointment. I’ll show available replacement dates when you can book one.{% else %}Hi! Scan the QR on the ID to check status. Names and student numbers do not reveal status. I can also guide you through a found-ID report.{% endif %}</div>
+        </div>
+        <div id="chat-status" role="status" aria-live="polite"></div>
+        <div class="suggestions" aria-label="Quick questions">
+          {% if g.user.role == 'student' %}
+          <button data-question="What is the status of my student ID?">My ID status</button>
+          <button data-question="When can I collect my school ID?">Release schedule</button>
+          <button data-question="Can I reschedule my lost ID pickup?">Choose / change date</button>
+          <button data-question="Nawala ang ID ko">Report lost ID</button>
+          <button data-question="Pwede bang kunin ng kaibigan ko ang ID ko?">Representative pickup</button>
+          {% else %}
+          <button data-question="What is the ID processing status?">Scan to check status</button>
+          <button data-question="Nakapulot ako ng ID">Report found ID</button>
+          {% endif %}
+          <button data-question="What are the ID requirements and fees?">Requirements</button>
+          <button data-question="Where is the ID office?">Contact PMO</button>
+        </div>
+        <form id="chat-form">
+          <label class="sr-only" for="chat-input">Message to ID assistant</label>
+          <input id="chat-input" placeholder="Type your question in English or Filipino…" maxlength="1000" required autocomplete="off">
+          <button class="primary" type="submit">Send ↗</button>
+        </form>
+        <div class="voice-tools"><button type="button" class="text-button" id="voice-input" hidden>🎙 Voice typing</button><select id="voice-language" aria-label="Voice language" hidden><option value="en-PH">English</option><option value="fil-PH">Filipino</option></select><span id="voice-status" role="status"></span></div>
+        <p class="tool-note" id="voice-note" hidden>Voice typing uses your browser’s speech service. Review the text before sending.</p>
+      </div>
+    </section>
+    {% if g.user.role == 'guard' %}
+    <section class="pickup-calendar" id="id-scanner">
+      <h2>Scan ID QR code</h2><p>Use a camera or QR photo, or paste the code read by your phone. A valid code is required before status appears.</p>
+      <form id="scanner-form" class="slot-form"><label>Scanned QR code<input id="scan-code" required maxlength="500" placeholder="PGPC-… or existing sticker URL"></label><button class="primary">Open ID details</button><button type="button" id="start-camera" class="text-button">Scan with camera</button><button type="button" id="stop-camera" class="text-button" hidden>Stop camera</button></form>
+      <label class="qr-upload">Scan a QR photo<input type="file" id="qr-photo" accept="image/png,image/jpeg,image/webp"><span>PNG, JPEG or WebP · up to 10 MB. Decoded on this device; the photo is not uploaded.</span></label>
+      <video id="scanner-video" hidden playsinline muted aria-label="QR scanner camera"></video>
+      <p id="scanner-result" role="status" aria-live="polite"></p>
+    </section>
+    {% endif %}
+    <p id="toast" role="status" aria-live="polite"></p>
+  </section>
+</main>
+</body></html>

@@ -23,6 +23,17 @@ Sign in as a coordinator, add a record, and use **Update / schedule** for proces
 pickup booking by clicking an available date in the chat. Text questions open a confirmation form; they do not
 submit reports or change appointments. Coordinators manage records and publish availability.
 
+### Assistant experience tools
+
+- **Private student progress:** shows the signed-in student's recorded processing stage, current appointment and report tickets. It refreshes every 15 seconds while visible, and after a confirmed report or booking. Found/missing-stock cases do not display an invented processing progression.
+- **Appointment calendar:** after booking, download an `.ics` file with the actual appointment time converted from school time (UTC+8), plus a one-hour calendar reminder. The file omits name, student number and QR. Import it into your calendar; this is a snapshot, so download again after rescheduling. Downloading does not book an appointment or configure school email/SMS reminders.
+- **QR camera and photo tools for guards:** camera frames and PNG/JPEG/WebP photos (up to 10 MB) are decoded on the device with bundled jsQR 1.4.0. Only the decoded code is sent to the application; photos are not uploaded. This also works when the browser has no native BarcodeDetector. Camera access requires HTTPS or localhost and permission. Photo/pasted-code alternatives remain available. Guards cannot get status from names, student numbers or numeric record URLs.
+- **Optional voice typing:** supported browsers offer English or Filipino dictation through the browser's speech service. The recognized text stays in the input until the user taps Send. Microphone permission, browser support and speech-service connectivity are required; typing always remains available.
+- **Guided chat:** quick questions, an expandable guide, request progress, useful connection errors and a retry button. Duplicate sends are blocked without clearing the next draft. Start a new conversation clears the visible chat, without changing school records.
+- **Accessibility/mobile:** keyboard focus, skip-to-chat, labeled controls, live request status and responsive progress/scanner panels.
+
+The calendar endpoint `/api/my-appointment.ics` requires a verified student session and always exports that student's saved appointment. PMO continues using the inventory workspace. The ANN classifier and existing dataset are unchanged by these UI tools. No external AI API or additional Python packages are needed. The pinned QR decoder, integrity and Apache-2.0 license are documented in `static/vendor/README.md`.
+
 ### Roles and sign-in
 
 There is no public role picker or shared default password. Create accounts on the

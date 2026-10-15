@@ -1,7 +1,7 @@
 """Published pickup availability and atomic lost ID bookings (school time: UTC+8)."""
 from datetime import datetime, timedelta, timezone
 
-from flask import abort, g, jsonify, request, url_for
+from flask import Response, abort, g, jsonify, request, url_for
 
 
 def school_now():
@@ -78,6 +78,28 @@ def install_pickup(app, connect, record, scan_url):
             abort(403)
         row = record(g.user['record_id'])
         return jsonify(offer=offer(row) if row['id_status'] in ('Lost','Reported Lost') else None, record=row)
+
+    @app.get('/api/my-appointment.ics')
+    def appointment_calendar():
+        if g.user['role'] != 'student':
+            abort(403)
+        row = record(g.user['record_id'])
+        if not row['schedule_date'] or not row['schedule_time']:
+            return jsonify(error='No appointment is booked yet. Choose an available date first.'), 404
+        appointment = datetime.strptime(row['schedule_date']+' '+row['schedule_time'], '%Y-%m-%d %H:%M')
+        appointment = appointment.replace(tzinfo=timezone(timedelta(hours=8))).astimezone(timezone.utc)
+        # Calendar data deliberately excludes the student's name, ID number and QR.
+        lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//School ID//Appointments//EN',
+                 'BEGIN:VEVENT', f'UID:school-id-appointment-{row["id"]}@local.invalid',
+                 'DTSTAMP:'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'),
+                 'DTSTART:'+appointment.strftime('%Y%m%dT%H%M%SZ'),
+                 'SUMMARY:School ID appointment',
+                 'DESCRIPTION:Confirm requirements and the appointment venue with PMO.',
+                 'STATUS:CONFIRMED', 'BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY',
+                 'DESCRIPTION:School ID appointment in one hour', 'END:VALARM',
+                 'END:VEVENT', 'END:VCALENDAR', '']
+        return Response('\r\n'.join(lines), mimetype='text/calendar',
+                        headers={'Content-Disposition':'attachment; filename="school-id-appointment.ics"'})
 
     @app.get('/api/inventory/<int:record_id>/pickup-slots')
     def record_pickup_slots(record_id):
