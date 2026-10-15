@@ -9,6 +9,8 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 from werkzeug.datastructures import MultiDict
 
+from account_helpers import signed_client
+
 from Chatbot import create_app
 
 
@@ -27,7 +29,7 @@ class IDImageTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.database=Path(self.temp.name)/'inventory.sqlite3'
         self.app=create_app(self.database)
-        self.client=self.app.test_client()
+        self.client=signed_client(self.app)
         self.row=self.client.get('/api/inventory').json['records'][0]
         self.upload=f'/api/inventory/{self.row["id"]}/images'
         self.profile=f'/student/{self.row["token"]}'
@@ -43,7 +45,7 @@ class IDImageTests(unittest.TestCase):
     def test_sample_sides_and_existing_database(self):
         with sqlite3.connect(self.database) as db:
             db.execute('DROP TABLE id_images')
-        restored=create_app(self.database).test_client()
+        restored=signed_client(create_app(self.database))
         page=restored.get(self.profile).get_data(as_text=True)
         self.assertIn('Front of ID',page)
         self.assertIn('Back of ID',page)
@@ -68,7 +70,7 @@ class IDImageTests(unittest.TestCase):
                                                 'back':(fixture('blue'),'back.png')})
         self.assertEqual(result.status_code,200)
         self.assertEqual(result.json['saved'],['front','back'])
-        restored=create_app(self.database).test_client()
+        restored=signed_client(create_app(self.database))
         for side,color in [('front',(255,0,0)),('back',(0,0,255))]:
             response=restored.get(f'{self.profile}/id/{side}.png')
             with Image.open(io.BytesIO(response.data)) as image:

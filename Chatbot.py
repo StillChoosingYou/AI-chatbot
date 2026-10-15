@@ -1,7 +1,9 @@
 """Local school ID management prototype. Run with .venv/bin/python Chatbot.py."""
 import io
 import os
+import re
 import secrets
+import unicodedata
 import sqlite3
 import warnings
 from datetime import datetime
@@ -9,15 +11,17 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import qrcode
-from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
+from flask import Flask, abort, g, jsonify, render_template, request, send_file, url_for
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from access import install_access
 from id_cards import sample_card
 from intent_model import ANNIntentModel
 
 ROOT = Path(__file__).resolve().parent
 STATUSES = ('Pending', 'Processing', 'Ready for release', 'Released')
+ID_STATUSES = ('Not issued', 'Active', 'Lost')
 KINDS = ('New ID', 'Pending ID', 'Lost ID')
 SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
 
@@ -25,7 +29,7 @@ SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
 def create_app(database=None):
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
-    app.config['DATABASE'] = str(database or ROOT / 'data' / 'inventory.sqlite3')
+    app.config['DATABASE'] = str(database or os.environ.get('SCHOOL_ID_DATABASE') or ROOT / 'data' / 'inventory.sqlite3')
     public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
     if public_base and (urlparse(public_base).scheme not in ('http', 'https') or not urlparse(public_base).netloc):
         raise ValueError('PUBLIC_BASE_URL must be an absolute HTTP(S) URL')
@@ -62,11 +66,21 @@ def create_app(database=None):
             ]
             db.executemany('INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,pending_reason,token) VALUES (?,?,?,?,?,?,?,?,?)', [(*row,secrets.token_urlsafe(18)) for row in demo])
 
+    # Preserve existing inventory, images and QR tokens while separating ID validity.
+    with connect() as db:
+        columns = {row['name'] for row in db.execute('PRAGMA table_info(inventory)')}
+        if 'id_status' not in columns:
+            db.execute("ALTER TABLE inventory ADD COLUMN id_status TEXT NOT NULL DEFAULT 'Not issued'")
+            db.execute("UPDATE inventory SET id_status=CASE WHEN request_type='Lost ID' THEN 'Lost' WHEN status='Released' THEN 'Active' ELSE 'Not issued' END")
+    can_read = install_access(app, connect)
+
     def record(record_id):
         with connect() as db:
             row = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
         if row is None:
             abort(404)
+        if not can_read(row):
+            abort(403)
         return dict(row)
 
     def scan_url(token):
@@ -75,7 +89,7 @@ def create_app(database=None):
 
     @app.get('/')
     def home():
-        return render_template('index.html', statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES)
+        return render_template('index.html', statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES, id_statuses=ID_STATUSES)
 
     @app.get('/api/inventory')
     def inventory():
@@ -83,7 +97,8 @@ def create_app(database=None):
             rows = [dict(row) for row in db.execute('''SELECT inventory.*,
                 EXISTS(SELECT 1 FROM id_images WHERE record_id=inventory.id AND side='front') AS has_front_image,
                 EXISTS(SELECT 1 FROM id_images WHERE record_id=inventory.id AND side='back') AS has_back_image
-                FROM inventory ORDER BY id DESC''')]
+                FROM inventory WHERE (? IS NULL OR inventory.id=?) ORDER BY id DESC''',
+                (g.user['record_id'], g.user['record_id']))]
         # Only expose tokens needed to render QR links; raw student data stays out of training.
         return jsonify(records=rows, statuses=STATUSES)
 
@@ -106,7 +121,7 @@ def create_app(database=None):
             return jsonify(error='Choose a valid request type.'), 400
         try:
             with connect() as db:
-                cursor = db.execute('INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token) VALUES (?,?,?,?,?,?,?,?)', (*fields.values(),int(year),'Pending',kind,secrets.token_urlsafe(18)))
+                cursor = db.execute('INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token,id_status) VALUES (?,?,?,?,?,?,?,?,?)', (*fields.values(),int(year),'Pending',kind,secrets.token_urlsafe(18),'Lost' if kind == 'Lost ID' else 'Not issued'))
                 new_id = cursor.lastrowid
         except sqlite3.IntegrityError:
             return jsonify(error='That student ID already exists.'), 409
@@ -116,13 +131,13 @@ def create_app(database=None):
     def update_record(record_id):
         current = record(record_id)
         payload = request.get_json(silent=True)
-        allowed = ('status', 'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time')
+        allowed = ('id_status', 'status', 'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time')
         if not isinstance(payload, dict) or not payload or set(payload)-set(allowed):
             return jsonify(error='Supply status, pending reason, or schedule fields.'), 400
         if any(not isinstance(v, str) or len(v) > 500 for v in payload.values()):
             return jsonify(error='Fields must be text of up to 500 characters.'), 400
         current.update(payload)
-        if current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
+        if current['id_status'] not in ID_STATUSES or current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
             return jsonify(error='Choose a valid status and appointment type.'), 400
         schedule = [current[k] for k in ('schedule_type','schedule_date','schedule_time')]
         if any(schedule):
@@ -133,12 +148,12 @@ def create_app(database=None):
             except ValueError:
                 return jsonify(error='Use a valid date and time.'), 400
         with connect() as db:
-            db.execute('UPDATE inventory SET status=?,pending_reason=?,schedule_type=?,schedule_date=?,schedule_time=? WHERE id=?', (*[current[k] for k in allowed],record_id))
+            db.execute('UPDATE inventory SET id_status=?,status=?,pending_reason=?,schedule_type=?,schedule_date=?,schedule_time=? WHERE id=?', (*[current[k] for k in allowed],record_id))
         return jsonify(record(record_id))
 
     def scanned_record(token):
         with connect() as db:
-            row = db.execute('SELECT id,student_id,name,course,section,year_level FROM inventory WHERE token=?', (token,)).fetchone()
+            row = db.execute('SELECT * FROM inventory WHERE token=?', (token,)).fetchone()
         if row is None:
             abort(404)
         return row
@@ -216,6 +231,13 @@ def create_app(database=None):
             db.execute('DELETE FROM id_images WHERE record_id=? AND side=?', (record_id,side))
         return jsonify(removed=side)
 
+    @app.errorhandler(403)
+    @app.errorhandler(404)
+    def access_error(error):
+        if request.path.startswith('/api/'):
+            return jsonify(error='You cannot access that student record.' if error.code == 403 else 'Student record not found.'), error.code
+        return error
+
     @app.errorhandler(413)
     def too_large(error):
         return jsonify(error='Upload exceeds the 12 MB request limit. Use images up to 5 MB each.'), 413
@@ -248,16 +270,50 @@ def create_app(database=None):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or not isinstance(payload.get('message'), str) or not payload['message'].strip() or len(payload['message']) > 1000:
             return jsonify(error='Enter a message of 1–1000 characters.'), 400
-        intent = matcher.match(payload['message'])
-        selected = None
+        text = payload['message']
+        intent = matcher.match(text)
+        if re.search(r"\b(status|active|lost)\b", text, re.I) and re.search(r"\bID\b", text, re.I) and not re.search(r"\b(report|schedule|appointment|lost my)\b", text, re.I):
+            intent = 'id_processing_status'
+        def normalize(value):
+            value = unicodedata.normalize('NFKC', value).casefold().replace('’', "'")
+            value = re.sub(r"'s\b", '', value)
+            return ' '.join(re.findall(r"[^\W_]+", value))
+        query = normalize(text)
+        with connect() as db:
+            visible = [dict(row) for row in db.execute('SELECT * FROM inventory WHERE (? IS NULL OR id=?)',
+                       (g.user['record_id'], g.user['record_id']))]
+        # A supplied name takes precedence over a stale selected inventory card.
+        matches = [row for row in visible if (' ' + normalize(row['name']) + ' ') in (' ' + query + ' ')
+                   or (' ' + normalize(row['student_id']) + ' ') in (' ' + query + ' ')]
+        named_query = re.search(r"\b(?:of|for)\s+(.+?)(?:['’]s)?\s+(?:student\s+)?ID\b", text, re.I)
+        if not named_query:
+            named_query = re.search(r"\b(?:is|what['’]s|what is)\s+(.+?)(?:['’]s)?\s+ID\s+(?:active|lost|status|processing)\b", text, re.I)
+        if not named_query:
+            named_query = re.search(r"\bID\s+(?:processing\s+)?status\s+(?:of|for)\s+(.+?)[?.!]*$", text, re.I)
+        if not matches and named_query:
+            fragment = normalize(named_query.group(1))
+            if fragment not in ('my', 'the', 'a', 'our', 'this', 'my student'):
+                matches = [row for row in visible if fragment and ((' ' + fragment + ' ') in (' ' + normalize(row['name']) + ' ')
+                           or fragment == normalize(row['student_id']))]
+                if not matches:
+                    return jsonify(intent=intent, reply='No matching student was found in the records you can access. Check the full name or student ID.')
+        if len(matches) > 1:
+            return jsonify(intent=intent, reply='Several students match. Choose the correct student before checking the ID.',
+                           candidates=[{key: row[key] for key in ('id','name','student_id','course','section','year_level')} for row in matches])
+
+        selected = matches[0] if matches else None
         if payload.get('record_id') is not None:
             if not isinstance(payload['record_id'], int) or isinstance(payload['record_id'], bool):
                 return jsonify(error='Choose a valid inventory record.'), 400
-            selected = record(payload['record_id'])
+            supplied = record(payload['record_id'])
+            if selected is None:
+                selected = supplied
+        if g.user['role'] == 'student' and selected is None:
+            selected = record(g.user['record_id'])
         answers = {
             'greeting': 'Hello! I can help with school ID status, release schedules, pending or lost IDs, inventory, and QR stickers.',
             'thanks_goodbye': 'You’re welcome! Come back whenever you need help with your school ID.',
-            'bot_help': 'Select a student record, then ask about its ID status or appointment. You can also filter the inventory or print a QR sticker.',
+            'bot_help': 'Ask about a student by full name or student ID, or select a record to check its status or appointment. You can also filter the inventory or print a QR sticker.',
             'talk_to_human': 'Please contact the Property Management Office staff for assistance. Office contact details have not been configured yet.',
             'lost_id_report': 'Please report the missing ID to the Property Management Office. Staff can record a Lost ID request and arrange a replacement appointment. This chat has not submitted a report.',
             'id_requirements': 'Ask the Property Management Office to confirm the required documents, photo specifications, and any fees. School requirements have not been configured yet.',
@@ -270,9 +326,9 @@ def create_app(database=None):
         lookups = ('id_processing_status', 'pending_id', 'id_release_schedule', 'pending_id_schedule', 'lost_id_schedule')
         if intent in lookups:
             if selected is None:
-                answer = 'Select a student record using “Ask about ID” so I can check its status or appointment.'
+                answer = 'Select a student record using “Ask about ID” or ask by full name or student ID so I can check its status or appointment.'
             elif intent == 'id_processing_status':
-                answer = f'{selected["name"]}: ID status is {selected["status"]} ({selected["request_type"]}).'
+                answer = f'{selected["name"]}: ID status: {selected["id_status"]}. Processing status: {selected["status"]} ({selected["request_type"]}). No ID, No Entry. A status QR does not authorize entry; follow the school’s entry procedure.'
             elif intent == 'pending_id':
                 answer = f'{selected["name"]}: status is {selected["status"]}. ' + (selected['pending_reason'] or 'No pending reason has been recorded. Ask staff to confirm any missing requirements.')
             else:
@@ -283,7 +339,12 @@ def create_app(database=None):
                     answer = f'No {expected.lower()} appointment is recorded for {selected["name"]}. Staff can set the date and time using “Update / schedule”. This chat has not booked an appointment.'
         else:
             answer = answers.get(intent, answers['out_of_scope'])
-        return jsonify(intent=intent, reply=answer)
+        result = {'intent': intent, 'reply': answer}
+        if selected is not None and intent in lookups:
+            result.update(student_name=selected['name'], id_status=selected['id_status'],
+                          processing_status=selected['status'], qr_url=url_for('qr_image', record_id=selected['id']),
+                          scan_url=scan_url(selected['token']))
+        return jsonify(result)
 
     return app
 

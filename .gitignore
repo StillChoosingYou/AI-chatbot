@@ -4,3 +4,5 @@ __pycache__/
 data/*.sqlite3*
 data/*.joblib
 data/training/
+
+data/.session-key

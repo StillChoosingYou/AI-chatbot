@@ -1,7 +1,9 @@
 let records = [], selected = null, editing = null, imageRecord = null;
+const coordinator = document.body.dataset.role === 'coordinator';
 const $ = (id) => document.getElementById(id);
 const escapeText = (value) => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 async function api(url, options = {}) {
+  options.headers = {...options.headers, 'X-CSRF-Token': document.body.dataset.csrf};
   const response = await fetch(url, options);
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || 'Unable to complete the request.');
@@ -23,12 +25,12 @@ function render() {
   const groups = [['Total IDs', records.length, 'All student records'], ['Pending', records.filter(r=>r.status==='Pending').length, 'Awaiting requirements'], ['Ready for release',records.filter(r=>r.status==='Ready for release').length,'Available for pickup'], ['Released',records.filter(r=>r.status==='Released').length,'Successfully collected']];
   $('stats').innerHTML = groups.map(([label,total,detail],i)=>`<div class="stat"><div>${label}<span class="stat-symbol">${['▤','◷','✓','↗'][i]}</span></div><strong>${total.toString().padStart(2,'0')}</strong><small>${detail}</small></div>`).join('');
   const query = $('search').value.trim().toLowerCase();
-  const shown = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query) && [['status','status-filter'],['course','course-filter'],['year_level','year-filter'],['section','section-filter'],['request_type','kind-filter']].every(([field,id])=>!$(id).value || String(r[field])===$(id).value));
+  const shown = records.filter(r => `${r.name} ${r.student_id}`.toLowerCase().includes(query) && [['id_status','id-status-filter'],['status','status-filter'],['course','course-filter'],['year_level','year-filter'],['section','section-filter'],['request_type','kind-filter']].every(([field,id])=>!$(id).value || String(r[field])===$(id).value));
   $('count').textContent = `${shown.length} of ${records.length}`;
-  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button><button data-images="${r.id}">ID images</button></div></div></div><div class="status-side"><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button></div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
+  $('records').innerHTML = shown.length ? shown.map(r=>`<article class="record ${selected===r.id?'selected':''}"><div class="student-side"><a href="/student/${encodeURIComponent(r.token)}" target="_blank" rel="noopener" class="qr" aria-label="Open student details for ${escapeText(r.name)}"><img src="/qr/${r.id}.png" alt="QR code for ${escapeText(r.student_id)}"></a><div><h3>${escapeText(r.name)}</h3><p>${escapeText(r.student_id)} <span class="divider">·</span> ${escapeText(r.request_type)}</p><div class="student-tags"><span>${escapeText(r.course)}</span><span>Section ${escapeText(r.section)}</span><span>Year ${r.year_level}</span></div><div class="record-actions"><a href="/sticker/${r.id}" target="_blank" rel="noopener">Print sticker ↗</a><button data-select="${r.id}">Ask about ID</button>${coordinator ? `<button data-images="${r.id}">ID images</button>` : ''}</div></div></div><div class="status-side"><p class="id-validity">ID status: <strong>${escapeText(r.id_status)}</strong></p><span class="status ${r.status.toLowerCase().replaceAll(' ','-')}"><span>●</span> ${escapeText(r.status)}</span><p class="appointment">${r.schedule_date ? `${escapeText(r.schedule_type)}<br><strong>${escapeText(r.schedule_date)} · ${escapeText(r.schedule_time)}</strong>` : 'No appointment scheduled'}</p>${r.status==='Pending' && r.pending_reason ? `<p class="reason">${escapeText(r.pending_reason)}</p>`:''}${coordinator ? `<button class="text-button" data-edit="${r.id}">Update / schedule ↗</button>` : ''}</div></article>`).join('') : '<div class="empty">No IDs match these filters.<br>Try another search or reset the filters.</div>';
 }
-for (const id of ['search','status-filter','course-filter','year-filter','section-filter','kind-filter']) { $(id).addEventListener('input',render); $(id).addEventListener('change',render); }
-$('reset-filters').onclick = () => { for (const id of ['search','status-filter','course-filter','year-filter','section-filter','kind-filter']) $(id).value=''; render(); };
+for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) { $(id).addEventListener('input',render); $(id).addEventListener('change',render); }
+$('reset-filters').onclick = () => { for (const id of ['search','id-status-filter','status-filter','course-filter','year-filter','section-filter','kind-filter']) $(id).value=''; render(); };
 $('records').onclick = event => {
   const select = event.target.closest('[data-select]');
   const edit = event.target.closest('[data-edit]');
@@ -45,7 +47,7 @@ function openDialog(row=null) {
   $('identity-fields').hidden=!!row; $('processing-fields').hidden=!row; $('schedule-hint').hidden=!row;
   for (const input of $('identity-fields').querySelectorAll('input,select')) input.disabled=!!row;
   for (const input of $('processing-fields').querySelectorAll('input,select,textarea')) input.disabled=!row;
-  if (row) for (const key of ['status','schedule_type','schedule_date','schedule_time','pending_reason']) $('record-form').elements[key].value=row[key];
+  if (row) for (const key of ['id_status','status','schedule_type','schedule_date','schedule_time','pending_reason']) $('record-form').elements[key].value=row[key];
   $('record-dialog').showModal();
 }
 $('new-record').onclick=()=>openDialog(); $('close-dialog').onclick=()=>$('record-dialog').close();
@@ -59,7 +61,25 @@ $('record-form').onsubmit = async event => {
 function message(text,kind) { const node=document.createElement('div'); node.className=`message ${kind}`; node.textContent=text; $('messages').appendChild(node); $('messages').scrollTop=$('messages').scrollHeight; }
 async function send(text) {
   message(text,'user'); $('chat-form').querySelector('button').disabled=true;
-  try { const response=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,record_id:selected})}); message(response.reply,'bot'); }
+  try { const response=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,record_id:selected})}); message(response.reply,'bot');
+    if (response.qr_url) {
+      const card = document.createElement('div'); card.className='message bot chat-qr';
+      const link = document.createElement('a'); link.href=response.scan_url; link.target='_blank'; link.rel='noopener';
+      const image = document.createElement('img'); image.src=response.qr_url; image.alt=`Scan to view ${response.student_name}'s ID status`;
+      link.appendChild(image); card.appendChild(link);
+      const caption=document.createElement('p'); caption.textContent=`${response.student_name} · Scan or open to view current status and ID images.`; card.appendChild(caption);
+      $('messages').appendChild(card);
+    }
+    if (response.candidates) {
+      const choices=document.createElement('div'); choices.className='message bot candidate-list';
+      for (const row of response.candidates) {
+        const button=document.createElement('button'); button.className='text-button';
+        button.textContent=`${row.name} · ${row.student_id} · ${row.course}, ${row.section}, Year ${row.year_level}`;
+        button.onclick=()=>{selected=row.id; $('selected-student').textContent=row.name; render(); send('What is the ID processing status?');}; choices.appendChild(button);
+      }
+      $('messages').appendChild(choices);
+    }
+    $('messages').scrollTop=$('messages').scrollHeight; }
   catch(error) { message(error.message,'bot'); }
   finally { $('chat-form').querySelector('button').disabled=false; }
 }

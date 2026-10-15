@@ -16,12 +16,75 @@ python3 -m venv .venv
 ```
 
 Open http://localhost:5000. Six fictional demo records are created on the first run.
-Records and appointment changes persist in `data/inventory.sqlite3` (ignored by Git).
+Records, accounts, and appointments persist in `data/inventory.sqlite3`. Back up your local database before updating. Avoid committing runtime database changes.
 The interface supports search, course, section, year, request type, and status filters.
 QR codes appear on the left; status, appointments, and updates appear on the right.
-Add a record, choose **Update / schedule**, set a status and appointment, then choose
+Sign in as a coordinator, add a record, choose **Update / schedule**, set a status and appointment, then choose
 **Ask about ID** to ask the chatbot about that record. Chat requests do not submit reports
 or book appointments; staff use the inventory form to save changes.
+
+### Roles and sign-in
+
+There is no public role picker or shared default password. Create accounts on the
+computer that runs the app. Run these commands from the project folder before opening
+the workspace; passwords are prompted twice and must be at least 10 characters:
+
+```bash
+.venv/bin/python -m flask --app Chatbot:create_app create-account --username coordinator --role coordinator
+.venv/bin/python -m flask --app Chatbot:create_app create-account --username guard --role guard
+.venv/bin/python -m flask --app Chatbot:create_app create-account --username sam --role student --student-id DEMO-003
+```
+
+On **Windows PowerShell**, use:
+
+```powershell
+.\venv\Scripts\python.exe -m flask --app Chatbot:create_app create-account --username coordinator --role coordinator
+.\venv\Scripts\python.exe -m flask --app Chatbot:create_app create-account --username guard --role guard
+.\venv\Scripts\python.exe -m flask --app Chatbot:create_app create-account --username sam --role student --student-id DEMO-003
+.\venv\Scripts\python.exe Chatbot.py
+```
+
+Replace the usernames with assigned account names. A student's `--student-id` must
+already exist in inventory. The coordinator first adds new students through the
+workspace, then provisions their accounts with the command above. Accounts have
+one assigned role; student accounts are linked to one inventory record.
+
+| Role | Access |
+| --- | --- |
+| Student | View their own inventory record; ask about their status, appointment, or QR; print their sticker |
+| Property management coordinator | Search all records; add records; update ID status, processing, pending reasons, and appointments; manage ID images |
+| Guard | Search all records; ask about a student's ID; view status and share/print its QR; no record changes |
+
+Permissions are checked on the server. Passwords are hashed; sessions expire after
+8 hours and form/API writes require a CSRF token. `data/.session-key` is generated
+locally and must stay private; preserve it across restarts, or remove it to invalidate
+existing sessions. There is no password reset, account administration screen, or
+login throttling yet; deployment for real students needs these operational controls
+and HTTPS. QR links remain shareable links to student details and images.
+
+### Guard lookup and school entry policy
+
+As a guard, ask **“What's the processing status of Sam Reyes's ID?”**. You can also
+use a student ID such as **DEMO-003**, or select **Ask about ID** on a record. A named
+student takes precedence over a previously selected card. Full names ignore case
+and curly/straight possessive apostrophes; partial names such as **Sam** work in
+**“What is the status of Sam's ID?”**. Multiple matches require choosing a record;
+missing names never silently return another student's status.
+
+The reply gives **ID status**, **processing status**, and a QR link. Scan it to see
+current statuses, the appointment if recorded, and front/back ID images. The same
+QR reflects later coordinator updates; it is not a snapshot of the original status.
+Students' authenticated inventory/chat access is limited to their own record.
+
+- ID status: **Not issued**, **Active**, or **Lost**.
+- Processing status: **Pending**, **Processing**, **Ready for release**, or **Released**.
+
+Existing databases migrate automatically: Lost ID requests initially become Lost;
+released IDs become Active; other IDs become Not issued. The coordinator should
+verify these migrated statuses. Changing processing status does not automatically
+activate an ID; set ID status independently after confirming issuance/replacement.
+The chatbot repeats **“No ID, No Entry.”** It reports inventory facts and does not
+approve entry or treat a status QR as a substitute for wearing an ID.
 
 ### QR printing and phone scanning
 
@@ -58,8 +121,7 @@ Each image must be a single JPEG/PNG, at most 5 MB and 20 megapixels. Uploads ar
 normalized to PNG, resized proportionally to fit 1600 × 2400 pixels, and stripped of
 embedded metadata. Both sides are validated before either is saved. The QR destination
 still requires a phone-reachable `PUBLIC_BASE_URL`; actual ID images are visible to
-anyone who has that link. This local prototype still requires access controls before
-using real student data.
+anyone who has that link. Shareable QR access still needs the school’s approved policy before using real student data.
 
 ### Windows PowerShell
 
@@ -73,8 +135,7 @@ From the extracted project folder, use your existing `venv` directly:
 
 If the environment is missing, create it first with `py -3.11 -m venv venv`. When
 updating an existing installation, keep `venv/` and `data/`; replace the Python files,
-`templates/`, `static/`, and `assets/`, install requirements, and restart the app. This image-only
-update does not require retraining an existing model whose CSVs remain unchanged.
+`templates/`, `static/`, and `assets/`, install requirements, and restart the app. This role/status update does not require retraining an existing model whose CSVs remain unchanged. Create the role accounts once using the commands above.
 
 ## Dataset and intents
 
@@ -168,13 +229,15 @@ sandbox. The Python chatbot does not automatically load an Orange trained model.
    contact details, and who may set or change release appointments.
 2. Have staff test the filter → status update → appointment → chat lookup → printed QR
    flow with fictional records, including pending requirements and lost IDs.
-3. Add staff sign-in, student identity verification, access controls, an audit trail,
-   QR access/revocation policy, and backups before using actual student records. This
-   prototype has no authentication; record endpoints are available to anyone who can
-   reach it. The QR profile deliberately displays the requested student details.
+3. Verify account assignments and student identity; add an audit trail, account/password
+   administration, login throttling, a QR access/revocation policy, and backups before
+   using actual student records. The QR profile deliberately displays the requested
+   student details to anyone holding its link.
 4. Collect varied English/Filipino/Taglish questions, improve confusing intents, then
    train and evaluate the final classifier with a held-out set.
 5. Add approved appointment availability and reminders once the office workflow is agreed.
 
 School dates/times are stored as local wall time. Office capacity, conflicts, holidays,
 notifications, fee payment, and lost ID report submission are not implemented.
+
+For an isolated local preview/test database, set `SCHOOL_ID_DATABASE` to an alternate SQLite file path. The default remains `data/inventory.sqlite3`.

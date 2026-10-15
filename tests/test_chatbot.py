@@ -5,6 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 from xml.etree import ElementTree
 
+from account_helpers import signed_client
+
 from Chatbot import ROOT, create_app
 from intent_model import ANNIntentModel
 
@@ -14,7 +16,7 @@ class SchoolIDTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db = Path(self.temp.name) / 'test.sqlite3'
         self.app = create_app(self.db)
-        self.client = self.app.test_client()
+        self.client = signed_client(self.app)
         self.row = self.client.get('/api/inventory').json['records'][0]
 
     def tearDown(self):
@@ -54,7 +56,7 @@ class SchoolIDTests(unittest.TestCase):
         self.assertEqual(saved.status_code,200)
         answer=self.client.post('/api/chat',json={'message':'When can I collect my school ID?','record_id':rid}).json['reply']
         self.assertIn('2026-11-04 at 09:30',answer)
-        rows=create_app(self.db).test_client().get('/api/inventory').json['records']
+        rows=signed_client(create_app(self.db)).get('/api/inventory').json['records']
         self.assertEqual(next(r for r in rows if r['id']==rid)['schedule_time'],'09:30')
         self.assertEqual(self.client.patch(f'/api/inventory/{rid}',json={'schedule_time':''}).status_code,400)
         self.assertEqual(self.client.patch(f'/api/inventory/{rid}',json={'schedule_type':'','schedule_time':'','schedule_date':''}).status_code,200)
@@ -82,7 +84,7 @@ class SchoolIDTests(unittest.TestCase):
         with patch.dict('os.environ',{'PUBLIC_BASE_URL':'https://school.example'}):
             app=create_app(self.db)
         with patch('Chatbot.qrcode.QRCode.add_data') as add:
-            image=app.test_client().get(f'/qr/{self.row["id"]}.png')
+            image=signed_client(app).get(f'/qr/{self.row["id"]}.png')
             self.assertEqual(image.status_code,200)
             self.assertTrue(image.data.startswith(b'\x89PNG'))
             add.assert_called_once_with('https://school.example/student/'+self.row['token'])
