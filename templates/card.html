@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sample ID card · {{student.student_id}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="profile-body">
+  <main class="card-preview">
+    <p class="eyebrow">SAMPLE ID CARD · NOT OFFICIAL</p>
+    <h1>{{student.name}}</h1>
+    <p class="subtle">{{student.student_id}} · {{student.course}} · Section {{student.section}} · Year {{student.year_level}}</p>
+    <div class="card-faces">
+      <figure><img src="/card/{{student.id}}/front.png" alt="Front of sample ID for {{student.name}}"><figcaption>Front</figcaption></figure>
+      <figure><img src="/card/{{student.id}}/back.png" alt="Back of sample ID for {{student.name}}"><figcaption>Back</figcaption></figure>
+    </div>
+    <p class="subtle">Artwork is a placeholder silhouette. Print the QR sticker separately for scanning.</p>
+    <p><a class="primary" href="/sticker/{{student.id}}">Print QR sticker</a></p>
+  </main>
+</body>
+</html>

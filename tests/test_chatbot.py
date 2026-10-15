@@ -97,6 +97,41 @@ class SchoolIDTests(unittest.TestCase):
         self.assertEqual(self.client.get('/student/unknown').status_code,404)
         self.assertIn('30 × 30 mm',self.client.get(f'/sticker/{self.row["id"]}').get_data(as_text=True))
 
+    def test_role_tools_and_student_request(self):
+        home = self.client.get('/').get_data(as_text=True)
+        self.assertIn('role-dialog', home)
+        self.assertIn('Verify ID', home)
+        found = self.client.get('/api/verify', query_string={'q': self.row['student_id']})
+        self.assertEqual(found.status_code, 200)
+        self.assertEqual(found.json['matches'][0]['student_id'], self.row['student_id'])
+        lookup = self.client.post('/api/student/lookup', json={'student_id': self.row['student_id']})
+        self.assertEqual(lookup.status_code, 200)
+        self.assertEqual(self.client.post('/api/student/lookup', json={'student_id': 'NOPE'}).status_code, 404)
+        gate = self.client.post('/api/gate', json={'student_id': self.row['student_id'], 'direction': 'in'})
+        self.assertEqual(gate.status_code, 201)
+        incident = self.client.post('/api/incidents', json={
+            'category': 'No ID', 'location': 'Main gate', 'detail': 'Visitor without a card'})
+        self.assertEqual(incident.status_code, 201)
+        ticket = self.client.post('/api/requests', json={
+            'student_id': 'DEMO-LOST', 'name': 'Pat Lee', 'request_type': 'Lost ID', 'detail': 'Wallet stolen'})
+        self.assertEqual(ticket.status_code, 201)
+        accepted = self.client.patch(f'/api/requests/{ticket.json["id"]}', json={'status': 'Accepted'})
+        self.assertEqual(accepted.status_code, 200)
+        inventory = self.client.get('/api/inventory').json['records']
+        self.assertTrue(any(r['student_id'] == 'DEMO-LOST' and r['request_type'] == 'Lost ID' for r in inventory))
+        student_chat = self.client.post('/api/chat', json={
+            'message': 'What can you do?', 'workspace_role': 'student'}).json
+        self.assertIn('Look up', student_chat['reply'])
+        guard_chat = self.client.post('/api/chat', json={
+            'message': 'hello', 'workspace_role': 'guard'}).json
+        self.assertTrue(any(a['type'] == 'open_verify' for a in guard_chat['actions']))
+        card = self.client.get(f'/card/{self.row["id"]}/front.png')
+        self.assertEqual(card.status_code, 200)
+        self.assertTrue(card.data.startswith(b'\x89PNG'))
+        notes = self.client.patch(f'/api/inventory/{self.row["id"]}', json={'notes': 'Called guardian'})
+        self.assertEqual(notes.status_code, 200)
+        self.assertEqual(notes.json['notes'], 'Called guardian')
+
 
 if __name__=='__main__':
     unittest.main()
