@@ -28,6 +28,23 @@ def classify(pipeline, messages, threshold=DEFAULT_THRESHOLD):
     return labels, confidence
 
 
+def rank_intents(pipeline, message, limit=None):
+    """Return [(intent, score)] best first for one message.
+
+    The list is empty when the message holds no word the ANN knows. Scores are
+    the same uncalibrated softmax values that classify() uses, so treat them as
+    a ranking, not as probabilities.
+    """
+    vectors = pipeline.named_steps['tfidf'].transform([message])
+    if vectors[0].nnz == 0:
+        return []
+    network = pipeline.named_steps['ann']
+    probabilities = network.predict_proba(vectors)[0]
+    order = np.argsort(-probabilities, kind='stable')
+    ranked = [(str(network.classes_[index]), float(probabilities[index])) for index in order]
+    return ranked[:limit] if limit else ranked
+
+
 class ANNIntentModel:
     def __init__(self, model_path=DEFAULT_MODEL):
         model_path = Path(model_path)
@@ -42,6 +59,11 @@ class ANNIntentModel:
                 raise RuntimeError(f'{name} changed since training. Run: python train_model.py')
         self.pipeline = bundle['pipeline']
         self.threshold = bundle['threshold']
+
+    @property
+    def intents(self):
+        """Every label the ANN was trained on, including out_of_scope."""
+        return [str(label) for label in self.pipeline.named_steps['ann'].classes_]
 
     def match(self, text):
         labels, _ = classify(self.pipeline, [text], self.threshold)

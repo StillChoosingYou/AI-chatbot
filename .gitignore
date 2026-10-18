@@ -1,0 +1,17 @@
+# Local database: it holds student records once real data is entered.
+data/inventory.sqlite3
+data/inventory.sqlite3-journal
+data/inventory.sqlite3-wal
+data/inventory.sqlite3-shm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

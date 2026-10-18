@@ -32,8 +32,23 @@
   </header>
 
   <section class="content">
+    <!-- Coordinator: overview -->
+    <div class="workspace" data-workspace="coordinator" id="view-overview" hidden>
+      <div class="heading">
+        <div class="eyebrow">COORDINATOR</div>
+        <div class="title-row"><div><h1>Overview</h1><p>What needs attention today.</p></div></div>
+      </div>
+      <div class="tiles" id="overview-tiles" aria-label="Today at a glance"></div>
+      <div class="insight-grid">
+        <section class="insight-card"><h2>Next appointments</h2><div id="overview-next" class="mini-list"></div></section>
+        <section class="insight-card"><h2>IDs by status</h2><div id="overview-status" class="bars"></div></section>
+        <section class="insight-card"><h2>By course</h2><div id="overview-course" class="bars"></div></section>
+        <section class="insight-card"><h2>By request type</h2><div id="overview-kind" class="bars"></div></section>
+      </div>
+    </div>
+
     <!-- Coordinator: inventory -->
-    <div class="workspace" data-workspace="coordinator" id="view-inventory">
+    <div class="workspace" data-workspace="coordinator" id="view-inventory" hidden>
       <div class="heading">
         <div class="eyebrow">COORDINATOR</div>
         <div class="title-row">
@@ -60,8 +75,10 @@
           <span class="bulk-count" id="bulk-count">0 selected</span>
           <label>Set status: <select id="bulk-status"><option value="">Choose…</option>{% for s in statuses %}<option>{{s}}</option>{% endfor %}</select></label>
           <button class="primary" id="bulk-apply" type="button">Apply</button>
+          <button class="export-btn" id="bulk-stickers" type="button" data-max="{{ max_stickers }}" title="Open a print sheet with a QR sticker for each selected student">🖨 Print stickers</button>
           <button class="text-button" id="bulk-clear" type="button">Clear selection</button>
         </div>
+        <div class="chip-row attention-row" id="attention-chips" role="group" aria-label="Needs attention"></div>
         <div class="filter-row">
           <label class="search"><span class="sr-only">Search name or student ID</span><input id="search" type="search" placeholder="Search name or student ID…"></label>
           <label><span class="sr-only">Processing status</span><select id="status-filter"><option value="">All statuses</option>{% for s in statuses %}<option>{{s}}</option>{% endfor %}</select></label>
@@ -93,7 +110,27 @@
         <div class="eyebrow">COORDINATOR</div>
         <div class="title-row"><div><h1>Student requests</h1><p>Lost IDs and help tickets submitted by students.</p></div></div>
       </div>
+      <div class="chip-row" id="request-chips" role="group" aria-label="Filter requests by status"></div>
       <div id="request-inbox" class="tool-list" aria-live="polite"></div>
+    </div>
+
+    <!-- Coordinator: chatbot feedback -->
+    <div class="workspace" data-workspace="coordinator" id="view-feedback" hidden>
+      <div class="heading">
+        <div class="eyebrow">COORDINATOR</div>
+        <div class="title-row">
+          <div><h1>Chatbot feedback</h1><p>See which answers people rated 👎, name the right topic, and export the list for retraining.</p></div>
+          <div class="title-actions"><button class="export-btn" id="feedback-export" type="button" title="Download all feedback as CSV">📥 Export CSV</button></div>
+        </div>
+      </div>
+      <p class="notice">A question appears here only when the person ticked “share my question”. IDs, names, e-mails and long numbers are removed automatically, but please still read the text before you export or reuse it.</p>
+      <div class="tiles four" id="feedback-tiles" aria-label="Feedback summary"></div>
+      <div class="insight-grid">
+        <section class="insight-card"><h2>Topics people struggled with</h2><div id="feedback-topics" class="bars"></div></section>
+        <section class="insight-card"><h2>Why answers were rated 👎</h2><div id="feedback-reasons" class="bars"></div></section>
+      </div>
+      <div class="chip-row" id="feedback-chips" role="group" aria-label="Filter feedback"></div>
+      <div id="feedback-list" class="tool-list" aria-live="polite"></div>
     </div>
 
     <!-- Coordinator: activity -->
@@ -113,7 +150,10 @@
       </div>
       <form class="tool-card" id="verify-form">
         <label>Student ID, name, or token<input id="verify-query" maxlength="100" placeholder="e.g. DEMO-001 or Alex Rivera" required autocomplete="off"></label>
-        <button class="primary" type="submit">Verify</button>
+        <div class="form-buttons">
+          <button class="primary" type="submit">Verify</button>
+          <button class="export-btn" id="scan-btn" type="button" title="Scan a student's QR sticker with the camera">📷 Scan QR</button>
+        </div>
       </form>
       <div id="verify-result" class="tool-list" aria-live="polite"></div>
     </div>
@@ -124,6 +164,7 @@
         <div class="eyebrow">GUARD</div>
         <div class="title-row"><div><h1>Gate log</h1><p>Check students and visitors in or out.</p></div></div>
       </div>
+      <div class="pill-row" id="gate-summary" aria-live="polite"></div>
       <form class="tool-card form-grid" id="gate-form">
         <label>Student ID<input name="student_id" maxlength="100" placeholder="DEMO-001"></label>
         <label>Name (if visitor)<input name="name" maxlength="100" placeholder="Optional if student ID is known"></label>
@@ -161,6 +202,7 @@
         <button class="primary" type="submit">Look up</button>
       </form>
       <div id="my-id-card" class="tool-list" aria-live="polite"></div>
+      <div id="my-requests" class="tool-list" aria-live="polite"></div>
       <aside class="info-grid">
         <article><h3>Office hours</h3><p>{{office.hours}}</p><p>{{office.location}}</p><p>{{office.contact}}</p></article>
         <article><h3>New ID</h3><p>{{office.requirements['New ID']}}</p></article>
@@ -182,6 +224,7 @@
         <button class="primary" type="submit">Submit request</button>
       </form>
       <p class="subtle">Staff will see this in the coordinator request inbox. Try DEMO-001 through DEMO-006 with sample data.</p>
+      <div id="request-tracker" class="tool-list" aria-live="polite"></div>
     </div>
 
     <section class="assistant-panel workspace-chat" id="assistant">
@@ -189,6 +232,7 @@
         <span class="assistant-icon">✦</span>
         <h2>Your ID assistant</h2>
         <p id="assistant-blurb">Ask about a release date, pending requirements, or a QR sticker.</p>
+        <p class="assistant-note" id="assistant-note">This is an automated assistant. It matches your words to a fixed set of topics and can be wrong. Tap 👍 or 👎 under an answer to help the office improve it.</p>
         <div id="selected-student">No student selected</div>
         <button class="text-button" id="clear-selected" type="button">Clear selection</button>
         <div class="chat-toolbar">
@@ -210,6 +254,7 @@
           <input id="chat-input" placeholder="Ask about school IDs…" maxlength="1000" required autocomplete="off">
           <button class="primary" type="submit">Send ↗</button>
         </form>
+        <small class="char-count" id="chat-count" aria-live="polite" hidden></small>
       </div>
     </section>
     <footer>School ID management prototype <span>Appointments use school local time · All displayed records are fictional.</span></footer>
@@ -257,6 +302,27 @@
     <button class="primary" type="submit" id="save-record">Save record</button>
   </form>
 </dialog>
+<dialog id="scan-dialog" aria-labelledby="scan-title">
+  <div class="dialog-heading"><h2 id="scan-title">Scan a QR sticker</h2><button type="button" id="scan-close" class="text-button" aria-label="Close scanner">✕</button></div>
+  <video id="scan-video" playsinline muted></video>
+  <p class="subtle" id="scan-status" role="status">Point the camera at the QR code on the sticker or card.</p>
+</dialog>
+
+<template id="feedback-template">
+  <form class="feedback-panel" hidden>
+    <p class="feedback-title">What went wrong? <span>Optional</span></p>
+    <div class="reason-chips" role="radiogroup" aria-label="What went wrong?">
+      {% for reason in feedback_reasons %}<label class="reason-chip"><input type="radio" name="reason" value="{{ reason }}"><span>{{ reason }}</span></label>
+      {% endfor %}
+    </div>
+    <textarea name="comment" maxlength="200" rows="2" aria-label="Comment (optional)" placeholder="Anything else? Please don’t include personal details."></textarea>
+    <label class="share-line"><input type="checkbox" name="share_text"><span>Also share my question with the office. IDs, names and long numbers are removed automatically. If unticked, only your 👎 and the reason are saved.</span></label>
+    <div class="feedback-actions">
+      <button type="submit" class="primary">Send</button>
+      <button type="button" class="text-button" data-feedback-skip>Not now</button>
+    </div>
+  </form>
+</template>
 <div id="toast" role="status"></div>
 </body>
 </html>
