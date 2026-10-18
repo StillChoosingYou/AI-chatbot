@@ -1,30 +1,31 @@
-"""Local school ID management prototype. Run with .venv/bin/python Chatbot.py."""
+"""School ID management prototype. Needs PostgreSQL: set DATABASE_URL, then run .venv/bin/python Chatbot.py."""
 import csv
 import io
 import os
 import secrets
-import sqlite3
-from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import psycopg
 import qrcode
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
-from werkzeug.exceptions import HTTPException, MethodNotAllowed
+from psycopg import errors as pg_errors
+from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
 from chat_support import FEEDBACK_REASONS, clean_text, csv_safe, intent_label, redact_text, reply_chips
+from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
 from intent_model import ANNIntentModel, classify, rank_intents
 
 ROOT = Path(__file__).resolve().parent
-MAX_ROW_ID = 2 ** 63 - 1   # SQLite integers stop here; anything larger would raise instead of "not found"
+MAX_ROW_ID = 2 ** 63 - 1   # the largest BIGINT; anything larger would raise instead of "not found"
 MAX_STICKERS = 60          # one printed sheet
 
 
 class RowIdConverter(IntegerConverter):
-    """URL number that always fits a SQLite integer; longer numbers are a plain 404."""
+    """URL number that always fits a BIGINT; longer numbers are a plain 404."""
     regex = r'\d{1,18}'
 
 
@@ -100,10 +101,16 @@ INTENT_ACTIONS = {
 }
 
 
-def create_app(database=None):
+def create_app(database_url=None):
+    """Build the app. The database is the PostgreSQL URL given here, or else the DATABASE_URL variable."""
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 32 * 1024
-    app.config['DATABASE'] = str(database or ROOT / 'data' / 'inventory.sqlite3')
+    database_url = database_url or os.environ.get('DATABASE_URL', '').strip()
+    if not database_url:
+        raise RuntimeError(
+            'DATABASE_URL is not set. Point it at a PostgreSQL database, for example the one from '
+            'docker-compose.yml:\n  postgresql://school_id:school_id_dev@localhost:5432/school_id\n'
+            'See the "Database" section of README.md.')
     public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
     if public_base and (urlparse(public_base).scheme not in ('http', 'https') or not urlparse(public_base).netloc):
         raise ValueError('PUBLIC_BASE_URL must be an absolute HTTP(S) URL')
@@ -130,15 +137,32 @@ def create_app(database=None):
             return jsonify(error='Something went wrong on the server. Please try again.'), 500
         return 'Something went wrong on the server.', 500
 
-    @contextmanager
-    def connect():
-        connection = sqlite3.connect(app.config['DATABASE'])
-        connection.row_factory = sqlite3.Row
-        try:
-            yield connection
-            connection.commit()
-        finally:
-            connection.close()
+    @app.errorhandler(psycopg.DataError)
+    @app.errorhandler(UnicodeEncodeError)
+    def unusable_text(error):
+        """Text PostgreSQL cannot store (a NUL character, a lone surrogate) is a bad request, not a crash."""
+        app.logger.warning('Rejected unusable text on %s %s (%s)', request.method, request.path, type(error).__name__)
+        return http_error(BadRequest())
+
+    @app.errorhandler(psycopg.OperationalError)
+    def database_unavailable(error):
+        """The database is down, restarting, out of connections or deadlocked: ask the caller to retry."""
+        app.logger.error('Database unavailable on %s %s: %s', request.method, request.path, str(error).strip())
+        message = 'The database is not available right now. Please try again in a moment.'
+        if request.path.startswith('/api/'):
+            return jsonify(error=message), 503
+        return message, 503
+
+    database = Database(database_url)
+    try:
+        with database.connect() as db:         # creates missing tables; an empty database gets the demo students
+            init_schema(db)
+            seed_demo_records(db)
+    except BaseException:
+        database.close()
+        raise
+    app.extensions['database'] = database
+    connect = database.connect                 # `with connect() as db:` commits on success, rolls back on error
 
     def now_stamp():
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -146,75 +170,14 @@ def create_app(database=None):
     def log_activity(actor_role, action, detail=''):
         with connect() as db:
             db.execute(
-                'INSERT INTO activity_log (actor_role, action, detail, timestamp) VALUES (?,?,?,?)',
+                'INSERT INTO activity_log (actor_role, action, detail, timestamp) VALUES (%s,%s,%s,%s)',
                 (actor_role, action, detail[:500], now_stamp()))
-
-    Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
-    with connect() as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY, student_id TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL, course TEXT NOT NULL, section TEXT NOT NULL,
-            year_level INTEGER NOT NULL CHECK(year_level BETWEEN 1 AND 6),
-            status TEXT NOT NULL, request_type TEXT NOT NULL, pending_reason TEXT NOT NULL DEFAULT '',
-            schedule_type TEXT NOT NULL DEFAULT '', schedule_date TEXT NOT NULL DEFAULT '',
-            schedule_time TEXT NOT NULL DEFAULT '', token TEXT NOT NULL UNIQUE,
-            notes TEXT NOT NULL DEFAULT '')''')
-        columns = {row[1] for row in db.execute('PRAGMA table_info(inventory)')}
-        if 'notes' not in columns:
-            db.execute("ALTER TABLE inventory ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
-        db.execute('''CREATE TABLE IF NOT EXISTS chat_history (
-            id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('user', 'bot')),
-            message TEXT NOT NULL, intent TEXT NOT NULL DEFAULT '',
-            confidence REAL NOT NULL DEFAULT 0,
-            record_id INTEGER, timestamp TEXT NOT NULL)''')
-        db.execute('CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_history(session_id)')
-        if 'workspace_role' not in {row[1] for row in db.execute('PRAGMA table_info(chat_history)')}:
-            db.execute("ALTER TABLE chat_history ADD COLUMN workspace_role TEXT NOT NULL DEFAULT ''")
-        # One rating per bot reply. message_id points at chat_history but is not a foreign
-        # key: chat history is trimmed to 100 messages per session and feedback must outlive that.
-        db.execute('''CREATE TABLE IF NOT EXISTS chat_feedback (
-            id INTEGER PRIMARY KEY, message_id INTEGER NOT NULL UNIQUE,
-            rating TEXT NOT NULL CHECK(rating IN ('up', 'down')),
-            reason TEXT NOT NULL DEFAULT '', comment TEXT NOT NULL DEFAULT '',
-            workspace_role TEXT NOT NULL DEFAULT '', intent TEXT NOT NULL DEFAULT '',
-            confidence REAL NOT NULL DEFAULT 0, shared_question TEXT NOT NULL DEFAULT '',
-            correct_intent TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'New' CHECK(status IN ('New', 'Reviewed')),
-            timestamp TEXT NOT NULL)''')
-        db.execute('''CREATE TABLE IF NOT EXISTS gate_logs (
-            id INTEGER PRIMARY KEY, student_id TEXT NOT NULL DEFAULT '',
-            name TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL,
-            note TEXT NOT NULL DEFAULT '', timestamp TEXT NOT NULL)''')
-        db.execute('''CREATE TABLE IF NOT EXISTS incidents (
-            id INTEGER PRIMARY KEY, category TEXT NOT NULL, location TEXT NOT NULL DEFAULT '',
-            detail TEXT NOT NULL, student_id TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'Open', timestamp TEXT NOT NULL)''')
-        db.execute('''CREATE TABLE IF NOT EXISTS student_requests (
-            id INTEGER PRIMARY KEY, student_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
-            request_type TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'Submitted', timestamp TEXT NOT NULL)''')
-        db.execute('''CREATE TABLE IF NOT EXISTS activity_log (
-            id INTEGER PRIMARY KEY, actor_role TEXT NOT NULL, action TEXT NOT NULL,
-            detail TEXT NOT NULL DEFAULT '', timestamp TEXT NOT NULL)''')
-        if not db.execute('SELECT 1 FROM inventory LIMIT 1').fetchone():
-            demo = [
-                ('DEMO-001','Alex Rivera','BSIT','A',1,'Ready for release','New ID',''),
-                ('DEMO-002','Jamie Santos','BSCS','B',2,'Pending','Pending ID','Photo verification needed'),
-                ('DEMO-003','Sam Reyes','BSBA','A',3,'Processing','Lost ID',''),
-                ('DEMO-004','Taylor Cruz','BSIT','B',4,'Released','New ID',''),
-                ('DEMO-005','Casey Garcia','BSED','A',1,'Processing','New ID',''),
-                ('DEMO-006','Jordan Flores','BSCS','A',2,'Pending','Pending ID','Enrollment verification needed'),
-            ]
-            db.executemany(
-                'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,pending_reason,token) VALUES (?,?,?,?,?,?,?,?,?)',
-                [(*row, secrets.token_urlsafe(18)) for row in demo])
 
     def record(record_id):
         if not valid_row_id(record_id):
             abort(404)
         with connect() as db:
-            row = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
+            row = db.execute('SELECT * FROM inventory WHERE id=%s', (record_id,)).fetchone()
         if row is None:
             abort(404)
         return dict(row)
@@ -236,7 +199,7 @@ def create_app(database=None):
     def find_by_student_id(student_id):
         with connect() as db:
             return db.execute(
-                'SELECT * FROM inventory WHERE student_id=? COLLATE NOCASE',
+                'SELECT * FROM inventory WHERE LOWER(student_id) = LOWER(%s)',
                 (student_id,)).fetchone()
 
     # ─── Page routes ───────────────────────────────────────────────
@@ -251,13 +214,15 @@ def create_app(database=None):
 
     @app.get('/student/<token>')
     def profile(token):
+        if not clean_text(token):                # a NUL or a lone surrogate cannot be part of a real token
+            abort(404)
         with connect() as db:
             row = db.execute(
-                'SELECT name,course,section,year_level FROM inventory WHERE token=?',
+                'SELECT name,course,section,year_level FROM inventory WHERE token=%s',
                 (token,)).fetchone()
         if row is None:
             abort(404)
-        return render_template('profile.html', student=row)
+        return render_template('profile.html', student=dict(row))
 
     @app.get('/sticker/<rowid:record_id>')
     def sticker(record_id):
@@ -301,7 +266,7 @@ def create_app(database=None):
             abort(400)
         with connect() as db:
             rows = {row['id']: dict(row) for row in db.execute(
-                f'SELECT id, student_id FROM inventory WHERE id IN ({",".join("?" * len(ids))})', ids)}
+                'SELECT id, student_id FROM inventory WHERE id = ANY(%s::bigint[])', (ids,))}
         students = [rows[i] for i in ids if i in rows]
         if not students:
             abort(404)
@@ -336,43 +301,50 @@ def create_app(database=None):
         kind = payload.get('request_type', 'New ID')
         if kind not in KINDS:
             return jsonify(error='Choose a valid request type.'), 400
-        # The database only rejects an exact match, so "demo-001" would slip past "DEMO-001".
+        # A quick, friendly answer. The unique index on LOWER(student_id) is what guarantees it.
         if find_by_student_id(fields['student_id']):
             return jsonify(error='That student ID already exists.'), 409
         try:
             with connect() as db:
-                cursor = db.execute(
-                    'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token) VALUES (?,?,?,?,?,?,?,?)',
-                    (*fields.values(), year, 'Pending', kind, secrets.token_urlsafe(18)))
-                new_id = cursor.lastrowid
-        except sqlite3.IntegrityError:
+                lock_student(db, fields['student_id'])        # one writer per student ID at a time
+                created = db.execute(
+                    'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token) '
+                    'VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',
+                    (*fields.values(), year, 'Pending', kind, secrets.token_urlsafe(18))).fetchone()
+        except pg_errors.UniqueViolation:
             return jsonify(error='That student ID already exists.'), 409
         log_activity('coordinator', 'Added record', fields['student_id'])
-        return jsonify(record(new_id)), 201
+        return jsonify(dict(created)), 201
 
     @app.patch('/api/inventory/<rowid:record_id>')
     def update_record(record_id):
-        current = record(record_id)
         payload = request.get_json(silent=True)
         allowed = ('status', 'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time', 'notes')
-        if not isinstance(payload, dict) or not payload or set(payload) - set(allowed):
-            return jsonify(error='Supply status, pending reason, notes, or schedule fields.'), 400
-        if any(not isinstance(v, str) or len(v) > 500 or not clean_text(v) for v in payload.values()):
-            return jsonify(error='Fields must be text of up to 500 characters.'), 400
-        current.update(payload)
-        if current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
-            return jsonify(error='Choose a valid status and appointment type.'), 400
-        schedule = [current[k] for k in ('schedule_type', 'schedule_date', 'schedule_time')]
-        if any(schedule):
-            if not all(schedule):
-                return jsonify(error='Appointment type, date, and time must be filled together.'), 400
-            try:
-                datetime.strptime(current['schedule_date'] + ' ' + current['schedule_time'], '%Y-%m-%d %H:%M')
-            except ValueError:
-                return jsonify(error='Use a valid date and time.'), 400
         with connect() as db:
+            # FOR UPDATE: two coordinators editing different fields must not overwrite each other.
+            row = db.execute('SELECT * FROM inventory WHERE id=%s FOR UPDATE', (record_id,)).fetchone()
+            if row is None:
+                abort(404)
+            current = dict(row)
+            if not isinstance(payload, dict) or not payload or set(payload) - set(allowed):
+                return jsonify(error='Supply status, pending reason, notes, or schedule fields.'), 400
+            if any(not isinstance(v, str) or len(v) > 500 or not clean_text(v) for v in payload.values()):
+                return jsonify(error='Fields must be text of up to 500 characters.'), 400
+            current.update(payload)
+            if current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
+                return jsonify(error='Choose a valid status and appointment type.'), 400
+            schedule = [current[k] for k in ('schedule_type', 'schedule_date', 'schedule_time')]
+            if any(schedule):
+                if not all(schedule):
+                    return jsonify(error='Appointment type, date, and time must be filled together.'), 400
+                try:
+                    when = datetime.strptime(current['schedule_date'] + ' ' + current['schedule_time'], '%Y-%m-%d %H:%M')
+                except ValueError:
+                    return jsonify(error='Use a valid date and time.'), 400
+                # Always stored as 2026-01-05 and 09:30, so dates sort and compare correctly.
+                current['schedule_date'], current['schedule_time'] = when.isoformat(sep=' ', timespec='minutes').split(' ')
             db.execute(
-                'UPDATE inventory SET status=?,pending_reason=?,schedule_type=?,schedule_date=?,schedule_time=?,notes=? WHERE id=?',
+                'UPDATE inventory SET status=%s,pending_reason=%s,schedule_type=%s,schedule_date=%s,schedule_time=%s,notes=%s WHERE id=%s',
                 (*[current[k] for k in allowed], record_id))
         log_activity('coordinator', 'Updated record', current['student_id'])
         return jsonify(record(record_id))
@@ -381,7 +353,7 @@ def create_app(database=None):
     def delete_record(record_id):
         row = record(record_id)
         with connect() as db:
-            db.execute('DELETE FROM inventory WHERE id=?', (record_id,))
+            db.execute('DELETE FROM inventory WHERE id=%s', (record_id,))
         log_activity('coordinator', 'Deleted record', row['student_id'])
         return jsonify(success=True)
 
@@ -398,9 +370,8 @@ def create_app(database=None):
             return jsonify(error='Bulk update is limited to 500 records.'), 400
         if not isinstance(status, str) or status not in STATUSES:
             return jsonify(error='Choose a valid processing status.'), 400
-        placeholders = ','.join('?' * len(ids))
         with connect() as db:
-            cursor = db.execute(f'UPDATE inventory SET status=? WHERE id IN ({placeholders})', (status, *ids))
+            cursor = db.execute('UPDATE inventory SET status=%s WHERE id = ANY(%s::bigint[])', (status, ids))
             updated = cursor.rowcount
         log_activity('coordinator', 'Bulk status update', f'{updated} → {status}')
         return jsonify(updated=updated)
@@ -436,11 +407,11 @@ def create_app(database=None):
                 'SELECT request_type, COUNT(*) FROM inventory GROUP BY request_type')}
             upcoming = [dict(row) for row in db.execute(
                 "SELECT id, name, student_id, schedule_type, schedule_date, schedule_time "
-                "FROM inventory WHERE schedule_date >= ? ORDER BY schedule_date, schedule_time LIMIT 8", (today,))]
+                "FROM inventory WHERE schedule_date >= %s ORDER BY schedule_date, schedule_time, id LIMIT 8", (today,))]
             today_appointments = db.execute(
-                'SELECT COUNT(*) FROM inventory WHERE schedule_date = ?', (today,)).fetchone()[0]
+                'SELECT COUNT(*) FROM inventory WHERE schedule_date = %s', (today,)).fetchone()[0]
             overdue_appointments = db.execute(
-                "SELECT COUNT(*) FROM inventory WHERE schedule_date != '' AND schedule_date < ? AND status != 'Released'",
+                "SELECT COUNT(*) FROM inventory WHERE schedule_date != '' AND schedule_date < %s AND status != 'Released'",
                 (today,)).fetchone()[0]
             open_incidents = db.execute("SELECT COUNT(*) FROM incidents WHERE status='Open'").fetchone()[0]
             open_requests = db.execute("SELECT COUNT(*) FROM student_requests WHERE status IN ('Submitted','In review')").fetchone()[0]
@@ -459,7 +430,7 @@ def create_app(database=None):
         with connect() as db:
             rows = [dict(row) for row in db.execute(
                 "SELECT id, student_id, name, course, status, schedule_type, schedule_date, schedule_time "
-                "FROM inventory WHERE schedule_date != '' ORDER BY schedule_date, schedule_time")]
+                "FROM inventory WHERE schedule_date != '' ORDER BY schedule_date, schedule_time, id")]
         return jsonify(today=today, appointments=rows)
 
     @app.get('/api/activity')
@@ -483,9 +454,10 @@ def create_app(database=None):
         with connect() as db:
             rows = [dict(row) for row in db.execute(
                 '''SELECT id, student_id, name, course, section, year_level, status, request_type, token
-                   FROM inventory WHERE student_id = ? COLLATE NOCASE OR token = ?
-                      OR name LIKE ? ESCAPE '\\'
-                   LIMIT 8''', (query, query, f'%{escaped}%'))]
+                   FROM inventory
+                   WHERE LOWER(student_id) = LOWER(%s) OR token = %s OR name ILIKE %s ESCAPE '\\'
+                   ORDER BY (LOWER(student_id) = LOWER(%s) OR token = %s) DESC, id
+                   LIMIT 8''', (query, query, f'%{escaped}%', query, query))]
         return jsonify(matches=rows)
 
     @app.get('/api/gate')
@@ -495,7 +467,7 @@ def create_app(database=None):
             rows = [dict(row) for row in db.execute(
                 'SELECT * FROM gate_logs ORDER BY id DESC LIMIT 50')]
             counts = {row[0]: row[1] for row in db.execute(
-                'SELECT direction, COUNT(*) FROM gate_logs WHERE timestamp >= ? GROUP BY direction', (today,))}
+                'SELECT direction, COUNT(*) FROM gate_logs WHERE timestamp >= %s GROUP BY direction', (today,))}
         return jsonify(logs=rows, today={'in': counts.get('in', 0), 'out': counts.get('out', 0)})
 
     @app.post('/api/gate')
@@ -517,11 +489,9 @@ def create_app(database=None):
         if not name and not student_id:
             return jsonify(error='Enter a student ID or visitor name.'), 400
         with connect() as db:
-            cursor = db.execute(
-                'INSERT INTO gate_logs (student_id,name,direction,note,timestamp) VALUES (?,?,?,?,?)',
-                (student_id, name or 'Visitor', direction, note, now_stamp()))
-            new_id = cursor.lastrowid
-            row = dict(db.execute('SELECT * FROM gate_logs WHERE id=?', (new_id,)).fetchone())
+            row = dict(db.execute(
+                'INSERT INTO gate_logs (student_id,name,direction,note,timestamp) VALUES (%s,%s,%s,%s,%s) RETURNING *',
+                (student_id, name or 'Visitor', direction, note, now_stamp())).fetchone())
         log_activity('guard', f'Gate {direction}', student_id or name)
         return jsonify(row), 201
 
@@ -546,11 +516,9 @@ def create_app(database=None):
         location = text_field(payload.get('location', ''), required=False) or ''
         student_id = text_field(payload.get('student_id', ''), required=False) or ''
         with connect() as db:
-            cursor = db.execute(
-                'INSERT INTO incidents (category,location,detail,student_id,status,timestamp) VALUES (?,?,?,?,?,?)',
-                (category, location, detail, student_id, 'Open', now_stamp()))
-            new_id = cursor.lastrowid
-            row = dict(db.execute('SELECT * FROM incidents WHERE id=?', (new_id,)).fetchone())
+            row = dict(db.execute(
+                'INSERT INTO incidents (category,location,detail,student_id,status,timestamp) VALUES (%s,%s,%s,%s,%s,%s) RETURNING *',
+                (category, location, detail, student_id, 'Open', now_stamp())).fetchone())
         log_activity('guard', 'Logged incident', category)
         return jsonify(row), 201
 
@@ -560,11 +528,11 @@ def create_app(database=None):
         if not isinstance(payload, dict) or payload.get('status') not in INCIDENT_STATUSES:
             return jsonify(error='Choose Open or Resolved.'), 400
         with connect() as db:
-            row = db.execute('SELECT * FROM incidents WHERE id=?', (incident_id,)).fetchone()
+            row = db.execute('UPDATE incidents SET status=%s WHERE id=%s RETURNING *',
+                             (payload['status'], incident_id)).fetchone()
             if row is None:
                 abort(404)
-            db.execute('UPDATE incidents SET status=? WHERE id=?', (payload['status'], incident_id))
-            updated = dict(db.execute('SELECT * FROM incidents WHERE id=?', (incident_id,)).fetchone())
+            updated = dict(row)
         log_activity('guard', 'Updated incident', payload['status'])
         return jsonify(updated)
 
@@ -596,7 +564,7 @@ def create_app(database=None):
         with connect() as db:
             rows = [dict(row) for row in db.execute(
                 'SELECT id, request_type, status, timestamp FROM student_requests '
-                'WHERE student_id=? COLLATE NOCASE ORDER BY id DESC LIMIT 10', (student_id,))]
+                'WHERE LOWER(student_id) = LOWER(%s) ORDER BY id DESC LIMIT 10', (student_id,))]
         return jsonify(requests=rows)
 
     @app.get('/api/requests')
@@ -604,7 +572,7 @@ def create_app(database=None):
         status = request.args.get('status', '')
         if status and status not in REQUEST_STATUSES:
             return jsonify(error='Choose a valid request status.'), 400
-        where, params = ('WHERE status=? ', (status,)) if status else ('', ())
+        where, params = ('WHERE status=%s ', (status,)) if status else ('', ())
         with connect() as db:
             rows = [dict(row) for row in db.execute(
                 f'SELECT * FROM student_requests {where}ORDER BY id DESC LIMIT 50', params)]
@@ -632,11 +600,10 @@ def create_app(database=None):
         if found and not name:
             name = found['name']
         with connect() as db:
-            cursor = db.execute(
-                'INSERT INTO student_requests (student_id,name,request_type,detail,status,timestamp) VALUES (?,?,?,?,?,?)',
-                (student_id, name, request_type, detail, 'Submitted', now_stamp()))
-            new_id = cursor.lastrowid
-            row = dict(db.execute('SELECT * FROM student_requests WHERE id=?', (new_id,)).fetchone())
+            row = dict(db.execute(
+                'INSERT INTO student_requests (student_id,name,request_type,detail,status,timestamp) '
+                'VALUES (%s,%s,%s,%s,%s,%s) RETURNING *',
+                (student_id, name, request_type, detail, 'Submitted', now_stamp())).fetchone())
         log_activity('student', 'Submitted request', f'{request_type} · {student_id}')
         return jsonify(row), 201
 
@@ -646,7 +613,8 @@ def create_app(database=None):
         if not isinstance(payload, dict) or payload.get('status') not in REQUEST_STATUSES:
             return jsonify(error='Choose a valid request status.'), 400
         with connect() as db:
-            row = db.execute('SELECT * FROM student_requests WHERE id=?', (request_id,)).fetchone()
+            # FOR UPDATE: a double click, or two coordinators, must not accept the same request twice.
+            row = db.execute('SELECT * FROM student_requests WHERE id=%s FOR UPDATE', (request_id,)).fetchone()
             if row is None:
                 abort(404)
             current = dict(row)
@@ -654,22 +622,24 @@ def create_app(database=None):
                 return jsonify(current)
             if payload['status'] not in REQUEST_FLOW[current['status']]:
                 return jsonify(error=f"A request cannot move from {current['status']} to {payload['status']}."), 409
-            db.execute('UPDATE student_requests SET status=? WHERE id=?', (payload['status'], request_id))
+            updated = dict(db.execute('UPDATE student_requests SET status=%s WHERE id=%s RETURNING *',
+                                      (payload['status'], request_id)).fetchone())
             if payload['status'] == 'Accepted' and current['request_type'] == 'Lost ID':
+                lock_student(db, current['student_id'])       # same lock as "add a record": no duplicate record
                 existing = db.execute(
-                    'SELECT id FROM inventory WHERE student_id=? COLLATE NOCASE',
+                    'SELECT id FROM inventory WHERE LOWER(student_id) = LOWER(%s)',
                     (current['student_id'],)).fetchone()
                 if existing:
                     db.execute(
                         "UPDATE inventory SET status='Pending', request_type='Lost ID', "
-                        "pending_reason=? WHERE id=?",
+                        "pending_reason=%s WHERE id=%s",
                         (current['detail'] or 'Lost ID request accepted', existing['id']))
                 else:
                     db.execute(
-                        'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,pending_reason,token) VALUES (?,?,?,?,?,?,?,?,?)',
+                        'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,pending_reason,token) '
+                        'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                         (current['student_id'], current['name'] or current['student_id'], 'TBD', 'TBD', 1,
                          'Pending', 'Lost ID', current['detail'] or 'Lost ID request accepted', secrets.token_urlsafe(18)))
-            updated = dict(db.execute('SELECT * FROM student_requests WHERE id=?', (request_id,)).fetchone())
         log_activity('coordinator', 'Updated request', f"{current['student_id']} → {payload['status']}")
         return jsonify(updated)
 
@@ -678,13 +648,13 @@ def create_app(database=None):
     @app.get('/api/chat/history')
     def chat_history():
         session_id = request.args.get('session_id', '')
-        if not session_id or len(session_id) > 120:
+        if not session_id or len(session_id) > 120 or not clean_text(session_id):
             return jsonify(messages=[])
         with connect() as db:
             rows = [dict(row) for row in db.execute(
                 'SELECT h.id, h.role, h.message, h.intent, h.confidence, h.record_id, h.timestamp, f.rating '
-                'FROM chat_history h LEFT JOIN chat_feedback f ON f.message_id = h.id AND h.role = ? '
-                'WHERE h.session_id=? ORDER BY h.id DESC LIMIT 50',
+                'FROM chat_history h LEFT JOIN chat_feedback f ON f.message_id = h.id AND h.role = %s '
+                'WHERE h.session_id=%s ORDER BY h.id DESC LIMIT 50',
                 ('bot', session_id))]
         rows.reverse()
         return jsonify(messages=rows)
@@ -692,9 +662,9 @@ def create_app(database=None):
     @app.delete('/api/chat/history')
     def clear_chat_history():
         session_id = request.args.get('session_id', '')
-        if session_id and len(session_id) <= 120:
+        if session_id and len(session_id) <= 120 and clean_text(session_id):
             with connect() as db:
-                db.execute('DELETE FROM chat_history WHERE session_id=?', (session_id,))
+                db.execute('DELETE FROM chat_history WHERE session_id=%s', (session_id,))
         return jsonify(success=True)
 
     @app.post('/api/chat')
@@ -875,14 +845,14 @@ def create_app(database=None):
         if session_id:
             with connect() as db:
                 db.execute(
-                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (?,?,?,?,?,?,?,?)',
+                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                     (session_id, 'user', user_text, '', 0, payload.get('record_id'), now, workspace))
                 message_id = db.execute(
-                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (?,?,?,?,?,?,?,?)',
-                    (session_id, 'bot', answer, intent, confidence, payload.get('record_id'), now, workspace)).lastrowid
+                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                    (session_id, 'bot', answer, intent, confidence, payload.get('record_id'), now, workspace)).fetchone()[0]
                 db.execute(
-                    'DELETE FROM chat_history WHERE session_id=? AND id NOT IN '
-                    '(SELECT id FROM chat_history WHERE session_id=? ORDER BY id DESC LIMIT 100)',
+                    'DELETE FROM chat_history WHERE session_id=%s AND id NOT IN '
+                    '(SELECT id FROM chat_history WHERE session_id=%s ORDER BY id DESC LIMIT 100)',
                     (session_id, session_id))
 
         return jsonify(intent=intent, reply=answer, confidence=confidence, actions=actions, timestamp=now,
@@ -926,41 +896,41 @@ def create_app(database=None):
         with connect() as db:
             bot = db.execute(
                 "SELECT id, intent, confidence, workspace_role FROM chat_history "
-                "WHERE id=? AND role='bot' AND session_id=?", (message_id, session_id)).fetchone()
+                "WHERE id=%s AND role='bot' AND session_id=%s", (message_id, session_id)).fetchone()
             if bot is None:
                 abort(404)
             question = ''
             if share:
                 previous = db.execute(
-                    "SELECT message FROM chat_history WHERE session_id=? AND role='user' AND id<? "
+                    "SELECT message FROM chat_history WHERE session_id=%s AND role='user' AND id<%s "
                     "ORDER BY id DESC LIMIT 1", (session_id, message_id)).fetchone()
                 if previous:
                     question = redact_text(previous['message'], ids, names)
-            db.execute(
+            saved = db.execute(
                 '''INSERT INTO chat_feedback
                    (message_id,rating,reason,comment,workspace_role,intent,confidence,shared_question,status,timestamp)
-                   VALUES (?,?,?,?,?,?,?,?,'New',?)
-                   ON CONFLICT(message_id) DO UPDATE SET rating=excluded.rating, reason=excluded.reason,
-                       comment=excluded.comment, shared_question=excluded.shared_question,
-                       correct_intent='', status='New', timestamp=excluded.timestamp''',
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'New',%s)
+                   ON CONFLICT (message_id) DO UPDATE SET rating=EXCLUDED.rating, reason=EXCLUDED.reason,
+                       comment=EXCLUDED.comment, shared_question=EXCLUDED.shared_question,
+                       correct_intent='', status='New', timestamp=EXCLUDED.timestamp
+                   RETURNING id''',
                 (message_id, rating, reason, comment, bot['workspace_role'], bot['intent'],
-                 bot['confidence'], question, now_stamp()))
-            saved = db.execute('SELECT id FROM chat_feedback WHERE message_id=?', (message_id,)).fetchone()
+                 bot['confidence'], question, now_stamp())).fetchone()
         return jsonify(id=saved['id'], rating=rating, reason=reason, shared=bool(question))
 
     @app.delete('/api/chat/feedback')
     def remove_feedback():
         message_id = request.args.get('message_id', type=int)
         session_id = request.args.get('session_id', '')
-        if not valid_row_id(message_id) or not session_id or len(session_id) > 120:
+        if not valid_row_id(message_id) or not session_id or len(session_id) > 120 or not clean_text(session_id):
             return jsonify(error='Choose a reply to un-rate.'), 400
         removed = 0
         with connect() as db:
             owned = db.execute(
-                "SELECT 1 FROM chat_history WHERE id=? AND role='bot' AND session_id=?",
+                "SELECT 1 FROM chat_history WHERE id=%s AND role='bot' AND session_id=%s",
                 (message_id, session_id)).fetchone()
             if owned:
-                removed = db.execute('DELETE FROM chat_feedback WHERE message_id=?', (message_id,)).rowcount
+                removed = db.execute('DELETE FROM chat_feedback WHERE message_id=%s', (message_id,)).rowcount
         return jsonify(removed=bool(removed))
 
     FEEDBACK_COLUMNS = ('id, rating, reason, comment, workspace_role, intent, confidence, '
@@ -974,7 +944,7 @@ def create_app(database=None):
             return jsonify(error='Choose up or down.'), 400
         if status and status not in FEEDBACK_STATUSES:
             return jsonify(error='Choose New or Reviewed.'), 400
-        clauses = [f'{column}=?' for column, value in (('rating', rating), ('status', status)) if value]
+        clauses = [f'{column}=%s' for column, value in (('rating', rating), ('status', status)) if value]
         params = [value for value in (rating, status) if value]
         where = f'WHERE {" AND ".join(clauses)} ' if clauses else ''
         with connect() as db:
@@ -986,11 +956,12 @@ def create_app(database=None):
             new_down = db.execute(
                 "SELECT COUNT(*) FROM chat_feedback WHERE rating='down' AND status='New'").fetchone()[0]
             by_intent = [dict(row) for row in db.execute(
-                "SELECT intent, SUM(rating='up') AS up, SUM(rating='down') AS down FROM chat_feedback "
-                "GROUP BY intent ORDER BY down DESC, up DESC, intent LIMIT 8")]
+                "SELECT intent, COUNT(*) FILTER (WHERE rating='up') AS up, "
+                "COUNT(*) FILTER (WHERE rating='down') AS down FROM chat_feedback "
+                'GROUP BY intent ORDER BY down DESC, up DESC, intent COLLATE "C" LIMIT 8')]
             by_reason = {row[0]: row[1] for row in db.execute(
                 "SELECT reason, COUNT(*) FROM chat_feedback WHERE rating='down' AND reason != '' "
-                "GROUP BY reason ORDER BY COUNT(*) DESC, reason")}
+                'GROUP BY reason ORDER BY COUNT(*) DESC, reason COLLATE "C"')}
         up, down = totals.get('up', 0), totals.get('down', 0)
         summary = {'total': up + down, 'up': up, 'down': down, 'new_down': new_down, 'shared': shared,
                    'helpful_percent': round(100 * up / (up + down)) if up + down else None,
@@ -1010,13 +981,13 @@ def create_app(database=None):
             correct = payload['correct_intent']
             if not isinstance(correct, str) or (correct and correct not in matcher.intents):
                 return jsonify(error='Choose one of the assistant’s topics.'), 400
+        changes = ', '.join(f'{column}=%s' for column in payload)       # the column names come from `allowed`
         with connect() as db:
-            row = db.execute(f'SELECT {FEEDBACK_COLUMNS} FROM chat_feedback WHERE id=?', (feedback_id,)).fetchone()
+            row = db.execute(f'UPDATE chat_feedback SET {changes} WHERE id=%s RETURNING {FEEDBACK_COLUMNS}',
+                             (*payload.values(), feedback_id)).fetchone()
             if row is None:
                 abort(404)
-            item = {**dict(row), **payload}
-            db.execute('UPDATE chat_feedback SET status=?, correct_intent=? WHERE id=?',
-                       (item['status'], item['correct_intent'], feedback_id))
+            item = dict(row)
         log_activity('coordinator', 'Reviewed chat feedback', f'#{feedback_id} → {item["status"]}')
         return jsonify(item)
 
@@ -1045,4 +1016,8 @@ def create_app(database=None):
 
 
 if __name__ == '__main__':
-    create_app().run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)
+    try:
+        application = create_app()
+    except RuntimeError as error:              # DATABASE_URL missing, or the database cannot be reached
+        raise SystemExit(f'Cannot start: {error}')
+    application.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)

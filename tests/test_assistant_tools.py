@@ -1,54 +1,34 @@
 """Tests for chat feedback, suggestion chips, request tracking and the hardening around them."""
 import csv
 import io
-import json
 import re
-import sqlite3
-import tempfile
 import unittest
-from contextlib import contextmanager
 from datetime import datetime, timedelta
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 from markupsafe import escape
 
-from Chatbot import MAX_STICKERS, UNSURE_REPLY, create_app
+from Chatbot import MAX_STICKERS, UNSURE_REPLY
 from chat_support import FEEDBACK_REASONS, FOLLOW_UPS, INTENT_PROMPTS, csv_safe, prompt_chips, redact_text, reply_chips
 from intent_model import ANNIntentModel, rank_intents
+from pg_support import DatabaseTestCase
 
 MODEL = ANNIntentModel()
-
-
-@contextmanager
-def open_db(path):
-    """Commit, then really close. A bare `with sqlite3.connect()` leaves the file open, and an
-    open file cannot be deleted on Windows, which would break the temp-folder cleanup."""
-    connection = sqlite3.connect(path)
-    try:
-        with connection:
-            yield connection
-    finally:
-        connection.close()
 
 
 def fake_classifier(label, confidence):
     return patch('Chatbot.classify', return_value=(np.array([label], dtype=object), np.array([confidence])))
 
 
-class AppTestCase(unittest.TestCase):
+class AppTestCase(DatabaseTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db = Path(self.temp.name) / 'test.sqlite3'
-        self.app = create_app(self.db)
+        super().setUp()
+        self.app = self.make_app()
         self.client = self.app.test_client()
         self.records = self.client.get('/api/inventory').json['records']
         self.row = self.records[-1]            # DEMO-001, the oldest record
         self.session = 'test-session:coordinator'
-
-    def tearDown(self):
-        self.temp.cleanup()
 
     def ask(self, message, role='coordinator', session=None, **extra):
         return self.client.post('/api/chat', json={
@@ -189,25 +169,6 @@ class ChatFeedbackTests(AppTestCase):
         messages = self.client.get('/api/chat/history', query_string={'session_id': self.session}).json['messages']
         self.assertNotIn(reply['message_id'], [m['id'] for m in messages])
         self.assertEqual(self.client.get('/api/feedback').json['summary']['total'], 1)
-
-    def test_old_databases_are_migrated(self):
-        old = Path(self.temp.name) / 'old.sqlite3'
-        with open_db(old) as db:
-            db.execute('''CREATE TABLE chat_history (
-                id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('user', 'bot')),
-                message TEXT NOT NULL, intent TEXT NOT NULL DEFAULT '',
-                confidence REAL NOT NULL DEFAULT 0,
-                record_id INTEGER, timestamp TEXT NOT NULL)''')
-            db.execute("INSERT INTO chat_history (session_id,role,message,timestamp) VALUES ('s','bot','old','2026-01-01 00:00:00')")
-        client = create_app(old).test_client()
-        reply = client.post('/api/chat', json={'message': 'hello', 'session_id': 's', 'workspace_role': 'guard'}).json
-        self.assertIsInstance(reply['message_id'], int)
-        messages = client.get('/api/chat/history', query_string={'session_id': 's'}).json['messages']
-        self.assertEqual(messages[0]['message'], 'old')
-        with open_db(old) as db:
-            role = db.execute('SELECT workspace_role FROM chat_history ORDER BY id DESC LIMIT 1').fetchone()[0]
-        self.assertEqual(role, 'guard')
 
 
 class SuggestionLogicTests(unittest.TestCase):
@@ -408,8 +369,8 @@ class HardeningTests(AppTestCase):
     def test_verify_finds_tokens_with_underscores_and_treats_wildcards_literally(self):
         # token_urlsafe() output contains "_" and "-"; about one token in three has an underscore.
         token = 'abc_DEF-ghi_JKL'
-        with open_db(self.db) as db:
-            db.execute('UPDATE inventory SET token=? WHERE id=?', (token, self.row['id']))
+        with self.db() as db:
+            db.execute('UPDATE inventory SET token=%s WHERE id=%s', (token, self.row['id']))
         found = self.client.get('/api/verify', query_string={'q': token}).json['matches']
         self.assertEqual([m['id'] for m in found], [self.row['id']])
         self.assertEqual(self.client.get('/api/verify', query_string={'q': 'abcDEF-ghiJKL'}).json['matches'], [])
@@ -512,7 +473,7 @@ class DashboardAndToolTests(AppTestCase):
     def test_gate_list_counts_todays_events(self):
         for direction in ('in', 'in', 'out'):
             self.client.post('/api/gate', json={'student_id': self.row['student_id'], 'direction': direction})
-        with open_db(self.db) as db:
+        with self.db() as db:
             db.execute("INSERT INTO gate_logs (student_id,name,direction,note,timestamp) VALUES ('X','Old','in','','2020-01-01 08:00:00')")
         data = self.client.get('/api/gate').json
         self.assertEqual(data['today'], {'in': 2, 'out': 1})

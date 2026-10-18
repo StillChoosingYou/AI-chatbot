@@ -6,9 +6,14 @@ The proposal was not included with the request; features follow the described wo
 
 ## Run
 
+The app keeps its records in **PostgreSQL**, so it needs a database and its address in the
+`DATABASE_URL` variable (details in [Database](#database-postgresql); Docker is the quickest way).
+
 Python 3.9 or later:
 
 ```bash
+docker compose up -d        # PostgreSQL 16 on localhost:5432, first time only (needs Docker)
+export DATABASE_URL=postgresql://school_id:school_id_dev@localhost:5432/school_id
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python train_model.py
@@ -18,17 +23,21 @@ python3 -m venv .venv
 Windows (PowerShell):
 
 ```powershell
+docker compose up -d
+$env:DATABASE_URL = "postgresql://school_id:school_id_dev@localhost:5432/school_id"
 py -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python train_model.py
 .venv\Scripts\python Chatbot.py
 ```
 
+`DATABASE_URL` only lasts for that terminal window. If you run the app from a new window, set it again.
+
 If the app stops with "ANN model version differs from this installation", the saved model was
 trained with another scikit-learn version than the one installed. Run `train_model.py` once.
 
-Open http://localhost:5000. Six fictional demo records are created on the first run.
-Records and appointment changes persist in `data/inventory.sqlite3` (ignored by Git).
+Open http://localhost:5000. Six fictional demo records are created when the app starts on an
+empty database. Records and appointment changes persist in PostgreSQL.
 The interface supports search, course, section, year, request type, and status filters.
 QR codes appear on the left; status, appointments, and updates appear on the right.
 Add a record, choose **Update / schedule**, set a status and appointment, then choose
@@ -60,6 +69,64 @@ host, or a tunnel such as ngrok or Cloudflare Tunnel) or type the student ID ins
 explains this when it happens. The scanner only accepts this application's own
 `/student/<token>` links. The decoder, jsQR 1.4.0 (Apache-2.0, see `static/vendor/README.md`),
 runs inside the browser; camera frames are never uploaded.
+
+## Database (PostgreSQL)
+
+The app reads the database address from `DATABASE_URL`, in the form
+`postgresql://USER:PASSWORD@HOST:PORT/DATABASE`. Characters such as `@` or `/` inside the password
+must be percent-encoded (`@` becomes `%40`). The tables are created when the app starts, so there is no
+separate setup step. If the database cannot be reached at start, the app says so and stops.
+
+| Where the database is | What to do |
+|---|---|
+| **Docker** (easiest on a laptop) | `docker compose up -d`, then use the URL from `docker-compose.yml` (shown in Run above). Data lives in a Docker volume: `docker compose down` keeps it, `docker compose down -v` deletes it. That password is for your own laptop only. |
+| **PostgreSQL installed on your computer** | Create a login and a database, for example in `psql`: `CREATE ROLE school_id LOGIN PASSWORD 'choose-one';` and `CREATE DATABASE school_id OWNER school_id;`. Then `DATABASE_URL=postgresql://school_id:choose-one@localhost:5432/school_id`. |
+| **Hosted** (Supabase, Neon, Railway and similar) | Copy the connection string the host shows you and use it as `DATABASE_URL`. Keep `sslmode=require` if it has it. If the host gives you a pooled address as well as a direct one, the direct one is the one this app was tested with. The app turns prepared statements off so a pooler should also work, but that was not tried. Never commit the URL: it contains the password. |
+
+`DATABASE_POOL_SIZE` (default 10) is the most connections one app process opens. If the database goes
+away while the app runs (restart, network), requests answer "not available right now" (HTTP 503) and
+work again by themselves once it is back. Use a password of your own, never the one in
+`docker-compose.yml`, for anything other people can reach, and do not expose PostgreSQL to the internet.
+
+**Back up** before real data goes in, and regularly after:
+
+```bash
+pg_dump "$DATABASE_URL" -Fc -f school_id.dump                              # back up
+pg_restore --clean --if-exists -d "$DATABASE_URL" school_id.dump            # restore
+```
+
+A dump holds student records. Keep it out of Git (`.gitignore` already skips `*.dump`).
+
+### Moving data from the old SQLite version (once)
+
+Before this version, records lived in `data/inventory.sqlite3`. The file that comes with the repository
+only holds the six demo students, so there is nothing to move unless you added records of your own.
+
+1. Stop every copy of the app, old and new, so nothing is written during the copy.
+2. Point `DATABASE_URL` at the new database. An empty one is best. If you already started the new app
+   once, the database only holds the six demo students, and the copy replaces them. Anything else in
+   there is never overwritten: the script stops and says so.
+3. Check first, then copy:
+
+```bash
+.venv/bin/python migrate_sqlite_to_postgres.py --dry-run
+.venv/bin/python migrate_sqlite_to_postgres.py                  # or: ... path/to/other.sqlite3
+```
+
+The script opens the SQLite file read-only (it stays as your backup), copies every table with its original
+ids inside one transaction (all of it lands, or none of it), reads every row back and compares it before
+saving, and lets new records continue after the highest copied id. It also fixes what PostgreSQL cannot hold:
+NUL characters are removed (it tells you how many), and student IDs that differ only in letter case
+(`abc-1` and `ABC-1`) are reported before anything is written. Delete the SQLite file only after you have
+checked the records in the app. If it is tracked by Git, `git rm --cached data/inventory.sqlite3` stops tracking it.
+
+### What differs from the SQLite version
+
+- Student IDs that differ only in letter case are the same student, and the database now enforces it.
+- A deleted record's id is never given to a new record (SQLite handed out the highest id again).
+- Appointment dates and times are always saved as `2026-01-05` and `09:30`, so they sort correctly.
+- Verify lists exact ID or QR matches first, then name matches.
+- Two coordinators saving at the same moment no longer overwrite each other, and a request cannot be accepted twice.
 
 ## Pages by role
 
@@ -164,7 +231,7 @@ calibrated probabilities. The threshold is a starting point, not an assurance th
 unrelated questions will always be rejected.
 
 `intent_model.py` shares model loading and fallback logic with the application. Actual
-ID status, dates/times, and student details are retrieved from SQLite after intent
+ID status, dates/times, and student details are retrieved from PostgreSQL after intent
 classification. QR generation remains separate. The model cannot book appointments
 or determine school policy. Group members should review and understand this code,
 curate the dataset, and document their own contributions for the guide's defense.
@@ -195,11 +262,22 @@ sandbox. The Python chatbot does not automatically load an Orange trained model.
 
 ## Verification
 
+The database tests need a PostgreSQL database in which they may create temporary schemas. The one from
+`docker-compose.yml` is fine, even when it holds your real records: every test works in its own schema
+named `test_...` and drops it afterwards, so your tables are never read or changed.
+
 ```bash
+export TEST_DATABASE_URL=postgresql://school_id:school_id_dev@localhost:5432/school_id
 .venv/bin/python -m unittest discover -s tests -v          # Windows: .venv\Scripts\python -m unittest discover -s tests -v
 ```
 
+PowerShell: `$env:TEST_DATABASE_URL = "postgresql://school_id:school_id_dev@localhost:5432/school_id"`.
+Without `TEST_DATABASE_URL` the database tests are skipped and the summary says how many (`skipped=...`):
+a run that skipped them has not tested the app.
+
 `tests/test_assistant_tools.py` covers feedback, suggestions, requests and the staff tools,
+`tests/test_postgres.py` covers start-up, simultaneous edits and locks, text PostgreSQL cannot store, and
+a database that disappears, `tests/test_migration.py` covers the SQLite copy script, and
 `tests/test_feedback_dataset.py` covers the feedback-to-test-set script. They do not drive a
 browser or a camera, so check these by hand on the final machine:
 
@@ -222,7 +300,8 @@ browser or a camera, so check these by hand on the final machine:
 3. Add staff sign-in, student identity verification, access controls, an audit trail,
    QR access/revocation policy, and backups before using actual student records. This
    prototype has no authentication; record endpoints are available to anyone who can
-   reach it. The QR profile deliberately displays the requested student details.
+   reach it. The QR profile deliberately displays the requested student details. Moving to
+   PostgreSQL did not change this: the database password protects the database, not the app's endpoints.
 4. Collect varied English/Filipino/Taglish questions, improve confusing intents, then
    train and evaluate the final classifier with a held-out set.
 5. Add approved appointment availability and reminders once the office workflow is agreed.
@@ -230,6 +309,8 @@ browser or a camera, so check these by hand on the final machine:
    `feedback_to_dataset.py`, evaluate, then add the useful paraphrases to the dataset and retrain.
 7. Decide who may read feedback and how long it is kept. The Feedback, request and gate
    endpoints are as open as the rest of the API, and there is no delete button for staff yet.
+8. Before changing a table in a database that holds real data, add a migration tool such as Alembic.
+   The app only creates tables that are missing; it never alters existing ones.
 
 School dates/times are stored as local wall time, and the server's own clock decides what
 "today" and "overdue" mean. Run it on a machine set to Philippine time (on Linux/macOS you

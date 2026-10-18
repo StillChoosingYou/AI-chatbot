@@ -1,8 +1,12 @@
-# Local database: it holds student records once real data is entered.
+# The old SQLite database (a migration source now). It holds student records once real data is entered.
 data/inventory.sqlite3
 data/inventory.sqlite3-journal
 data/inventory.sqlite3-wal
 data/inventory.sqlite3-shm
+
+# PostgreSQL backups and connection settings hold student records and passwords.
+*.dump
+.env
 
 # Python
 __pycache__/

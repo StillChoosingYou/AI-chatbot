@@ -162,7 +162,10 @@ def csv_safe(value):
 
 
 def clean_text(value):
-    """True when a string can be stored: lone surrogates (valid JSON, invalid UTF-8) cannot."""
+    """True when a string can be stored. Lone surrogates (valid JSON, invalid UTF-8) and NUL
+    characters (PostgreSQL text cannot hold them) cannot."""
+    if '\x00' in value:
+        return False
     try:
         value.encode('utf-8')
     except UnicodeEncodeError:

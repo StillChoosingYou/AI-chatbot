@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from Chatbot import create_app
 from feedback_to_dataset import CATALOG, convert, main, read_labels
+from pg_support import DatabaseTestCase
 from train_model import load_dataset
 
 LABELS = read_labels(CATALOG)
@@ -130,12 +130,12 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.run_main(empty, self.dir / 'questions.csv')[0], 2)
 
 
-class WholeLoopTests(unittest.TestCase):
+class WholeLoopTests(DatabaseTestCase):
     """Student rates 👎 and shares, coordinator corrects the topic, the export becomes a test set."""
 
     def test_from_a_thumbs_down_in_the_app_to_a_file_train_model_accepts(self):
         with tempfile.TemporaryDirectory() as folder:
-            client = create_app(Path(folder) / 'app.sqlite3').test_client()
+            client = self.make_app().test_client()
             session = 'loop-test:student'
             reply = client.post('/api/chat', json={
                 'message': 'ate pwede ba makuha ID ko ngayon', 'session_id': session, 'workspace_role': 'student'}).json

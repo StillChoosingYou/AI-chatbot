@@ -1,0 +1,21 @@
+# A local PostgreSQL for development:   docker compose up -d
+# Then:  DATABASE_URL=postgresql://school_id:school_id_dev@localhost:5432/school_id
+# The password below is for this laptop only. Use a different one for anything other people can reach.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: school_id
+      POSTGRES_PASSWORD: school_id_dev
+      POSTGRES_DB: school_id
+    ports:
+      - "127.0.0.1:5432:5432"     # this computer only
+    volumes:
+      - school_id_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U school_id -d school_id"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  school_id_data:
