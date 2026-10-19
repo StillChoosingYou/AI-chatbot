@@ -688,8 +688,8 @@
   "convergence_warnings": [],
   "versions": {
     "python": "3.11.9",
-    "scikit_learn": "1.8.0",
-    "joblib": "1.5.3"
+    "scikit_learn": "1.6.1",
+    "joblib": "1.5.1"
   },
   "input_hashes": {
     "property_management_dataset.csv": "5abf210389822408dcf162873213e9dde68a4539876e6c236607f60bed8c2ad0",
