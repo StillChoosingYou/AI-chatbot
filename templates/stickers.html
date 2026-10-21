@@ -29,7 +29,7 @@
     <h1>QR sticker sheet</h1>
     <p>{{ students|length }} sticker{{ '' if students|length == 1 else 's' }}. Print at actual size (100%); each QR area is 30 × 30 mm.</p>
     {% if skipped %}<p>{{ skipped }} selected record{{ '' if skipped == 1 else 's' }} no longer exist and {{ 'was' if skipped == 1 else 'were' }} skipped.</p>{% endif %}
-    <p>Scanning shows only name, course, section, and year level. Use a reachable PUBLIC_BASE_URL before printing for phones.</p>
+    <p>Scanning shows only name and year &amp; section. Use a reachable PUBLIC_BASE_URL before printing for phones.</p>
     <button type="button" onclick="window.print()">Print sheet</button>
   </div>
   <div class="sheet">

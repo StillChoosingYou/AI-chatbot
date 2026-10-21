@@ -24,7 +24,7 @@ from pathlib import Path
 
 import psycopg
 
-from database import TABLES, init_schema, only_untouched_demo_data
+from database import STATUS_RENAMES, TABLES, init_schema, only_untouched_demo_data
 
 DEFAULT_SOURCE = Path(__file__).resolve().parent / 'data' / 'inventory.sqlite3'
 
@@ -93,6 +93,15 @@ def prepare(pg, tables, stats, notes):
         if invent_token:
             columns.append('token')
             notes.append('inventory: the SQLite file has no QR tokens, so new ones were made.')
+        if table == 'inventory' and 'status' in columns:        # a status that has since been renamed
+            position, renamed = columns.index('status'), Counter()
+            for number, values in enumerate(copied):
+                new = STATUS_RENAMES.get(values[position])
+                if new:
+                    copied[number] = (*values[:position], new, *values[position + 1:])
+                    renamed[(values[position], new)] += 1
+            for (old, new), count in renamed.items():
+                notes.append(f'inventory: the status "{old}" is now called "{new}" ({count} rows changed).')
         ignored = [name for name in have if name not in want]
         if ignored:
             notes.append(f'{table}: ignored columns that PostgreSQL does not have: {", ".join(ignored)}.')

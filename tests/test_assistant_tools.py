@@ -12,34 +12,13 @@ from markupsafe import escape
 from Chatbot import MAX_STICKERS, UNSURE_REPLY
 from chat_support import FEEDBACK_REASONS, FOLLOW_UPS, INTENT_PROMPTS, csv_safe, prompt_chips, redact_text, reply_chips
 from intent_model import ANNIntentModel, rank_intents
-from pg_support import DatabaseTestCase
+from pg_support import NEW, AppTestCase
 
 MODEL = ANNIntentModel()
 
 
 def fake_classifier(label, confidence):
     return patch('Chatbot.classify', return_value=(np.array([label], dtype=object), np.array([confidence])))
-
-
-class AppTestCase(DatabaseTestCase):
-    def setUp(self):
-        super().setUp()
-        self.app = self.make_app()
-        self.client = self.app.test_client()
-        self.records = self.client.get('/api/inventory').json['records']
-        self.row = self.records[-1]            # DEMO-001, the oldest record
-        self.session = 'test-session:coordinator'
-
-    def ask(self, message, role='coordinator', session=None, **extra):
-        return self.client.post('/api/chat', json={
-            'message': message, 'session_id': session or self.session, 'workspace_role': role, **extra}).json
-
-    def rate(self, reply, rating='up', session=None, **extra):
-        return self.client.post('/api/chat/feedback', json={
-            'message_id': reply['message_id'], 'session_id': session or self.session, 'rating': rating, **extra})
-
-    def raw_post(self, url, text):
-        return self.client.post(url, data=text, content_type='application/json')
 
 
 class ChatFeedbackTests(AppTestCase):
@@ -259,12 +238,24 @@ class SuggestionRouteTests(AppTestCase):
         self.assertEqual(history[-1]['message'], UNSURE_REPLY)
 
     def test_unrelated_or_empty_vocabulary_message_gets_the_plain_redirect(self):
-        for text in ('purple asteroid quantum banana', 'tell me a joke'):
+        for text in ('tell me a joke', 'what is the weather today?'):
             with self.subTest(text):
                 reply = self.ask(text)
                 self.assertEqual((reply['intent'], reply['suggestions'], reply['follow_ups']), ('out_of_scope', [], []))
                 self.assertIn('automated assistant', reply['reply'])
                 self.assertIn('ask_human', [a['type'] for a in reply['actions']])
+
+    def test_a_few_plain_words_nobody_matches_are_answered_as_a_student_who_was_not_found(self):
+        # Two to five words with no question or filler words look like a name. The network cannot tell a
+        # name it has never seen from nonsense, so the answer covers both and points to the office.
+        for text in ('purple asteroid quantum banana', 'Juan Dela Cruz'):
+            for role in ('student', 'guard', 'coordinator'):
+                with self.subTest(text=text, role=role):
+                    reply = self.ask(text, role=role)
+                    self.assertEqual((reply['intent'], reply['suggestions'], reply['follow_ups']), ('student_not_found', [], []))
+                    self.assertIn(f'couldn’t find a student named “{text}”', reply['reply'])
+                    self.assertIn('ask_human', [a['type'] for a in reply['actions']])
+                    self.assertIsNone(reply['student'])
 
     def test_confident_answers_come_with_follow_up_chips(self):
         reply = self.ask('What is the status of my student ID?', record_id=self.row['id'])
@@ -276,7 +267,7 @@ class SuggestionRouteTests(AppTestCase):
 
     def test_a_lookup_that_only_asks_for_a_record_has_no_follow_ups(self):
         reply = self.ask('What is the status of my student ID?')
-        self.assertIn('Select a student', reply['reply'])
+        self.assertIn('Type a student ID', reply['reply'])
         self.assertEqual((reply['suggestions'], reply['follow_ups']), ([], []))
 
     def test_inventory_answer_now_offers_export(self):
@@ -296,20 +287,28 @@ class SuggestionRouteTests(AppTestCase):
 
 
 class HardeningTests(AppTestCase):
-    NEW = {'student_id': 'NEW-1', 'name': 'New Student', 'course': 'BSIT', 'section': 'A', 'year_level': 2}
+    NEW = NEW
 
-    def test_year_level_accepts_only_one_to_six(self):
-        for value in ('²', '③', '9' * 5000, 7, 0, -1, True, 2.0, '', ' 3', '3 ', None, [2], '१'):
+    def test_year_and_section_accept_only_a_year_from_one_to_six_and_a_section(self):
+        for value in ('7A', '0A', 'A', '3', '', '   ', None, 3, ['3E'], True, '9' * 5000, '³A', '②A', '१A', '3E!!', '3 E E'):
             with self.subTest(value=str(value)[:12]):
-                response = self.client.post('/api/inventory', json={**self.NEW, 'student_id': f'Y-{abs(hash(str(value)))}', 'year_level': value})
+                response = self.client.post('/api/inventory', json={**self.NEW, 'year_section': value})
                 self.assertEqual(response.status_code, 400)
-                self.assertIn('Year level', response.json['error'])
-        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'year_level': '4'}).status_code, 201)
-        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'student_id': 'NEW-2', 'year_level': 6}).status_code, 201)
+                self.assertIn('Year & Section', response.json['error'])
+        for number, (written, shown) in enumerate((('4B', '4B'), ('6-c', '6C'), (' 3e ', '3E'), ('2 1', '2-1'))):
+            student = {**self.NEW, 'student_id': f'P20249{number + 1:04d}', 'year_section': written}
+            created = self.client.post('/api/inventory', json=student)
+            self.assertEqual((created.status_code, created.json['year_section']), (201, shown), written)
+        older = {**self.NEW, 'student_id': 'P202499100', 'section': 'A', 'year_level': 2}      # the older two-field form
+        del older['year_section']
+        self.assertEqual(self.client.post('/api/inventory', json=older).json['year_section'], '2A')
+        for bad in (7, 0, '2.5', None, True):
+            self.assertEqual(self.client.post('/api/inventory', json={**older, 'student_id': 'P202499101', 'year_level': bad}).status_code, 400)
 
     def test_text_that_cannot_be_stored_is_rejected_not_a_crash(self):
-        body = '{"student_id":"S-1","name":"\\ud800","course":"BSIT","section":"A","year_level":1}'
+        body = '{"student_id":"P202499002","name":"\\ud800","year_section":"1A"}'
         self.assertEqual(self.raw_post('/api/inventory', body).status_code, 400)
+        self.assertEqual(self.raw_post('/api/incidents', '{"category":"No ID","detail":"\\ud800"}').status_code, 400)
         self.assertEqual(self.raw_post('/api/chat', '{"message": "hi \\ud800"}').status_code, 400)
         self.assertEqual(self.raw_post('/api/chat', '{"message": "hi", "session_id": "\\ud800"}').json['message_id'], None)
         patch_bad = self.client.patch(f'/api/inventory/{self.row["id"]}', data='{"notes":"\\ud800"}', content_type='application/json')
@@ -349,10 +348,10 @@ class HardeningTests(AppTestCase):
         self.assertEqual(page.headers['Cache-Control'], 'no-store')
 
     def test_student_ids_are_unique_whatever_the_letter_case(self):
-        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'student_id': 'demo-001'}).status_code, 409)
-        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'student_id': ' Demo-001 '}).status_code, 409)
+        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'student_id': 'p202400101'}).status_code, 409)
+        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'student_id': ' P202400101 '}).status_code, 409)
         self.assertEqual(self.client.post('/api/inventory', json=self.NEW).status_code, 201)
-        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'student_id': 'new-1'}).status_code, 409)
+        self.assertEqual(self.client.post('/api/inventory', json={**self.NEW, 'student_id': 'p202499001'}).status_code, 409)
         self.assertEqual(len(self.client.get('/api/inventory').json['records']), len(self.records) + 1)
 
     def test_student_lookup_leaves_out_staff_notes_and_the_qr_token(self):
@@ -360,9 +359,11 @@ class HardeningTests(AppTestCase):
         record = self.client.post('/api/student/lookup', json={'student_id': self.row['student_id'].lower()}).json['record']
         self.assertNotIn('notes', record)
         self.assertNotIn('token', record)
-        for field in ('id', 'student_id', 'name', 'course', 'section', 'year_level', 'status', 'request_type',
+        for field in ('id', 'student_id', 'name', 'year_section', 'status', 'request_type',
                       'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time'):
             self.assertIn(field, record)
+        self.assertNotIn('address', record)               # for the coordinator only
+        self.assertNotIn('contact_number', record)
         guard = self.client.get('/api/verify', query_string={'q': self.row['student_id']}).json['matches'][0]
         self.assertIn('token', guard)
 
@@ -387,7 +388,7 @@ class HardeningTests(AppTestCase):
     def test_exports_neutralise_spreadsheet_formulas(self):
         self.client.post('/api/inventory', json={**self.NEW, 'name': '=cmd|calc'})
         text = self.client.get('/api/inventory/export').data.decode('utf-8-sig')
-        names = [row['name'] for row in csv.DictReader(io.StringIO(text))]
+        names = [row['full_name'] for row in csv.DictReader(io.StringIO(text))]
         self.assertIn("'=cmd|calc", names)
         self.assertNotIn('=cmd|calc', names)
         self.assertEqual(csv_safe('=1+1'), "'=1+1")
@@ -397,14 +398,14 @@ class HardeningTests(AppTestCase):
 
 class RequestTrackingTests(AppTestCase):
     def submit(self, **extra):
-        body = {'student_id': 'DEMO-003', 'request_type': 'Lost ID', 'detail': 'Wallet stolen near the gate', **extra}
+        body = {'student_id': 'P202400103', 'request_type': 'Lost ID', 'detail': 'Wallet stolen near the gate', **extra}
         return self.client.post('/api/requests', json=body).json
 
     def test_students_see_only_type_status_and_time_of_their_own_requests(self):
         first = self.submit()
-        self.submit(request_type='Status inquiry', student_id='demo-003', detail='private words')
-        self.submit(student_id='DEMO-004')
-        mine = self.client.post('/api/student/requests', json={'student_id': 'Demo-003'}).json['requests']
+        self.submit(request_type='Status inquiry', student_id='p202400103', detail='private words')
+        self.submit(student_id='P202400104')
+        mine = self.client.post('/api/student/requests', json={'student_id': 'p202400103'}).json['requests']
         self.assertEqual(len(mine), 2)
         self.assertEqual(mine[-1]['id'], first['id'])
         for item in mine:
@@ -424,7 +425,7 @@ class RequestTrackingTests(AppTestCase):
 
     def test_accepting_a_lost_id_request_changes_the_record_only_once(self):
         ticket = self.submit()
-        rid = next(r['id'] for r in self.records if r['student_id'] == 'DEMO-003')
+        rid = next(r['id'] for r in self.records if r['student_id'] == 'P202400103')
         self.assertEqual(self.client.patch(f'/api/requests/{ticket["id"]}', json={'status': 'Accepted'}).status_code, 200)
         self.client.patch(f'/api/inventory/{rid}', json={'status': 'Processing'})
         again = self.client.patch(f'/api/requests/{ticket["id"]}', json={'status': 'Accepted'})
@@ -450,10 +451,13 @@ class RequestTrackingTests(AppTestCase):
 
 class DashboardAndToolTests(AppTestCase):
     def schedule(self, record_id, when, status=None):
-        body = {'schedule_type': 'Release', 'schedule_date': when.strftime('%Y-%m-%d'), 'schedule_time': '09:30'}
-        if status:
-            body['status'] = status
-        self.assertEqual(self.client.patch(f'/api/inventory/{record_id}', json=body).status_code, 200)
+        """Set an appointment directly in the database: the counts below must not depend on the release
+        hours (which refuse weekends), so the test cannot depend on the day it runs."""
+        with self.db() as db:
+            db.execute("UPDATE inventory SET schedule_type='Release', schedule_date=%s, schedule_time='09:30' WHERE id=%s",
+                       (when.strftime('%Y-%m-%d'), record_id))
+            if status:
+                db.execute('UPDATE inventory SET status=%s WHERE id=%s', (status, record_id))
 
     def test_stats_count_today_overdue_and_only_future_appointments(self):
         now = datetime.now()
@@ -505,12 +509,14 @@ class DashboardAndToolTests(AppTestCase):
 
     def test_help_and_inventory_answers_mention_the_new_tools(self):
         coordinator = self.ask('What can you do?')['reply']
-        self.assertIn('Feedback', coordinator)
-        self.assertIn('Needs attention', coordinator)
+        for word in ('Feedback', 'Needs attention', 'Not yet made', 'import', 'Incidents'):
+            self.assertIn(word, coordinator)
         guard = self.ask('What can you do?', role='guard')['reply']
-        self.assertIn('camera', guard)
+        for word in ('camera', 'Check in', 'gate log', 'No ID or Lost ID'):
+            self.assertIn(word, guard)
         student = self.ask('What can you do?', role='student')['reply']
-        self.assertIn('track', student)
+        for word in ('track', 'Cashier'):
+            self.assertIn(word, student)
 
 
 class PageAndContractTests(AppTestCase):
@@ -564,7 +570,7 @@ class PageAndContractTests(AppTestCase):
                     continue
                 with self.subTest(move=f'{current} -> {target}'):
                     ticket = self.client.post('/api/requests', json={
-                        'student_id': 'DEMO-003', 'request_type': 'Other', 'detail': 'Question about my ID'}).json
+                        'student_id': 'P202400103', 'request_type': 'Other', 'detail': 'Question about my ID'}).json
                     path = f'/api/requests/{ticket["id"]}'
                     if current != 'Submitted':
                         self.assertEqual(self.client.patch(path, json={'status': current}).status_code, 200)

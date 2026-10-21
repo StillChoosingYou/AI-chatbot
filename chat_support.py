@@ -6,6 +6,8 @@ follow-up questions to offer and how to treat text that a user chose to share.
 """
 import re
 
+from student_data import PENALTY_AT, PENALTY_TEXT, STATUS_NOTES, gate_note
+
 FEEDBACK_REASONS = ('Wrong answer', "Didn't understand me", 'Missing information', 'Other')
 
 # intent -> (short chip label, question sent to the assistant when the chip is clicked).
@@ -171,3 +173,123 @@ def clean_text(value):
     except UnicodeEncodeError:
         return False
     return True
+
+
+# ─── Looking a student up from the chat ───────────────────────────────────
+
+_ID_WORD = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{2,39}')
+
+
+def id_candidates(text, limit=5):
+    """The words of a message that could be a student ID: four or more characters with a digit in them."""
+    seen, found = set(), []
+    for word in _ID_WORD.findall(str(text)):
+        key = word.lower()
+        if len(word) >= 4 and any(char.isdigit() for char in word) and key not in seen:
+            seen.add(key)
+            found.append(word)
+    return found[:limit]
+
+
+PRIVATE_NOTE = '🔒 Address and contact number are shown to the coordinator only.'
+
+
+def student_reply(row, role, release_hours):
+    """What the chat tells one workspace role about one student.
+
+    row is a record with 'year_section' already worked out. Everyone sees the ID, name, year and section,
+    status and appointment. The address and contact number are for the coordinator; the other roles are
+    told they exist but are not shown them. The guard and the coordinator also see false statements and
+    any penalty (row['false_statements'], row['penalty_due']). Staff notes and the QR token are never
+    part of a chat answer.
+    """
+    lines = [f'🪪 **{row["name"]}**',
+             f'Student ID: {row["student_id"]}',
+             f'Year & Section: {row["year_section"]}',
+             f'Status: **{row["status"]}** ({STATUS_NOTES.get(row["status"], "see the office")})']
+    if row.get('request_type'):
+        lines.append(f'Request: {row["request_type"]}')
+    if row.get('schedule_date'):
+        lines.append(f'Appointment: {row["schedule_type"]}, **{row["schedule_date"]} at {row["schedule_time"]}**')
+    else:
+        lines.append('Appointment: none scheduled yet')
+    if row['status'] == 'Pending' and row.get('pending_reason'):
+        lines.append(f'Why pending: {row["pending_reason"]}')
+    if row['status'] == 'For release':
+        lines.append(f'Release hours: {release_hours}')
+    if role == 'coordinator':
+        lines.append(f'Address: {row.get("address") or "not recorded"}')
+        lines.append(f'Contact number: {row.get("contact_number") or "not recorded"}')
+    if role in ('coordinator', 'guard'):
+        lines.extend(staff_lines(row))
+    if role == 'guard':
+        lines.append(gate_note(row['status']))
+    if role != 'coordinator':
+        lines.append(PRIVATE_NOTE)
+    return '\n'.join(lines)
+
+
+def staff_lines(row):
+    """False statements and the penalty, for the guard and the coordinator only."""
+    lines = []
+    count = row.get('false_statements', 0)
+    if count:
+        lines.append(f'False statements on record: {count}')
+    if row.get('penalty_due'):
+        lines.append(f'⚠️ Penalty due: ₱{row["penalty_due"]:,}. Send the student to the Cashier, then mark the '
+                     'incident Resolved once it is paid.')
+    elif count == PENALTY_AT - 1:
+        lines.append(f'A second false statement carries a {PENALTY_TEXT} penalty.')
+    if count > PENALTY_AT:
+        lines.append('More than two false statements: the written rule only sets the penalty at the second, '
+                     'so refer this student to the coordinator.')
+    return lines
+
+
+# ─── Commands typed into the chat ─────────────────────────────────────────
+# The network only labels what a message is about. A few things are not questions but orders (log a
+# student in or out, show the gate log, list the IDs that are not made yet), so plain patterns catch them
+# first. Every pattern needs the whole intent to be spelled out; anything else goes on to the network.
+
+_GATE_COMMAND = re.compile(
+    r'^\s*(?:please\s+|pls\s+)?(check[\s-]*in|check[\s-]*out|log[\s-]*in|log[\s-]*out|time[\s-]*in|time[\s-]*out'
+    r'|in|out|pasok|labas)\s*[:\-]?\s+(.+?)\s*$', re.IGNORECASE)
+_GATE_BARE = re.compile(
+    r'^\s*(?:please\s+|pls\s+)?(?:check[\s-]*in|check[\s-]*out|log[\s-]*in|log[\s-]*out|time[\s-]*in|time[\s-]*out'
+    r'|pasok|labas)\s*[.!]?\s*$', re.IGNORECASE)
+_GATE_IN_WORDS = {'checkin', 'login', 'timein', 'in', 'pasok'}
+_GATE_LOG = re.compile(
+    r"\bgate[\s-]*(?:logs?|entries|records?|history|list)\b"
+    r"|\b(?:logs?|entries|records?) (?:at|of|sa) (?:the )?gate\b"
+    r"|\bwho(?:'s| is| are)? (?:inside|in the campus|in school)\b", re.IGNORECASE)
+_NOT_YET_MADE = re.compile(
+    r'\bnot[\s-]+yet[\s-]+made\b|\bnot[\s-]+made[\s-]+yet\b|\bunmade\b'
+    r'|\b(?:hindi|di)[\s-]+pa[\s-]+(?:nagagawa|nagawa|gawa)(?:ng)?\b', re.IGNORECASE)
+_RECORDS_ONLY = re.compile(
+    r'^\s*(?:show |list |view |open |see |display )?(?:me )?(?:the |all )?(?:student )?records?\s*[.!]?\s*$',
+    re.IGNORECASE)
+
+
+def parse_gate_command(text):
+    """('in' or 'out', who) for "check in P202400230", "out Alex Rivera"; None for any other message."""
+    if '?' in text:
+        return None
+    match = _GATE_COMMAND.match(text)
+    if not match:
+        return None
+    verb = re.sub(r'[\s-]+', '', match.group(1).lower())
+    return ('in' if verb in _GATE_IN_WORDS else 'out'), match.group(2)
+
+
+def is_bare_gate_verb(text):
+    """True for "check in" or "check out" typed alone, with no student after it."""
+    return bool(_GATE_BARE.match(text))
+
+
+def asks_for_gate_log(text):
+    return bool(_GATE_LOG.search(text))
+
+
+def asks_for_records(text):
+    """True for "records" on its own and for "ID not yet made" in English or Tagalog."""
+    return bool(_NOT_YET_MADE.search(text) or _RECORDS_ONLY.match(text))

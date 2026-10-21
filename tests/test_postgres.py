@@ -10,28 +10,9 @@ import psycopg
 
 from Chatbot import create_app
 from database import lock_student
-from pg_support import DatabaseTestCase, close_app
+from pg_support import DatabaseTestCase, close_app, run_together
 
-STUDENT = {'student_id': 'RACE-3', 'name': 'Pat Lee', 'course': 'BSIT', 'section': 'A', 'year_level': 1}
-
-
-def run_together(jobs):
-    """Run each callable on its own thread, all released at the same moment. Returns result or exception per job."""
-    barrier, results = threading.Barrier(len(jobs)), [None] * len(jobs)
-
-    def work(index, job):
-        try:
-            barrier.wait(timeout=20)
-            results[index] = job()
-        except BaseException as error:         # shown by the assertions, not lost inside a thread
-            results[index] = error
-
-    threads = [threading.Thread(target=work, args=(index, job)) for index, job in enumerate(jobs)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(60)
-    return results
+STUDENT = {'student_id': 'P202499003', 'name': 'Pat Lee', 'year_section': '1A'}
 
 
 class StartupTests(DatabaseTestCase):
@@ -64,7 +45,7 @@ class StartupTests(DatabaseTestCase):
         self.assertEqual(first.post('/api/inventory', json=STUDENT).status_code, 201)
         records = self.make_app().test_client().get('/api/inventory').json['records']
         self.assertEqual(len(records), 7)
-        self.assertEqual(records[0]['student_id'], 'RACE-3')
+        self.assertEqual(records[0]['student_id'], 'P202499003')
 
 
 class PostgresBehaviourTests(DatabaseTestCase):
@@ -90,7 +71,7 @@ class PostgresBehaviourTests(DatabaseTestCase):
         with self.assertRaises(psycopg.errors.UniqueViolation):
             with self.db() as db:
                 db.execute("INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token) "
-                           "VALUES ('demo-001','x','x','x',1,'Pending','New ID','token-ci')")
+                           "VALUES ('p202400101','x','x','x',1,'Pending','New ID','token-ci')")
 
     def test_ids_are_never_reused_after_a_delete(self):
         first = self.client.post('/api/inventory', json=STUDENT).json['id']
@@ -99,45 +80,50 @@ class PostgresBehaviourTests(DatabaseTestCase):
         self.assertGreater(second, first)
 
     def test_appointment_dates_are_stored_in_one_fixed_shape_so_they_sort(self):
-        first_of_next_month = (datetime.now().replace(day=1) + timedelta(days=32)).replace(day=1)
+        # The first Monday of next month is on the 1st to 7th, so its day has one digit; the Tuesday after it
+        # does too. Both are working days, which the release hours require.
+        monday = (datetime.now().replace(day=1) + timedelta(days=32)).replace(day=1)
+        while monday.weekday() != 0:
+            monday += timedelta(days=1)
+        tuesday = monday + timedelta(days=1)
         ids = [r['id'] for r in self.client.get('/api/inventory').json['records']][:2]
-        month = f'{first_of_next_month.year}-{first_of_next_month.month:02d}'
+        month = f'{monday.year}-{monday.month:02d}'
         saved = self.client.patch(f'/api/inventory/{ids[0]}', json={
-            'schedule_type': 'Release', 'schedule_date': f'{month}-9', 'schedule_time': '9:05'})
-        self.assertEqual((saved.json['schedule_date'], saved.json['schedule_time']), (f'{month}-09', '09:05'))
+            'schedule_type': 'Release', 'schedule_date': f'{month}-{monday.day}', 'schedule_time': '9:05'})
+        self.assertEqual((saved.json['schedule_date'], saved.json['schedule_time']), (monday.strftime('%Y-%m-%d'), '09:05'))
         self.client.patch(f'/api/inventory/{ids[1]}', json={
-            'schedule_type': 'Release', 'schedule_date': f'{month}-10', 'schedule_time': '08:00'})
+            'schedule_type': 'Release', 'schedule_date': f'{month}-{tuesday.day}', 'schedule_time': '08:00'})
         upcoming = [row['schedule_date'] for row in self.client.get('/api/stats').json['upcoming_appointments']]
-        self.assertEqual(upcoming, [f'{month}-09', f'{month}-10'])
+        self.assertEqual(upcoming, [monday.strftime('%Y-%m-%d'), tuesday.strftime('%Y-%m-%d')])
 
     def test_verify_lists_exact_matches_before_name_matches(self):
-        self.client.post('/api/inventory', json={**STUDENT, 'student_id': 'NAMEHIT-1', 'name': 'Has EXACT-9 in the name'})
-        self.client.post('/api/inventory', json={**STUDENT, 'student_id': 'EXACT-9', 'name': 'Someone Else'})
-        found = [m['student_id'] for m in self.client.get('/api/verify', query_string={'q': 'exact-9'}).json['matches']]
-        self.assertEqual(found, ['EXACT-9', 'NAMEHIT-1'])
+        self.client.post('/api/inventory', json={**STUDENT, 'student_id': 'P202499010', 'name': 'Has P202499011 in the name'})
+        self.client.post('/api/inventory', json={**STUDENT, 'student_id': 'P202499011', 'name': 'Someone Else'})
+        found = [m['student_id'] for m in self.client.get('/api/verify', query_string={'q': 'p202499011'}).json['matches']]
+        self.assertEqual(found, ['P202499011', 'P202499010'])
 
     # ── races ────────────────────────────────────────────────────
     def test_accepting_the_same_lost_id_request_many_times_at_once_changes_the_record_once(self):
         ticket = self.client.post('/api/requests', json={
-            'student_id': 'RACE-1', 'name': 'Pat Lee', 'request_type': 'Lost ID', 'detail': 'Wallet'}).json['id']
+            'student_id': 'P202499021', 'name': 'Pat Lee', 'request_type': 'Lost ID', 'detail': 'Wallet'}).json['id']
         results = run_together([
             lambda: self.new_client().patch(f'/api/requests/{ticket}', json={'status': 'Accepted'}).status_code
             for _ in range(8)])
         self.assertEqual(results, [200] * 8)
         with self.db() as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM inventory WHERE student_id = 'RACE-1'").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM inventory WHERE student_id = 'P202499021'").fetchone()[0], 1)
         events = [e for e in self.client.get('/api/activity').json['events'] if e['action'] == 'Updated request']
         self.assertEqual(len(events), 1)
 
     def test_two_lost_id_requests_for_one_new_student_create_one_record(self):
         tickets = [self.client.post('/api/requests', json={
-            'student_id': sid, 'name': 'Pat Lee', 'request_type': 'Lost ID'}).json['id'] for sid in ('RACE-2', 'race-2')]
+            'student_id': sid, 'name': 'Pat Lee', 'request_type': 'Lost ID'}).json['id'] for sid in ('P202499022', 'p202499022')]
         results = run_together([
             lambda ticket=ticket: self.new_client().patch(f'/api/requests/{ticket}', json={'status': 'Accepted'}).status_code
             for ticket in tickets])
         self.assertEqual(results, [200, 200])
         with self.db() as db:
-            self.assertEqual(db.execute("SELECT COUNT(*) FROM inventory WHERE LOWER(student_id) = 'race-2'").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM inventory WHERE LOWER(student_id) = 'p202499022'").fetchone()[0], 1)
 
     def test_adding_the_same_student_many_times_at_once_creates_one_record(self):
         results = run_together([
@@ -188,7 +174,7 @@ class PostgresBehaviourTests(DatabaseTestCase):
         self.assertEqual((row['status'], row['notes']), ('Processing', 'from the other coordinator'))
 
     def test_a_request_cannot_be_moved_on_from_a_state_that_someone_else_is_changing(self):
-        ticket = self.client.post('/api/requests', json={'student_id': 'WAIT-1', 'request_type': 'Other'}).json['id']
+        ticket = self.client.post('/api/requests', json={'student_id': 'P202499023', 'request_type': 'Other'}).json['id']
 
         def hold(db):                                   # another coordinator is closing it right now
             db.execute('SELECT 1 FROM student_requests WHERE id = %s FOR UPDATE', (ticket,))
@@ -201,16 +187,16 @@ class PostgresBehaviourTests(DatabaseTestCase):
 
     def test_adding_a_student_waits_while_that_student_is_being_created_elsewhere(self):
         waiting, outcome = self.waits_for_lock(
-            lambda db: lock_student(db, 'LOCK-1'),
-            lambda: self.new_client().post('/api/inventory', json={**STUDENT, 'student_id': 'lock-1'}).status_code)
+            lambda db: lock_student(db, 'P202499024'),
+            lambda: self.new_client().post('/api/inventory', json={**STUDENT, 'student_id': 'p202499024'}).status_code)
         self.assertTrue(waiting)
         self.assertEqual(outcome, [201])
 
     def test_accepting_a_lost_id_request_waits_while_that_student_is_being_created_elsewhere(self):
         ticket = self.client.post('/api/requests', json={
-            'student_id': 'LOCK-2', 'name': 'Pat Lee', 'request_type': 'Lost ID'}).json['id']
+            'student_id': 'P202499025', 'name': 'Pat Lee', 'request_type': 'Lost ID'}).json['id']
         waiting, outcome = self.waits_for_lock(
-            lambda db: lock_student(db, 'lock-2'),
+            lambda db: lock_student(db, 'p202499025'),
             lambda: self.new_client().patch(f'/api/requests/{ticket}', json={'status': 'Accepted'}).status_code)
         self.assertTrue(waiting)
         self.assertEqual(outcome, [200])
@@ -231,7 +217,7 @@ class PostgresBehaviourTests(DatabaseTestCase):
                 self.assertEqual(getattr(self.client, method)(url).status_code, expected)
         for url, payload in [('/api/inventory', {**STUDENT, 'name': 'Al\x00ex'}),
                              ('/api/chat', {'message': 'hi\x00there', 'session_id': 's'}),
-                             ('/api/requests', {'student_id': 'A\x00B', 'request_type': 'Other'})]:
+                             ('/api/requests', {'student_id': 'P2024\x0099999', 'request_type': 'Other'})]:
             with self.subTest(url=url):
                 self.assertEqual(self.client.post(url, json=payload).status_code, 400)
 

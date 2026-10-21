@@ -30,9 +30,8 @@ def sample_card(student, side):
         draw.rounded_rectangle((215,458,425,575), radius=50, fill='#a6b4cf')
         text('PHOTO PLACEHOLDER', 630, 18, '#7a87a3', left=195, width=410)
         text(student['name'], 690, 32)
-        text(student['course'], 745, 26)
-        text(f'Section {student["section"]}  |  Year {student["year_level"]}', 792, 22)
-        text(f'Student ID: {student["student_id"]}', 843, 20)
+        text(f'Year & Section: {student["year_section"]}', 745, 26)
+        text(f'Student ID: {student["student_id"]}', 800, 22)
         text('Signature not provided', 893, 18, '#7a87a3')
     else:
         text('EMERGENCY CONTACT', 225, 25)
@@ -43,7 +42,7 @@ def sample_card(student, side):
         text('ID INFORMATION', 477, 25)
         for value, y in [('For student identification.',535),
                          ('Contact the school office for assistance.',581),
-                         ('Report a missing card to authorized staff.',627)]:
+                         ('Lost card? Pay the fee at the Cashier first.',627)]:
             text(value,y,21)
         draw.rounded_rectangle((40,710,600,890), radius=15, fill='#e1e6f0')
         text('SAMPLE BACK OF ID', 746, 27, left=90, width=470)

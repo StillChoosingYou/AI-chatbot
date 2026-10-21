@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>School ID · Property Management</title>
-  <meta name="description" content="Role-based school ID workspace for coordinators, guards, and students, with QR stickers and an AI assistant.">
+  <meta name="description" content="School ID workspace for coordinators, guards, and students. Type a student ID or name in the chat to see that student's ID status.">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -32,44 +32,37 @@
   </header>
 
   <section class="content">
-    <!-- Coordinator: overview -->
-    <div class="workspace" data-workspace="coordinator" id="view-overview" hidden>
-      <div class="heading">
-        <div class="eyebrow">COORDINATOR</div>
-        <div class="title-row"><div><h1>Overview</h1><p>What needs attention today.</p></div></div>
-      </div>
-      <div class="tiles" id="overview-tiles" aria-label="Today at a glance"></div>
-      <div class="insight-grid">
-        <section class="insight-card"><h2>Next appointments</h2><div id="overview-next" class="mini-list"></div></section>
-        <section class="insight-card"><h2>IDs by status</h2><div id="overview-status" class="bars"></div></section>
-        <section class="insight-card"><h2>By course</h2><div id="overview-course" class="bars"></div></section>
-        <section class="insight-card"><h2>By request type</h2><div id="overview-kind" class="bars"></div></section>
-      </div>
-    </div>
-
-    <!-- Coordinator: inventory -->
-    <div class="workspace" data-workspace="coordinator" id="view-inventory" hidden>
+    <!-- Coordinator: dashboard -->
+    <div class="workspace" data-workspace="coordinator" id="view-dashboard" hidden>
       <div class="heading">
         <div class="eyebrow">COORDINATOR</div>
         <div class="title-row">
           <div>
-            <h1>ID inventory</h1>
-            <p>Every student ID, from request to release.</p>
+            <h1>Dashboard</h1>
+            <p>Every student and where their ID is, from request to release.</p>
           </div>
           <div class="title-actions">
-            <button class="export-btn" id="export-btn" type="button" title="Download all records as CSV">📥 Export CSV</button>
-            <button class="primary" id="new-record" type="button">＋ Add student ID</button>
+            <button class="export-btn" id="export-btn" type="button" title="Download all students as a CSV file">📥 Export CSV</button>
+            <button class="export-btn" id="import-btn" type="button" title="Add many students from a CSV file">📤 Import students</button>
+            <button class="primary" id="new-record" type="button">＋ Add student</button>
           </div>
         </div>
       </div>
-      <div class="stats" id="stats" aria-label="Inventory overview"></div>
+      <div class="tiles six" id="dashboard-tiles" aria-label="Today at a glance"></div>
       <section class="inventory-panel">
         <div class="panel-heading">
-          <h2>Student records <span id="count"></span></h2>
+          <h2>Students <span id="count" aria-live="polite"></span></h2>
           <div class="panel-actions">
-            <button class="text-button" id="select-all-btn" type="button" title="Select all visible records">☑ Select all</button>
-            <span class="subtle">QR identification &amp; processing</span>
+            <button class="text-button" id="select-all-btn" type="button" title="Select every student that matches the filters">☑ Select all</button>
           </div>
+        </div>
+        <div class="chip-row status-row" id="status-chips" role="group" aria-label="Filter by status"></div>
+        <div class="chip-row attention-row" id="attention-chips" role="group" aria-label="Needs attention"></div>
+        <div class="filter-row">
+          <label class="search"><span class="sr-only">Search students</span><input id="search" type="search" placeholder="Search name, student ID, address or contact number…"></label>
+          <label><span class="sr-only">Year and section</span><select id="section-filter"><option value="">All year &amp; sections</option></select></label>
+          <label><span class="sr-only">Request type</span><select id="kind-filter"><option value="">All requests</option>{% for k in kinds %}<option>{{k}}</option>{% endfor %}</select></label>
+          <button class="text-button" id="reset-filters" type="button">Reset filters</button>
         </div>
         <div class="bulk-toolbar" id="bulk-toolbar">
           <span class="bulk-count" id="bulk-count">0 selected</span>
@@ -78,28 +71,63 @@
           <button class="export-btn" id="bulk-stickers" type="button" data-max="{{ max_stickers }}" title="Open a print sheet with a QR sticker for each selected student">🖨 Print stickers</button>
           <button class="text-button" id="bulk-clear" type="button">Clear selection</button>
         </div>
-        <div class="chip-row attention-row" id="attention-chips" role="group" aria-label="Needs attention"></div>
-        <div class="filter-row">
-          <label class="search"><span class="sr-only">Search name or student ID</span><input id="search" type="search" placeholder="Search name or student ID…"></label>
-          <label><span class="sr-only">Processing status</span><select id="status-filter"><option value="">All statuses</option>{% for s in statuses %}<option>{{s}}</option>{% endfor %}</select></label>
-          <label><span class="sr-only">Course</span><select id="course-filter"><option value="">All courses</option></select></label>
-          <label><span class="sr-only">Year level</span><select id="year-filter"><option value="">All years</option>{% for y in range(1,7) %}<option value="{{y}}">Year {{y}}</option>{% endfor %}</select></label>
+        <div class="table-wrap">
+          <table class="students" id="students-table">
+            <thead>
+              <tr>
+                <th class="check-col"><input type="checkbox" class="bulk-check" id="select-all" aria-label="Select all students that match the filters"></th>
+                <th>Student ID</th>
+                <th>Full name</th>
+                <th>Year &amp; Section</th>
+                <th>Status</th>
+                <th>Address</th>
+                <th>Contact number</th>
+                <th class="actions-col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="records"></tbody>
+          </table>
         </div>
-        <div class="secondary-filters">
-          <label>Section <select id="section-filter"><option value="">All sections</option></select></label>
-          <label>Request <select id="kind-filter"><option value="">All requests</option>{% for k in kinds %}<option>{{k}}</option>{% endfor %}</select></label>
-          <button class="text-button" id="reset-filters" type="button">Reset filters</button>
-        </div>
-        <div class="column-labels"><span>QR CODE &amp; STUDENT</span><span>PROCESSING STATUS</span></div>
-        <div id="records" aria-live="polite"></div>
+        <div class="table-foot" id="table-foot"></div>
       </section>
     </div>
 
-    <!-- Coordinator: queue -->
+    <!-- Everyone: the assistant, a full-page chat -->
+    <div class="workspace assistant-page" id="view-assistant" hidden>
+      <div class="heading">
+        <div class="eyebrow" id="assistant-eyebrow">ASSISTANT</div>
+        <div class="title-row">
+          <div>
+            <h1>Assistant</h1>
+            <p id="assistant-blurb">Type a student ID or name and I will show that student.</p>
+          </div>
+          <div class="title-actions">
+            <button class="export-btn" id="new-chat" type="button" title="Clear this conversation">＋ New chat</button>
+          </div>
+        </div>
+      </div>
+      <section class="chat-card" aria-label="Chat with the ID assistant">
+        <div class="chat-context">
+          <span id="selected-student">No student selected</span>
+          <button class="text-button" id="clear-selected" type="button" hidden>✕ Clear</button>
+        </div>
+        <div id="messages" role="log" aria-live="polite"></div>
+        <div class="suggestions"></div>
+        <form id="chat-form">
+          <label class="sr-only" for="chat-input">Message to the ID assistant</label>
+          <input id="chat-input" placeholder="Type a student ID (for example {{ student_id_example }}) or a name, or ask a question…" maxlength="1000" required autocomplete="off">
+          <button class="primary" type="submit">Send ↗</button>
+        </form>
+        <small class="char-count" id="chat-count" aria-live="polite" hidden></small>
+        <p class="assistant-note"><span class="note-full">I am an automated assistant. Student lookups come straight from the records. For other questions I match your words to a fixed set of topics and can be wrong. Tap 👍 or 👎 under an answer to help the office improve it.</span><span class="note-short">Automated assistant: lookups come from the records, other answers can be wrong. 👍 / 👎 helps the office.</span></p>
+      </section>
+    </div>
+
+    <!-- Coordinator: appointments -->
     <div class="workspace" data-workspace="coordinator" id="view-queue" hidden>
       <div class="heading">
         <div class="eyebrow">COORDINATOR</div>
-        <div class="title-row"><div><h1>Appointment queue</h1><p>Release, follow-up, and replacement visits.</p></div></div>
+        <div class="title-row"><div><h1>Appointments</h1><p>Release, follow-up, and replacement visits. Release hours: {{ release_hours }}.</p></div></div>
       </div>
       <div id="queue-list" class="tool-list" aria-live="polite"></div>
     </div>
@@ -112,6 +140,25 @@
       </div>
       <div class="chip-row" id="request-chips" role="group" aria-label="Filter requests by status"></div>
       <div id="request-inbox" class="tool-list" aria-live="polite"></div>
+    </div>
+
+    <!-- Guard and coordinator: incidents -->
+    <div class="workspace" data-workspace="guard coordinator" id="view-incidents" hidden>
+      <div class="heading">
+        <div class="eyebrow" id="incidents-eyebrow">INCIDENTS</div>
+        <div class="title-row"><div><h1>Incidents</h1><p>A student at the gate with no ID, or with a lost one. A lost ID goes to the Cashier first. Giving false information twice carries a {{ penalty_text }} penalty.</p></div></div>
+      </div>
+      <form class="tool-card form-grid" id="incident-form" novalidate>
+        <label>Category<select name="category">{% for c in incident_categories %}<option>{{c}}</option>{% endfor %}</select></label>
+        <label>Student ID<input name="student_id" maxlength="40" placeholder="{{ student_id_example }}" autocomplete="off"></label>
+        <label class="wide">Location<input name="location" maxlength="100" placeholder="Main gate"></label>
+        <div class="check-card wide" id="incident-check" hidden aria-live="polite"></div>
+        <label class="wide">What happened?<textarea name="detail" maxlength="500" required placeholder="Short description"></textarea></label>
+        <label class="check-line wide"><input type="checkbox" name="false_statement"><span>The student gave false information about the ID <small>(a second false statement carries the {{ penalty_text }} penalty)</small></span></label>
+        <button class="primary" type="submit">File incident</button>
+      </form>
+      <div id="incident-result" class="tool-list" aria-live="polite"></div>
+      <div id="incident-list" class="tool-list" aria-live="polite"></div>
     </div>
 
     <!-- Coordinator: chatbot feedback -->
@@ -137,7 +184,7 @@
     <div class="workspace" data-workspace="coordinator" id="view-activity" hidden>
       <div class="heading">
         <div class="eyebrow">COORDINATOR</div>
-        <div class="title-row"><div><h1>Activity log</h1><p>Recent inventory, gate, and request actions.</p></div></div>
+        <div class="title-row"><div><h1>Activity log</h1><p>Recent dashboard, gate, incident, and request actions.</p></div></div>
       </div>
       <div id="activity-list" class="tool-list" aria-live="polite"></div>
     </div>
@@ -146,10 +193,10 @@
     <div class="workspace" data-workspace="guard" id="view-verify" hidden>
       <div class="heading">
         <div class="eyebrow">GUARD</div>
-        <div class="title-row"><div><h1>Verify ID</h1><p>Look up a student by ID number, name, or QR token at the gate.</p></div></div>
+        <div class="title-row"><div><h1>Verify ID</h1><p>Look up a student by ID number, name, or QR token at the gate. To log the gate, open the student in the chat.</p></div></div>
       </div>
       <form class="tool-card" id="verify-form">
-        <label>Student ID, name, or token<input id="verify-query" maxlength="100" placeholder="e.g. DEMO-001 or Alex Rivera" required autocomplete="off"></label>
+        <label>Student ID, name, or token<input id="verify-query" maxlength="100" placeholder="e.g. {{ student_id_example }} or a name" required autocomplete="off"></label>
         <div class="form-buttons">
           <button class="primary" type="submit">Verify</button>
           <button class="export-btn" id="scan-btn" type="button" title="Scan a student's QR sticker with the camera">📷 Scan QR</button>
@@ -158,51 +205,25 @@
       <div id="verify-result" class="tool-list" aria-live="polite"></div>
     </div>
 
-    <!-- Guard: gate -->
-    <div class="workspace" data-workspace="guard" id="view-gate" hidden>
-      <div class="heading">
-        <div class="eyebrow">GUARD</div>
-        <div class="title-row"><div><h1>Gate log</h1><p>Check students and visitors in or out.</p></div></div>
-      </div>
-      <div class="pill-row" id="gate-summary" aria-live="polite"></div>
-      <form class="tool-card form-grid" id="gate-form">
-        <label>Student ID<input name="student_id" maxlength="100" placeholder="DEMO-001"></label>
-        <label>Name (if visitor)<input name="name" maxlength="100" placeholder="Optional if student ID is known"></label>
-        <label>Direction<select name="direction"><option value="in">Check in</option><option value="out">Check out</option></select></label>
-        <label>Note<input name="note" maxlength="500" placeholder="Optional"></label>
-        <button class="primary" type="submit">Save gate event</button>
-      </form>
-      <div id="gate-list" class="tool-list" aria-live="polite"></div>
-    </div>
-
-    <!-- Guard: incidents -->
-    <div class="workspace" data-workspace="guard" id="view-incidents" hidden>
-      <div class="heading">
-        <div class="eyebrow">GUARD</div>
-        <div class="title-row"><div><h1>Incidents</h1><p>Log no-ID, visitors, recovered cards, and other gate issues.</p></div></div>
-      </div>
-      <form class="tool-card form-grid" id="incident-form">
-        <label>Category<select name="category">{% for c in incident_categories %}<option>{{c}}</option>{% endfor %}</select></label>
-        <label>Location<input name="location" maxlength="100" placeholder="Main gate"></label>
-        <label>Student ID<input name="student_id" maxlength="100" placeholder="If known"></label>
-        <label class="wide">What happened?<textarea name="detail" maxlength="500" required placeholder="Short description"></textarea></label>
-        <button class="primary" type="submit">File incident</button>
-      </form>
-      <div id="incident-list" class="tool-list" aria-live="polite"></div>
-    </div>
-
-    <!-- Student: my ID -->
-    <div class="workspace" data-workspace="student" id="view-my-id" hidden>
+    <!-- Student: request help -->
+    <div class="workspace" data-workspace="student" id="view-student-request" hidden>
       <div class="heading">
         <div class="eyebrow">STUDENT</div>
-        <div class="title-row"><div><h1>My school ID</h1><p>Look up your processing status, appointment, and QR sticker.</p></div></div>
+        <div class="title-row"><div><h1>Request help</h1><p>Report a lost ID or ask the office for an appointment. Staff will review it.</p></div></div>
       </div>
-      <form class="tool-card" id="lookup-form">
-        <label>Student ID<input id="lookup-id" maxlength="100" placeholder="e.g. DEMO-001" required autocomplete="username"></label>
-        <button class="primary" type="submit">Look up</button>
+      <form class="tool-card form-grid" id="student-request-form">
+        <label>Student ID<input name="student_id" maxlength="40" required placeholder="{{ student_id_example }}" autocomplete="off"></label>
+        <label>Your name<input name="name" maxlength="100" placeholder="Full name"></label>
+        <label>Request type<select name="request_type">{% for t in request_types %}<option>{{t}}</option>{% endfor %}</select></label>
+        <label class="wide">Details<textarea name="detail" maxlength="500" placeholder="What happened, or when you can visit"></textarea></label>
+        <div class="form-buttons wide">
+          <button class="primary" type="submit">Submit request</button>
+          <button class="export-btn" id="track-btn" type="button" title="Show the requests made with this student ID">Track my requests</button>
+        </div>
       </form>
-      <div id="my-id-card" class="tool-list" aria-live="polite"></div>
-      <div id="my-requests" class="tool-list" aria-live="polite"></div>
+      <p class="notice"><strong>Lost ID?</strong> {{ office.requirements['Lost ID'] }} Please give true information: false information about a missing or lost ID, given twice, carries a {{ penalty_text }} penalty.</p>
+      <div id="request-result" class="tool-list" aria-live="polite"></div>
+      <div id="request-tracker" class="tool-list" aria-live="polite"></div>
       <aside class="info-grid">
         <article><h3>Office hours</h3><p>{{office.hours}}</p><p>{{office.location}}</p><p>{{office.contact}}</p></article>
         <article><h3>New ID</h3><p>{{office.requirements['New ID']}}</p></article>
@@ -210,98 +231,79 @@
       </aside>
     </div>
 
-    <!-- Student: request -->
-    <div class="workspace" data-workspace="student" id="view-student-request" hidden>
-      <div class="heading">
-        <div class="eyebrow">STUDENT</div>
-        <div class="title-row"><div><h1>Request help</h1><p>Submit a lost ID or appointment request for staff to review.</p></div></div>
-      </div>
-      <form class="tool-card form-grid" id="student-request-form">
-        <label>Student ID<input name="student_id" maxlength="100" required placeholder="DEMO-001"></label>
-        <label>Your name<input name="name" maxlength="100" placeholder="Full name"></label>
-        <label>Request type<select name="request_type">{% for t in request_types %}<option>{{t}}</option>{% endfor %}</select></label>
-        <label class="wide">Details<textarea name="detail" maxlength="500" placeholder="What happened, or when you can visit"></textarea></label>
-        <button class="primary" type="submit">Submit request</button>
-      </form>
-      <p class="subtle">Staff will see this in the coordinator request inbox. Try DEMO-001 through DEMO-006 with sample data.</p>
-      <div id="request-tracker" class="tool-list" aria-live="polite"></div>
-    </div>
-
-    <section class="assistant-panel workspace-chat" id="assistant">
-      <div class="assistant-intro">
-        <span class="assistant-icon">✦</span>
-        <h2>Your ID assistant</h2>
-        <p id="assistant-blurb">Ask about a release date, pending requirements, or a QR sticker.</p>
-        <p class="assistant-note" id="assistant-note">This is an automated assistant. It matches your words to a fixed set of topics and can be wrong. Tap 👍 or 👎 under an answer to help the office improve it.</p>
-        <div id="selected-student">No student selected</div>
-        <button class="text-button" id="clear-selected" type="button">Clear selection</button>
-        <div class="chat-toolbar">
-          <button class="text-button" id="new-chat" type="button">New chat</button>
-        </div>
-        <div class="kbd-hint">
-          <span><kbd>Ctrl</kbd>+<kbd>K</kbd> Search</span>
-          <span><kbd>Ctrl</kbd>+<kbd>N</kbd> New record</span>
-          <span><kbd>Ctrl</kbd>+<kbd>E</kbd> Export</span>
-        </div>
-      </div>
-      <div class="chat-area">
-        <div id="messages" role="log" aria-live="polite">
-          <div class="message bot">Hi! Choose a role to get tools that match your work, then ask me about school IDs.<div class="message-time"></div></div>
-        </div>
-        <div class="suggestions"></div>
-        <form id="chat-form">
-          <label class="sr-only" for="chat-input">Message to ID assistant</label>
-          <input id="chat-input" placeholder="Ask about school IDs…" maxlength="1000" required autocomplete="off">
-          <button class="primary" type="submit">Send ↗</button>
-        </form>
-        <small class="char-count" id="chat-count" aria-live="polite" hidden></small>
-      </div>
-    </section>
     <footer>School ID management prototype <span>Appointments use school local time · All displayed records are fictional.</span></footer>
   </section>
 </main>
 
 <nav class="mobile-dock" id="mobile-dock" aria-label="Quick sections"></nav>
 
+<div class="row-menu" id="row-menu" role="menu" hidden></div>
+
 <dialog id="role-dialog">
   <form method="dialog" id="role-form">
     <div class="dialog-heading"><h2>Who is using this workspace?</h2></div>
-    <p class="subtle">Pick a role so the buttons and assistant match your tasks. You can switch anytime.</p>
+    <p class="subtle">Pick a role so the pages and the assistant match your tasks. You can switch anytime.</p>
     <div class="role-choices">
-      <button type="submit" value="coordinator" class="role-card"><strong>Property coordinator</strong><span>Inventory, queue, bulk updates, requests, QR print</span></button>
-      <button type="submit" value="guard" class="role-card"><strong>Guard</strong><span>Verify IDs, gate log, incident reports</span></button>
-      <button type="submit" value="student" class="role-card"><strong>Student</strong><span>Look up status, request a lost ID, office hours</span></button>
+      <button type="submit" value="coordinator" class="role-card"><strong>Property coordinator</strong><span>Dashboard of every student, import, requests, incidents, QR print</span></button>
+      <button type="submit" value="guard" class="role-card"><strong>Guard</strong><span>Chat to check students in and out, verify IDs, incident reports</span></button>
+      <button type="submit" value="student" class="role-card"><strong>Student</strong><span>Chat to see your ID status, report a lost ID, office hours</span></button>
     </div>
   </form>
 </dialog>
 
-<dialog id="record-dialog">
+<dialog id="record-dialog" aria-labelledby="dialog-title">
   <form id="record-form">
     <div class="dialog-heading">
-      <h2 id="dialog-title">Add student ID</h2>
+      <h2 id="dialog-title">Add student</h2>
       <button type="button" id="close-dialog" class="text-button" aria-label="Close dialog">✕</button>
     </div>
     <div id="identity-fields" class="form-grid">
-      <label>Student ID<input name="student_id" maxlength="100" required></label>
-      <label>Full name<input name="name" maxlength="100" required></label>
-      <label>Course<input name="course" placeholder="e.g. BSIT" maxlength="100" required></label>
-      <label>Section<input name="section" maxlength="100" required></label>
-      <label>Year level<select name="year_level">{% for y in range(1,7) %}<option value="{{y}}">Year {{y}}</option>{% endfor %}</select></label>
-      <label>Request type<select name="request_type">{% for k in kinds %}<option>{{k}}</option>{% endfor %}</select></label>
+      <label>Student ID<input name="student_id" maxlength="40" required placeholder="{{ student_id_example }}" pattern="[Pp][0-9]{9}" title="{{ id_hint }}" autocomplete="off"></label>
+      <label>Full name<input name="name" maxlength="100" required placeholder="e.g. Reynald Jake L. Malabanan"></label>
+      <label>Year &amp; Section<input name="year_section" maxlength="12" required placeholder="e.g. 3E" autocomplete="off" title="A year from 1 to 6 followed by the section, for example 3E"></label>
+      <label>Contact number<input name="contact_number" maxlength="30" inputmode="tel" placeholder="e.g. 09171234567" autocomplete="off"></label>
+      <label class="wide">Address<input name="address" maxlength="200" placeholder="House no., street, barangay, city"></label>
+      <label id="kind-field">Request type<select name="request_type">{% for k in kinds %}<option>{{k}}</option>{% endfor %}</select></label>
     </div>
-    <div id="processing-fields" class="form-grid">
-      <label>Processing status<select name="status">{% for s in statuses %}<option>{{s}}</option>{% endfor %}</select></label>
+    <div id="processing-fields" class="form-grid" hidden>
+      <label>Status<select name="status">{% for s in statuses %}<option>{{s}}</option>{% endfor %}</select></label>
       <label>Appointment type<select name="schedule_type"><option value="">No appointment</option>{% for s in schedules %}<option>{{s}}</option>{% endfor %}</select></label>
       <label>Date<input name="schedule_date" type="date"></label>
       <label>Time<input name="schedule_time" type="time"></label>
       <label class="wide">Pending reason<textarea name="pending_reason" maxlength="500" placeholder="Record missing requirements, if any"></textarea></label>
       <label class="wide">Staff notes<textarea name="notes" maxlength="500" placeholder="Internal follow-up notes"></textarea></label>
     </div>
-    <p class="subtle" id="schedule-hint">To clear an appointment, clear its type, date, and time.</p>
+    <p class="subtle" id="schedule-hint">To clear an appointment, clear its type, date, and time. Release hours: {{ release_hours }}. No appointments on Saturdays and Sundays.</p>
     <p id="form-error" role="alert"></p>
-    <button class="primary" type="submit" id="save-record">Save record</button>
+    <button class="primary" type="submit" id="save-record">Save student</button>
   </form>
 </dialog>
+
+<dialog id="import-dialog" aria-labelledby="import-title">
+  <form id="import-form">
+    <div class="dialog-heading">
+      <h2 id="import-title">Import students</h2>
+      <button type="button" id="import-close" class="text-button" aria-label="Close dialog">✕</button>
+    </div>
+    <p class="subtle import-intro">Add many students at once from a CSV file (in Excel: File → Save As → CSV). One student per row, with these columns:</p>
+    <p class="import-columns"><code>student_id</code> <code>full_name</code> <code>year_section</code> <code>status</code> <code>address</code> <code>contact_number</code></p>
+    <ul class="import-rules">
+      <li>Student ID is the letter P and 9 digits, for example <b>{{ student_id_example }}</b>. Year &amp; Section looks like <b>3E</b>.</li>
+      <li>Status is Pending, Processing, For release or Released. Leave it empty for Pending.</li>
+      <li>Students who are already on the dashboard are skipped, never overwritten.</li>
+      <li>Up to {{ max_import_rows }} rows and {{ max_import_mb }} MB per file.</li>
+    </ul>
+    <p><a href="/api/inventory/template" download>⬇ Download the CSV template</a></p>
+    <label class="file-pick">CSV file<input type="file" id="import-file" data-max-mb="{{ max_import_mb }}" accept=".csv,.txt,text/csv,text/plain" required></label>
+    <p id="import-error" role="alert"></p>
+    <div id="import-result" aria-live="polite"></div>
+    <div class="form-buttons">
+      <button class="primary" type="submit" id="import-submit">Import</button>
+      <button type="button" class="export-btn" id="import-done">Close</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="scan-dialog" aria-labelledby="scan-title">
   <div class="dialog-heading"><h2 id="scan-title">Scan a QR sticker</h2><button type="button" id="scan-close" class="text-button" aria-label="Close scanner">✕</button></div>
   <video id="scan-video" playsinline muted></video>

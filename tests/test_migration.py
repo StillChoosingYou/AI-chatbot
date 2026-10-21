@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from database import DEMO_RECORDS
+from database import DEMO_COLUMNS, LEGACY_DEMO_RECORDS
 from migrate_sqlite_to_postgres import MigrationError, main, migrate
 from pg_support import DatabaseTestCase
 
@@ -89,10 +89,21 @@ FULL_COUNTS = {'inventory': 3, 'chat_history': 3, 'chat_feedback': 1, 'gate_logs
                'student_requests': 2, 'activity_log': 3}
 
 
+# The six demo students exactly as the SQLite version of the app stored them (note the old status name).
+ORIGINAL_DEMO = (
+    ('DEMO-001', 'Alex Rivera', 'BSIT', 'A', 1, 'Ready for release', 'New ID', ''),
+    ('DEMO-002', 'Jamie Santos', 'BSCS', 'B', 2, 'Pending', 'Pending ID', 'Photo verification needed'),
+    ('DEMO-003', 'Sam Reyes', 'BSBA', 'A', 3, 'Processing', 'Lost ID', ''),
+    ('DEMO-004', 'Taylor Cruz', 'BSIT', 'B', 4, 'Released', 'New ID', ''),
+    ('DEMO-005', 'Casey Garcia', 'BSED', 'A', 1, 'Processing', 'New ID', ''),
+    ('DEMO-006', 'Jordan Flores', 'BSCS', 'A', 2, 'Pending', 'Pending ID', 'Enrollment verification needed'),
+)
+
+
 def demo_rows(with_notes=True, with_token=True):
     """The six demo students the way the first version of the app stored them."""
     rows = []
-    for number, demo in enumerate(DEMO_RECORDS, start=1):
+    for number, demo in enumerate(ORIGINAL_DEMO, start=1):
         columns = ['id', 'student_id', 'name', 'course', 'section', 'year_level', 'status', 'request_type',
                    'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time']
         values = [number, *demo, '', '', '']
@@ -146,6 +157,10 @@ class CopyTests(MigrationTestCase):
         self.assertEqual([r['id'] for r in records], [7, 2, 1])             # nothing re-seeded, ids kept
         first = records[-1]
         self.assertEqual((first['token'], first['notes'], first['schedule_time']), ('tok_one', 'Called guardian', '09:30'))
+        self.assertEqual((first['status'], first['address'], first['contact_number']), ('For release', '', ''))
+        self.assertTrue(any('"Ready for release" is now called "For release" (1 rows changed)' in m for m in self.messages))
+        incident = client.get('/api/incidents').json['incidents'][0]
+        self.assertEqual((incident['false_statement'], incident['penalty'], incident['student_name']), (False, 0, None))
         self.assertEqual(len(client.get('/api/gate').json['logs']), 2)
         self.assertEqual(len(client.get('/api/activity').json['events']), 3)
         self.assertEqual(client.get('/api/requests').json['counts']['Accepted'], 1)
@@ -155,7 +170,7 @@ class CopyTests(MigrationTestCase):
         self.assertEqual([(m['id'], m['rating']) for m in history], [(4, None), (5, 'down')])
 
         # New rows continue after the highest copied id instead of colliding with it.
-        student = {'student_id': 'NEW-1', 'name': 'Newcomer', 'course': 'BSIT', 'section': 'A', 'year_level': 1}
+        student = {'student_id': 'P202499041', 'name': 'Newcomer', 'year_section': '1A'}
         self.assertEqual(client.post('/api/inventory', json=student).json['id'], 8)
         reply = client.post('/api/chat', json={'message': 'hello', 'session_id': 's1', 'workspace_role': 'student'}).json
         self.assertEqual(reply['message_id'], 11)                          # user row 10, bot row 11
@@ -163,8 +178,8 @@ class CopyTests(MigrationTestCase):
             'message_id': reply['message_id'], 'session_id': 's1', 'rating': 'down', 'reason': 'Wrong answer'})
         self.assertEqual(rated.json['id'], 4)
         self.assertEqual(client.post('/api/gate', json={'name': 'Visitor', 'direction': 'in'}).json['id'], 3)
-        self.assertEqual(client.post('/api/incidents', json={'category': 'Other', 'detail': 'x'}).json['id'], 2)
-        self.assertEqual(client.post('/api/requests', json={'student_id': 'X', 'request_type': 'Other'}).json['id'], 3)
+        self.assertEqual(client.post('/api/incidents', json={'category': 'No ID', 'detail': 'x'}).json['id'], 2)
+        self.assertEqual(client.post('/api/requests', json={'student_id': 'P202499042', 'request_type': 'Other'}).json['id'], 3)
 
     def test_the_first_versions_of_the_database_get_defaults_for_the_newer_columns(self):
         path = self.sqlite_file([OLD_INVENTORY, OLD_CHAT_HISTORY], [
@@ -176,6 +191,16 @@ class CopyTests(MigrationTestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM inventory WHERE notes = ''").fetchone()[0], 6)
             self.assertEqual(db.execute('SELECT workspace_role FROM chat_history').fetchone()[0], '')
         self.assertEqual(len(self.make_app().test_client().get('/api/inventory').json['records']), 6)
+
+    def test_the_old_status_name_becomes_for_release_and_nothing_else_changes(self):
+        path = self.sqlite_file([INVENTORY], demo_rows())
+        self.run_migration(path)
+        with self.db() as db:
+            statuses = [row[0] for row in db.execute('SELECT status FROM inventory ORDER BY id')]
+        self.assertEqual(statuses, ['For release', 'Pending', 'Processing', 'Released', 'Processing', 'Pending'])
+        with self.db() as db:                          # the SQLite file itself keeps the name it had
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM inventory WHERE status = 'Ready for release'").fetchone()[0], 0)
+        self.assertEqual(sqlite3.connect(path).execute("SELECT COUNT(*) FROM inventory WHERE status = 'Ready for release'").fetchone()[0], 1)
 
     def test_a_file_without_qr_tokens_gets_new_ones(self):
         path = self.sqlite_file([OLDEST_INVENTORY], demo_rows(with_notes=False, with_token=False))
@@ -222,7 +247,7 @@ class SafetyTests(MigrationTestCase):
 
     def test_a_database_that_has_your_own_data_is_never_overwritten(self):
         client = self.make_app().test_client()
-        student = {'student_id': 'MINE-1', 'name': 'Mine', 'course': 'BSIT', 'section': 'A', 'year_level': 1}
+        student = {'student_id': 'P202499043', 'name': 'Mine', 'year_section': '1A'}
         self.assertEqual(client.post('/api/inventory', json=student).status_code, 201)
         with self.assertRaises(MigrationError) as caught:
             self.run_migration(self.full_file())
@@ -235,6 +260,34 @@ class SafetyTests(MigrationTestCase):
         self.assertEqual(client.patch(f'/api/inventory/{demo["id"]}', json={'notes': 'edited'}).status_code, 200)
         with self.assertRaises(MigrationError):
             self.run_migration(self.full_file())
+
+    def start_with_the_demo_students_of_the_earlier_versions(self):
+        """The six DEMO-00n students that earlier versions seeded, as the upgrade leaves them."""
+        client = self.make_app().test_client()
+        with self.db() as db:
+            db.execute('DELETE FROM inventory')
+            for n, row in enumerate(LEGACY_DEMO_RECORDS):
+                db.execute(f'INSERT INTO inventory ({DEMO_COLUMNS},token) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                           (*row, f'earlier_{n}'))
+        return client
+
+    def test_the_demo_students_of_the_earlier_versions_are_replaced_too(self):
+        client = self.start_with_the_demo_students_of_the_earlier_versions()
+        self.assertEqual({r['student_id'] for r in client.get('/api/inventory').json['records']},
+                         {f'DEMO-00{n}' for n in range(1, 7)})
+        path = self.sqlite_file([OLD_INVENTORY], demo_rows(with_notes=False))
+        self.assertEqual(self.run_migration(path), {'inventory': 6})
+        self.assertTrue(any('replacing them' in message for message in self.messages))
+        tokens = {r['token'] for r in client.get('/api/inventory').json['records']}
+        self.assertEqual(tokens, {f'demo_token_{n}' for n in range(1, 7)})
+
+    def test_earlier_demo_students_that_were_edited_count_as_your_data_as_well(self):
+        client = self.start_with_the_demo_students_of_the_earlier_versions()
+        with self.db() as db:
+            db.execute("UPDATE inventory SET name = 'Alex Riviera' WHERE student_id = 'DEMO-001'")
+        with self.assertRaises(MigrationError):
+            self.run_migration(self.full_file())
+        self.assertEqual(len(client.get('/api/inventory').json['records']), 6)
 
     def test_a_dry_run_checks_everything_and_writes_nothing(self):
         self.assertEqual(self.run_migration(self.full_file(), dry_run=True), FULL_COUNTS)
