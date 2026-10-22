@@ -52,6 +52,8 @@ INTENT_ACTIONS = {
     'qr_sticker_request': [{'label': '🖨️ Print sticker', 'type': 'print_sticker'}],
     'id_inventory': [{'label': '🔄 Reset filters', 'type': 'reset_filters'}],
     'export_data': [{'label': '📥 Export CSV', 'type': 'export_csv'}],
+    'id_process_steps': [{'label': '📋 View requirements', 'type': 'ask_requirements'}],
+    'id_validity_renewal': [{'label': '🕒 Office hours', 'type': 'ask_office'}],
 }
 
 

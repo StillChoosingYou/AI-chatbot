@@ -15,3 +15,5 @@ qr_student_details,info,Explains QR scanning and the student details displayed,P
 qr_sticker_request,request,Asks to print a small QR sticker or replace a damaged sticker,Property Management Office,medium,answer
 id_requirements,info,Asks about new or replacement ID requirements and fees,Property Management Office,low,handoff
 office_hours_location,info,Asks for the school Property Management Office location and hours,Property Management Office,low,handoff
+id_process_steps,info,Asks about the step-by-step process of getting a school ID from application to release,Property Management Office,low,answer
+id_validity_renewal,info,Asks about ID validity period and renewal or expiration policies,Property Management Office,low,answer
