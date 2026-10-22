@@ -281,6 +281,15 @@ def parse_gate_command(text):
     return ('in' if verb in _GATE_IN_WORDS else 'out'), match.group(2)
 
 
+_GATE_PREPOSITION = re.compile(r'^\s*(?:please\s+|pls\s+)?(?:in|out)\b', re.IGNORECASE)
+
+
+def gate_verb_is_a_preposition(text):
+    """True when a gate command begins with just "in" or "out". Those are also everyday words that start a
+    sentence ("in case I lost my ID, what should I do"), so such a message is a command only when a student follows."""
+    return bool(_GATE_PREPOSITION.match(text))
+
+
 def is_bare_gate_verb(text):
     """True for "check in" or "check out" typed alone, with no student after it."""
     return bool(_GATE_BARE.match(text))

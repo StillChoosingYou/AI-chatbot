@@ -412,6 +412,24 @@ class GateInChatTests(ChatTestCase):
             self.assertIn(f'check in {STUDENT_ID_EXAMPLE}', reply['reply'], text)
         self.assertEqual(self.gate_rows(), [])
 
+    def test_a_sentence_that_starts_with_in_or_out_is_not_a_command(self):
+        """"in" and "out" are everyday words: after them only a student makes a command."""
+        for text in ('in case I lost my ID what should I do', 'out of curiosity where is the office',
+                     'in the morning can I claim my id', 'in visitor parking where do I go',
+                     'out of town students pick up'):
+            reply = self.ask(text, 'guard')
+            self.assertNotIn(reply['intent'], ('gate_check_in', 'gate_check_out', 'gate_not_logged'), text)
+            self.assertNotIn('Nothing was logged', reply['reply'], text)
+        self.assertEqual(self.gate_rows(), [])
+        # After an explicit verb the same words are an order, and an ID or a name after "in" still is one.
+        self.assertEqual(self.ask('check in case I lost my ID', 'guard')['intent'], 'gate_not_logged')
+        missing = self.ask('in P202499999', 'guard')
+        self.assertEqual(missing['intent'], 'gate_not_logged')
+        self.assertIn('P202499999', missing['reply'])
+        self.assertEqual(self.ask('in Taylor Cruz', 'guard')['intent'], 'gate_check_in')
+        self.assertEqual(self.ask('check in visitor Pedro Penduko', 'guard')['intent'], 'gate_check_in')
+        self.assertEqual(len(self.gate_rows()), 2)
+
     def test_the_guards_card_has_the_buttons_the_gate_needs_and_they_work(self):
         reply = self.ask('P202400104', 'guard')
         buttons = {a['type']: a for a in reply['actions'] if a['type'] in ('send', 'open_incident')}

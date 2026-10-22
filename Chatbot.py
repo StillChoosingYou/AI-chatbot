@@ -16,8 +16,9 @@ from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
 from chat_support import (
-    FEEDBACK_REASONS, asks_for_gate_log, asks_for_records, clean_text, csv_safe, id_candidates, intent_label,
-    is_bare_gate_verb, parse_gate_command, redact_text, reply_chips, staff_lines, student_reply)
+    FEEDBACK_REASONS, asks_for_gate_log, asks_for_records, clean_text, csv_safe, gate_verb_is_a_preposition,
+    id_candidates, intent_label, is_bare_gate_verb, parse_gate_command, redact_text, reply_chips, staff_lines,
+    student_reply)
 from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
 from intent_model import ANNIntentModel, classify, rank_intents
@@ -1032,16 +1033,22 @@ def create_app(database_url=None):
         return {'intent': f'gate_check_{direction}',
                 'answer': lead + '\nA visitor is not on the student list, so there is no ID record to check.'}
 
-    def gate_command(direction, who):
+    def gate_command(direction, who, bare=False):
         """Log a student in or out, from "check in P202400230" or "out Alex Rivera", or a visitor, from
         "check in visitor Juan Dela Cruz". A finished answer, or None when the words after the verb name
-        nobody at all (then it is an ordinary message)."""
+        nobody at all (then it is an ordinary message).
+
+        `bare` is a command that began with just "in" or "out", which also start ordinary sentences ("in case I
+        lost my ID ..."). It counts only when it names a student, or a visitor by a name that is shaped like one."""
         visitor = VISITOR.match(who)
         if visitor:
-            return visitor_gate(direction, visitor.group(1))
+            name = visitor.group(1)
+            if bare and name and not (looks_like_a_name(name) or re.fullmatch(r"[^\W\d_][\w'’.-]{1,29}", name)):
+                return None                              # "in visitor parking, where do I go" is a sentence
+            return visitor_gate(direction, name)
         found = resolve_student(who)
         if found is None:
-            if not (name_query(who) or id_candidates(who)):
+            if bare or not (name_query(who) or id_candidates(who)):
                 return None
             return {'intent': 'gate_not_logged',
                     'answer': f'Nothing was logged. I couldn’t find a student named “{who.strip()[:60]}”. '
@@ -1113,7 +1120,9 @@ def create_app(database_url=None):
         answer, or None when the message is none of these."""
         command = parse_gate_command(text)
         if command and workspace == 'guard':
-            return gate_command(*command)
+            answer = gate_command(*command, bare=gate_verb_is_a_preposition(text))
+            if answer is not None:
+                return answer
         if workspace == 'guard' and is_bare_gate_verb(text):
             return {'intent': 'gate_not_logged',
                     'answer': 'Nothing was logged. Type check in or check out, then the student ID or name, '
