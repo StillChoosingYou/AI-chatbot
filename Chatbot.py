@@ -806,10 +806,10 @@ def create_app(database_url=None):
             row = dict(db.execute('SELECT * FROM incidents WHERE id=%s FOR UPDATE', (incident_id,)).fetchone())
             status = payload.get('status', row['status'])
             flag = payload.get('false_statement', row['false_statement'])
-            if flag and not row['false_statement']:
-                if not row['student_id'] or find_by_student_id(row['student_id']) is None:
-                    return jsonify(error='This incident has no student on the dashboard, so it cannot count as a '
-                                         'false statement.'), 400
+            if (flag and not row['false_statement']
+                    and (not row['student_id'] or find_by_student_id(row['student_id']) is None)):
+                return jsonify(error='This incident has no student on the dashboard, so it cannot count as a '
+                                     'false statement.'), 400
             db.execute('UPDATE incidents SET status=%s, false_statement=%s WHERE id=%s', (status, flag, incident_id))
             if row['student_id']:
                 recompute_penalties(db, row['student_id'])
@@ -1043,7 +1043,7 @@ def create_app(database_url=None):
         visitor = VISITOR.match(who)
         if visitor:
             name = visitor.group(1)
-            if bare and name and not (looks_like_a_name(name) or re.fullmatch(r"[^\W\d_][\w'’.-]{1,29}", name)):
+            if bare and name and not looks_like_a_name(name) and not re.fullmatch(r"[^\W\d_][\w'’.-]{1,29}", name):
                 return None                              # "in visitor parking, where do I go" is a sentence
             return visitor_gate(direction, name)
         found = resolve_student(who)
@@ -1237,7 +1237,7 @@ def create_app(database_url=None):
                 if found.get('asked'):
                     answer = (f'I couldn’t find a student with ID {found["asked"]}. Check the number and try again, '
                               'or type the student’s name. '
-                              + (f'Student IDs look like {STUDENT_ID_EXAMPLE}. ' if not STUDENT_ID_RE.fullmatch(found['asked']) else '')
+                              + ('' if STUDENT_ID_RE.fullmatch(found['asked']) else f'Student IDs look like {STUDENT_ID_EXAMPLE}. ')
                               + 'If the student should be on the list, please contact the office.')
                 else:
                     answer = (f'I couldn’t find a student named “{found["asked_name"]}”. To look someone up, type the '
@@ -1352,10 +1352,9 @@ def create_app(database_url=None):
                 actions = [{'label': '📝 Submit lost ID request', 'type': 'open_student_request'}]
             if intent == 'office_hours_location':
                 actions = [{'label': '📞 Contact office', 'type': 'ask_human'}]
-            if selected:
-                if intent in ('qr_sticker_request', 'qr_student_details', *lookups):
-                    actions.append({'label': '🖨️ Print my sticker', 'type': 'print_sticker'})
-                    actions.append({'label': '🪪 Preview ID card', 'type': 'preview_card'})
+            if selected and intent in ('qr_sticker_request', 'qr_student_details', *lookups):
+                actions.append({'label': '🖨️ Print my sticker', 'type': 'print_sticker'})
+                actions.append({'label': '🪪 Preview ID card', 'type': 'preview_card'})
         else:
             if intent in ('greeting', 'bot_help'):
                 actions.extend([
