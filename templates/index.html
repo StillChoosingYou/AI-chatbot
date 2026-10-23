@@ -48,6 +48,14 @@
           </div>
         </div>
       </div>
+      <div class="ticker" id="ticker" role="region" aria-label="Live ticker" hidden>
+        <span class="ticker-live" title="Refreshes by itself every 20 seconds"><i class="ticker-dot" aria-hidden="true"></i>LIVE</span>
+        <div class="ticker-window" id="ticker-window">
+          <div class="ticker-track" id="ticker-track" aria-hidden="true"></div>
+        </div>
+        <span class="sr-only" id="ticker-summary"></span>
+        <button type="button" class="ticker-toggle" id="ticker-toggle" aria-pressed="false" aria-label="Pause the ticker" title="Pause the ticker">⏸</button>
+      </div>
       <div class="tiles six" id="dashboard-tiles" aria-label="Today at a glance"></div>
       <section class="inventory-panel">
         <div class="panel-heading">
@@ -205,32 +213,6 @@
       <div id="verify-result" class="tool-list" aria-live="polite"></div>
     </div>
 
-    <!-- Student: request help -->
-    <div class="workspace" data-workspace="student" id="view-student-request" hidden>
-      <div class="heading">
-        <div class="eyebrow">STUDENT</div>
-        <div class="title-row"><div><h1>Request help</h1><p>Report a lost ID or ask the office for an appointment. Staff will review it.</p></div></div>
-      </div>
-      <form class="tool-card form-grid" id="student-request-form">
-        <label>Student ID<input name="student_id" maxlength="40" required placeholder="{{ student_id_example }}" autocomplete="off"></label>
-        <label>Your name<input name="name" maxlength="100" placeholder="Full name"></label>
-        <label>Request type<select name="request_type">{% for t in request_types %}<option>{{t}}</option>{% endfor %}</select></label>
-        <label class="wide">Details<textarea name="detail" maxlength="500" placeholder="What happened, or when you can visit"></textarea></label>
-        <div class="form-buttons wide">
-          <button class="primary" type="submit">Submit request</button>
-          <button class="export-btn" id="track-btn" type="button" title="Show the requests made with this student ID">Track my requests</button>
-        </div>
-      </form>
-      <p class="notice"><strong>Lost ID?</strong> {{ office.requirements['Lost ID'] }} Please give true information: false information about a missing or lost ID, given twice, carries a {{ penalty_text }} penalty.</p>
-      <div id="request-result" class="tool-list" aria-live="polite"></div>
-      <div id="request-tracker" class="tool-list" aria-live="polite"></div>
-      <aside class="info-grid">
-        <article><h3>Office hours</h3><p>{{office.hours}}</p><p>{{office.location}}</p><p>{{office.contact}}</p></article>
-        <article><h3>New ID</h3><p>{{office.requirements['New ID']}}</p></article>
-        <article><h3>Lost ID</h3><p>{{office.requirements['Lost ID']}}</p></article>
-      </aside>
-    </div>
-
     <footer>School ID management prototype <span>Appointments use school local time · All displayed records are fictional.</span></footer>
   </section>
 </main>
@@ -260,7 +242,7 @@
     <div id="identity-fields" class="form-grid">
       <label>Student ID<input name="student_id" maxlength="40" required placeholder="{{ student_id_example }}" pattern="[Pp][0-9]{9}" title="{{ id_hint }}" autocomplete="off"></label>
       <label>Full name<input name="name" maxlength="100" required placeholder="e.g. Reynald Jake L. Malabanan"></label>
-      <label>Year &amp; Section<input name="year_section" maxlength="12" required placeholder="e.g. 3E" autocomplete="off" title="A year from 1 to 6 followed by the section, for example 3E"></label>
+      <label>Year &amp; Section<input name="year_section" maxlength="12" required placeholder="e.g. 3E" autocomplete="off" title="{{ year_hint }}"></label>
       <label>Contact number<input name="contact_number" maxlength="30" inputmode="tel" placeholder="e.g. 09171234567" autocomplete="off"></label>
       <label class="wide">Address<input name="address" maxlength="200" placeholder="House no., street, barangay, city"></label>
       <label id="kind-field">Request type<select name="request_type">{% for k in kinds %}<option>{{k}}</option>{% endfor %}</select></label>
@@ -300,6 +282,28 @@
     <div class="form-buttons">
       <button class="primary" type="submit" id="import-submit">Import</button>
       <button type="button" class="export-btn" id="import-done">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="request-dialog" aria-labelledby="request-title">
+  <form id="student-request-form">
+    <div class="dialog-heading">
+      <h2 id="request-title">Request help</h2>
+      <button type="button" id="request-close" class="text-button" aria-label="Close dialog">✕</button>
+    </div>
+    <p class="subtle request-intro">Tell the office what you need. The coordinator reviews every request, and you can follow yours here in the chat by typing “my requests”.</p>
+    <div class="form-grid">
+      <label>Student ID<input name="student_id" maxlength="40" required placeholder="{{ student_id_example }}" autocomplete="off"></label>
+      <label>Your name<input name="name" maxlength="100" placeholder="Full name" autocomplete="name"></label>
+      <label class="wide">What do you need help with?<select name="request_type" required><option value="">Choose…</option>{% for t in request_types %}<option>{{ t }}</option>{% endfor %}</select></label>
+      <label class="wide">Details<textarea name="detail" maxlength="500" rows="4" placeholder="What happened, or when you can visit"></textarea></label>
+    </div>
+    <p class="notice" id="request-notice" hidden><strong>Lost ID?</strong> {{ office.requirements['Lost ID'] }} Please give true information: false information about a missing or lost ID, given twice, carries a {{ penalty_text }} penalty.</p>
+    <p id="request-error" role="alert"></p>
+    <div class="form-buttons">
+      <button class="primary" type="submit" id="request-submit">Send request</button>
+      <button class="export-btn" type="button" id="request-cancel">Cancel</button>
     </div>
   </form>
 </dialog>

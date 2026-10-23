@@ -3,7 +3,8 @@ import unittest
 from datetime import datetime
 
 from student_data import (
-    IMPORT_COLUMNS, MAX_IMPORT_ROWS, PENALTY_AMOUNT, PENALTY_TEXT, STATUSES, ImportFileError, claim_check,
+    IMPORT_COLUMNS, MAX_IMPORT_ROWS, MAX_YEAR, PENALTY_AMOUNT, PENALTY_TEXT, STATUSES, YEAR_SECTION_HINT,
+    ImportFileError, claim_check,
     clean_contact, clean_status, clean_student_id, find_by_name, format_year_section, gate_note, incident_steps,
     looks_like_a_name, name_query, office_hours_error, parse_year_section, penalty_for, read_student_csv)
 
@@ -22,10 +23,16 @@ class FormatTests(unittest.TestCase):
 
     def test_year_and_section_are_one_value_that_can_be_written_several_ways(self):
         for written, expected in (('3E', (3, 'E')), ('3-e', (3, 'E')), (' 3 E ', (3, 'E')), ('3/E', (3, 'E')),
-                                  ('1A', (1, 'A')), ('6C', (6, 'C')), ('2-1', (2, '1')), ('21', (2, '1')), ('4B12', (4, 'B12'))):
+                                  ('1A', (1, 'A')), ('4C', (4, 'C')), ('2-1', (2, '1')), ('21', (2, '1')), ('4B12', (4, 'B12'))):
             self.assertEqual(parse_year_section(written), expected, written)
-        for bad in ('7A', '0A', 'E', '3', '', '   ', None, 3, ['3E'], '3E3E3E3E3E3E', '3 E E', '③E', '१A', '3\u00a0'):
+        for bad in ('5A', '6C', '5-1', '7A', '0A', 'E', '3', '', '   ', None, 3, ['3E'], '3E3E3E3E3E3E', '3 E E', '③E', '१A', '3\u00a0'):
             self.assertIsNone(parse_year_section(bad), repr(bad))
+
+    def test_the_school_has_four_year_levels(self):
+        self.assertEqual(MAX_YEAR, 4)
+        self.assertIn('from 1 to 4', YEAR_SECTION_HINT)
+        for year in range(1, 10):
+            self.assertEqual(parse_year_section(f'{year}A'), (year, 'A') if year <= MAX_YEAR else None, year)
 
     def test_year_and_section_are_shown_together_and_a_missing_section_says_tbd(self):
         self.assertEqual(format_year_section(3, 'E'), '3E')
@@ -151,6 +158,12 @@ class ImportTests(unittest.TestCase):
         self.assertIn('Year & Section', by_line[10]['error'])        # "P202400016,Short Row" has no year and section
         self.assertIn('Full name', by_line[11]['error'])
         self.assertIn('Address is too long', by_line[12]['error'])
+
+    def test_a_student_in_year_five_or_six_is_not_imported(self):
+        students, problems, total = self.read(
+            self.HEADER + 'P202400031,Fifth Year,5A,,,\nP202400032,Sixth Year,6B,,,\nP202400033,Fourth Year,4B,,,\n')
+        self.assertEqual(([s['student_id'] for s in students], [p['line'] for p in problems], total), (['P202400033'], [2, 3], 3))
+        self.assertIn('from 1 to 4', problems[0]['error'])
 
     def test_a_file_with_too_many_rows_or_a_giant_cell_is_refused_whole(self):
         rows = ''.join(f'P{202400000 + n},Student {n},1A,,,\n' for n in range(MAX_IMPORT_ROWS + 1))

@@ -32,7 +32,8 @@ let matching = [];                // the students that match the Dashboard filte
 let statusFilter = '', attentionFilter = '', requestFilter = '', feedbackFilter = 'review';
 let visibleRows = PAGE_SIZE;
 let selected = null;              // {id, student_id, name}: the student the chat is about
-let stats = null, serverToday = '', sending = false, historyLoadId = 0, lookedUpStudent = '';
+let stats = null, serverToday = '', sending = false, historyLoadId = 0;
+let tickerKey = '', tickerUnit = '', tickerFit = '';   // what the Dashboard ticker shows, and how it is laid out
 let intentLabels = {}, knownIntents = [];
 const badgeCounts = { dashboard: 0, requests: 0, feedback: 0, incidents: 0 };
 let workspaceRole = store.get('workspaceRole');
@@ -59,8 +60,7 @@ const NAV = {
     { id: 'incidents', label: '⚠️  Incidents' },
   ],
   student: [
-    { id: 'assistant', label: '◌  Assistant' },
-    { id: 'student-request', label: '📝  Request help' },
+    { id: 'assistant', label: '◌  Assistant' },          // everything a student does happens in the chat
   ],
 };
 
@@ -77,8 +77,8 @@ const ROLE_META = {
   },
   student: {
     title: 'Student', avatar: 'ST', caption: 'Self-service', eyebrow: 'STUDENT',
-    blurb: 'Type a student ID or name and I will show that student’s ID status.',
-    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show that student’s ID status. You can also ask about requirements, office hours or a lost ID.',
+    blurb: 'Type a student ID or name and I will show that student’s ID status. Need the office’s help? Ask me, then tap Request help.',
+    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show that student’s ID status. You can also ask about requirements, office hours or a lost ID. When the office needs to step in, I will show a Request help button right here.',
   },
 };
 
@@ -260,6 +260,9 @@ function renderNav() {
     `<a class="nav" href="#${item.id}" data-view="${item.id}">${item.label}</a>`).join('');
   $('mobile-dock').innerHTML = items.map(item =>
     `<a href="#${item.id}" data-view="${item.id}">${escapeHtml(plainLabel(item.label))}</a>`).join('');
+  const single = items.length < 2;                 // a role with one page (the student's chat) needs no row of tabs
+  $('mobile-dock').hidden = single;
+  document.body.classList.toggle('single-view', single);
   renderBadges();
 }
 
@@ -290,7 +293,7 @@ function showView(viewId) {
   closeMobileNav();
 
   if (workspaceRole === 'coordinator') {
-    if (viewId === 'dashboard') loadStats({ quiet: true });
+    if (viewId === 'dashboard') { fitTicker(); loadStats({ quiet: true, resync: true }); }
     if (viewId === 'queue') loadQueue();
     if (viewId === 'requests') loadRequests();
     if (viewId === 'feedback') loadFeedback();
@@ -449,6 +452,7 @@ function render() {
   renderTiles(today);
   renderStatusChips(f, today);
   renderAttention(f, today);
+  renderTicker();
   badgeCounts.dashboard = records.filter(r => r.status === 'Pending').length;
   renderBadges();
 
@@ -812,7 +816,9 @@ function exportCSV() {
 }
 
 /* ── Numbers behind the sidebar badges ── */
-async function loadStats({ quiet = false } = {}) {
+/* `resync`: when these numbers say the student list changed (someone else added a student or moved an ID), the
+   Dashboard is loaded again. load() asks for the numbers without `resync`, so the two cannot loop. */
+async function loadStats({ quiet = false, resync = false } = {}) {
   if (workspaceRole !== 'coordinator') return;
   try {
     stats = await api('/api/stats');
@@ -822,10 +828,91 @@ async function loadStats({ quiet = false } = {}) {
     badgeCounts.feedback = stats.new_feedback;
     badgeCounts.incidents = stats.open_incidents;
     renderBadges();
+    if (resync && dashboardIsStale()) { await load(); return; }
     if (dateChanged && records.length) render();   // the attention filters depend on today's date
+    else renderTicker();
   } catch (error) {
     if (!quiet) notify(error.message);
   }
+}
+
+function dashboardIsStale() {
+  if (!stats || (!records.length && !stats.total)) return false;
+  return stats.total !== records.length ||
+    statuses.some(status => (stats.by_status[status] || 0) !== records.filter(r => r.status === status).length);
+}
+
+/* ═══════════════ Ticker (Dashboard) ═══════════════ */
+/* A strip under the heading that scrolls where the IDs are, what needs attention and the latest activity. It is drawn
+   again only when something in it changed, so typing in the search box never restarts the scroll. */
+const TICKER_PX_PER_SECOND = 55;
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function tickerItems() {
+  const today = todayString();
+  const items = statuses.map(status => ({ dot: statusClass(status), label: status, value: records.filter(r => r.status === status).length }));
+  const attention = [
+    { icon: '⏰', label: 'Overdue', value: records.filter(r => ATTENTION[0].test(r, today)).length, alert: true },
+    { icon: '📅', label: 'Appointments today', value: records.filter(r => r.schedule_date === today).length },
+    { icon: '📥', label: 'Open requests', value: stats ? stats.open_requests : 0 },
+    { icon: '⚠️', label: 'Open incidents', value: stats ? stats.open_incidents : 0, alert: true },
+    { icon: '👎', label: 'Feedback to review', value: stats ? stats.new_feedback : 0 },
+  ].filter(item => item.value > 0);
+  items.push(...(attention.length ? attention : [{ icon: '✅', text: 'Nothing needs attention right now' }]));
+  for (const event of (stats && stats.recent_activity) || []) {
+    items.push({ icon: '🕓', muted: true, text: `${formatTime(event.timestamp)} · ${event.action}${event.detail ? ` · ${event.detail}` : ''}` });
+  }
+  return items;
+}
+
+const tickerText = (item) => item.text || `${item.label} ${item.value}`;
+
+function tickerItemHtml(item) {
+  const lead = item.dot ? `<i class="dot ${escapeHtml(item.dot)}" aria-hidden="true"></i>` : `<span aria-hidden="true">${item.icon}</span>`;
+  const body = item.text ? escapeHtml(item.text) : `${escapeHtml(item.label)} <b>${escapeHtml(item.value)}</b>`;
+  return `<span class="ticker-item${item.alert ? ' alert' : ''}${item.muted ? ' muted' : ''}">${lead}${body}</span>`;
+}
+
+function renderTicker() {
+  if (workspaceRole !== 'coordinator' || (!records.length && !stats)) return;
+  const items = tickerItems();
+  const key = JSON.stringify(items);
+  if (key === tickerKey) return;                       // nothing changed: the scroll carries on
+  tickerKey = key;
+  tickerUnit = items.map(tickerItemHtml).join('');
+  $('ticker-summary').textContent = items.map(tickerText).join('. ');
+  $('ticker').hidden = false;
+  fitTicker();
+}
+
+/* The loop shows two copies side by side. One copy has to be wider than the strip or the loop would show a gap,
+   so it is repeated to fill it. Called again when the strip changes size or the Dashboard is opened. */
+function fitTicker() {
+  const view = $('ticker-window');
+  if (!tickerUnit || !view || !view.clientWidth) return;     // hidden for now: it is fitted when the Dashboard opens
+  const still = reducedMotion();
+  const probe = Object.assign(document.createElement('div'), { className: 'ticker-group', innerHTML: tickerUnit });
+  probe.style.cssText = 'position:absolute;visibility:hidden;width:max-content';
+  view.appendChild(probe);
+  const unitWidth = probe.scrollWidth;
+  probe.remove();
+  const repeats = still || !unitWidth ? 1 : Math.max(1, Math.ceil(view.clientWidth * 1.15 / unitWidth));
+  const fit = `${tickerKey}|${repeats}|${still}`;
+  if (fit === tickerFit) return;
+  tickerFit = fit;
+  const group = `<div class="ticker-group">${tickerUnit.repeat(repeats)}</div>`;
+  $('ticker-track').innerHTML = still ? group : group + group;
+  $('ticker-track').style.setProperty('--ticker-seconds', `${Math.max(20, Math.round(unitWidth * repeats / TICKER_PX_PER_SECOND))}s`);
+}
+
+function setTickerPaused(paused) {
+  $('ticker').classList.toggle('paused', paused);
+  const button = $('ticker-toggle');
+  button.setAttribute('aria-pressed', String(paused));
+  button.setAttribute('aria-label', paused ? 'Play the ticker' : 'Pause the ticker');
+  button.title = paused ? 'Play the ticker' : 'Pause the ticker';
+  button.textContent = paused ? '▶' : '⏸';
+  if (paused) store.set('tickerPaused', '1'); else store.remove('tickerPaused');
 }
 
 /* ═══════════════ Assistant (everyone): a full-page chat ═══════════════ */
@@ -848,7 +935,7 @@ function hideTyping() {
 const QUIET_INTENTS = new Set(['out_of_scope', 'greeting', 'thanks_goodbye']);
 /* Answers that are a record or a list from the database are drawn as a card. */
 const CARD_INTENTS = new Set(['student_lookup', 'student_not_found', 'gate_check_in', 'gate_check_out',
-  'gate_not_logged', 'gate_log', 'records_list']);
+  'gate_not_logged', 'gate_log', 'records_list', 'my_requests', 'request_submitted']);
 
 function matchLabel(score) {
   if (score >= 0.6) return ['high', 'Strong match'];
@@ -1019,7 +1106,7 @@ function handleAction(action, { button = null, student = null } = {}) {
     open_incidents: () => showView('incidents'),
     open_verify: () => { showView('verify'); $('verify-query').focus(); },
     open_incident: () => openIncident(action.student_id || ''),
-    open_student_request: () => openStudentRequest(student),
+    open_student_request: () => openStudentRequest(action, student),
     ask_office: () => send('Where is the Property Management Office and what are the hours?'),
     ask_human: () => send('I need to talk to a person at the office'),
     send: () => {
@@ -1032,6 +1119,22 @@ function handleAction(action, { button = null, student = null } = {}) {
     },
   };
   (handlers[action.type] || (() => notify('That action is not available in this role.')))();
+}
+
+/* What addMessage needs to draw a bot answer, from the server's reply to /api/chat or /api/chat/request. */
+function replyMeta(response, session) {
+  return {
+    confidence: response.confidence,
+    intent: response.intent,
+    actions: response.actions,
+    timestamp: response.timestamp,
+    messageId: response.message_id,
+    sessionId: session,
+    suggestions: response.suggestions,
+    suggestionsTitle: response.suggestions_title,
+    followUps: response.follow_ups,
+    student: response.student || selected,
+  };
 }
 
 async function send(text, { retry = false } = {}) {
@@ -1057,18 +1160,7 @@ async function send(text, { retry = false } = {}) {
       notify('The selected student is no longer on the list.');
     }
     if (response.student) setSelected(response.student);
-    addMessage(response.reply, 'bot', {
-      confidence: response.confidence,
-      intent: response.intent,
-      actions: response.actions,
-      timestamp: response.timestamp,
-      messageId: response.message_id,
-      sessionId: session,
-      suggestions: response.suggestions,
-      suggestionsTitle: response.suggestions_title,
-      followUps: response.follow_ups,
-      student: response.student || selected,
-    });
+    addMessage(response.reply, 'bot', replyMeta(response, session));
   } catch (error) {
     hideTyping();
     if (session === sessionId()) addMessage(error.message, 'bot', { retryText: text });
@@ -1099,15 +1191,19 @@ function suggestionList() {
     ];
   }
   if (workspaceRole === 'student') {
+    const help = act('📝 Request help', { type: 'open_student_request' });
     return selected ? [
       ask('What is the status of my student ID?', 'Status'),
       ask('When can I collect my school ID?', 'Release date'),
       ask('Why is my student ID pending?', 'Pending reason'),
+      help,
+      ask(`my requests ${selected.student_id}`, '📋 My requests'),
       ask('What documents are needed for a new student ID?', 'Requirements'),
     ] : [
       ask('What documents are needed for a new student ID?', 'Requirements'),
       ...common,
       ask('I lost my school ID', 'Lost ID'),
+      help,
       ask('What can you do?', 'Help'),
     ];
   }
@@ -1624,81 +1720,51 @@ async function fileIncident(event) {
   }
 }
 
-/* ═══════════════ Request help (student) ═══════════════ */
-/* A student sees only the type, status and time of their own requests, not the staff's handling. */
-const REQUEST_HELP = {
-  Submitted: 'Waiting for the office to look at it.',
-  'In review': 'Staff are looking at it.',
-  Accepted: 'Accepted. Follow the office’s instructions.',
-  Closed: 'Finished.',
-};
+/* ═══════════════ Request help (student): a pop-up opened from the chat ═══════════════ */
+/* The “Request help” button under an answer opens this form. Sending it puts the confirmation in the chat, and
+   “my requests” in the chat follows the request, so a student never leaves the conversation. */
 
-async function loadMyRequests(studentId = lookedUpStudent) {
-  if (!studentId) return;
-  let html = '';
-  try {
-    const data = await api('/api/student/requests', postJson({ student_id: studentId }));
-    html = data.requests.length
-      ? '<h3 class="list-title">Your requests</h3>' + data.requests.map(row => `
-        <article class="tool-row">
-          <div>
-            <h3>${escapeHtml(row.request_type)} <span class="subtle">#${Number(row.id)}</span></h3>
-            <p>${escapeHtml(row.timestamp)} · ${escapeHtml(REQUEST_HELP[row.status] || '')}</p>
-          </div>
-          <div class="row-actions"><span class="status ${statusClass(row.status)}">${escapeHtml(row.status)}</span></div>
-        </article>`).join('')
-      : emptyState('No requests were made with that student ID yet.');
-  } catch (error) {
-    html = emptyState(escapeHtml(error.message));
-  }
-  $('request-tracker').innerHTML = html;
+const requestTypes = () => [...$('student-request-form').elements.request_type.options].map(o => o.value).filter(Boolean);
+
+function syncRequestNotice() {
+  $('request-notice').hidden = $('student-request-form').elements.request_type.value !== 'Lost ID';
 }
 
-function requestResultHtml(created) {
-  const steps = (created.next_steps || []).map(step => `<li>${escapeHtml(step)}</li>`).join('');
-  return `<article class="tool-card result-card">
-    <h3>✅ Request #${Number(created.id)} submitted</h3>
-    <p>${escapeHtml(created.request_type)} · ${escapeHtml(created.student_id)} · <span class="status ${statusClass(created.status)}">${escapeHtml(created.status)}</span></p>
-    ${steps ? `<p><b>What to do next</b></p><ol>${steps}</ol>` : '<p class="subtle">The office will look at it. You can follow it below.</p>'}
-  </article>`;
-}
-
-/* Opens the form for one student, from the “Request help” button on that student’s own answer. */
-function openStudentRequest(student = null) {
-  showView('student-request');
+/* `action` may name the student and the kind of help the answer was about; `student` is the one the chat is on. */
+function openStudentRequest(action = {}, student = null) {
+  if (workspaceRole !== 'student') return;
   const form = $('student-request-form');
-  if (student) {
-    form.elements.student_id.value = student.student_id;
-    form.elements.name.value = student.name;
-  }
-  form.elements.detail.focus();
+  const who = action.student_id ? { student_id: action.student_id, name: action.name || '' } : (student || selected);
+  form.reset();
+  $('request-error').textContent = '';
+  form.elements.student_id.value = who ? who.student_id : '';
+  form.elements.name.value = who ? who.name : '';
+  form.elements.request_type.value = requestTypes().includes(action.request_type) ? action.request_type : '';
+  syncRequestNotice();
+  $('request-dialog').showModal();
+  form.elements[['student_id', 'request_type'].find(name => !form.elements[name].value) || 'detail'].focus();
 }
 
 async function submitStudentRequest(event) {
   event.preventDefault();
-  const form = event.target;
-  const body = Object.fromEntries(new FormData(form));
-  const button = form.querySelector('[type="submit"]');
+  const body = Object.fromEntries([...new FormData(event.target)].map(([key, value]) => [key, String(value).trim()]));
+  const button = $('request-submit');
+  const session = sessionId();
   button.disabled = true;
+  $('request-error').textContent = '';
   try {
-    const created = await api('/api/requests', postJson(body));
-    lookedUpStudent = created.student_id;
-    $('request-result').innerHTML = requestResultHtml(created);
-    form.elements.detail.value = '';
-    notify(`Request #${created.id} submitted. It is now “${created.status}”.`, 6000);
-    loadMyRequests(created.student_id);
+    const response = await api('/api/chat/request', postJson({ ...body, session_id: session, workspace_role: workspaceRole }));
+    $('request-dialog').close();
+    if (session !== sessionId()) return;               // the role was switched meanwhile: that chat is not on screen
+    if (response.student) setSelected(response.student);
+    addMessage(`📝 Request help: ${response.request.request_type}`, 'user');
+    addMessage(response.reply, 'bot', replyMeta(response, session));
+    notify(`Request #${response.request.id} sent. It is now “${response.request.status}”.`, 6000);
   } catch (error) {
-    notify(error.message);
+    $('request-error').textContent = error.message;     // the form stays open, with what was typed
   } finally {
     button.disabled = false;
   }
-}
-
-function trackMyRequests() {
-  const studentId = $('student-request-form').elements.student_id.value.trim();
-  if (!studentId) { notify('Type your student ID first.'); return; }
-  lookedUpStudent = studentId;
-  loadMyRequests(studentId);
 }
 
 /* ═══════════════ Event wiring ═══════════════ */
@@ -1944,7 +2010,9 @@ $('incident-form').elements.student_id.addEventListener('input', scheduleInciden
 $('incident-form').elements.student_id.addEventListener('change', () => runIncidentCheck({ force: true }));
 $('incident-form').elements.category.addEventListener('change', () => runIncidentCheck());
 $('student-request-form').onsubmit = submitStudentRequest;
-$('track-btn').onclick = trackMyRequests;
+$('student-request-form').elements.request_type.addEventListener('change', syncRequestNotice);
+$('request-close').onclick = $('request-cancel').onclick = () => $('request-dialog').close();
+$('ticker-toggle').onclick = () => setTickerPaused(!$('ticker').classList.contains('paused'));
 
 /* ── Keyboard shortcuts ── */
 document.addEventListener('keydown', event => {
@@ -1958,7 +2026,7 @@ document.addEventListener('keydown', event => {
   if (ctrl && key === 'n') {
     event.preventDefault();
     if (workspaceRole === 'coordinator') { showView('dashboard'); openDialog(); }
-    else if (workspaceRole === 'student') showView('student-request');
+    else if (workspaceRole === 'student') openStudentRequest();
     else openIncident();
   }
   if (ctrl && key === 'e' && workspaceRole === 'coordinator') {
@@ -1971,10 +2039,14 @@ document.addEventListener('keydown', event => {
   }
 });
 
-/* New requests and feedback arrive from other people's browsers, so the coordinator's badges refresh
-   every minute and whenever the tab becomes visible again. */
-setInterval(() => { if (!document.hidden) loadStats({ quiet: true }); }, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) loadStats({ quiet: true }); });
+/* New requests, incidents, feedback and activity arrive from other people's browsers, so the coordinator's badges and
+   the ticker refresh every 20 seconds and whenever the tab becomes visible again. When the numbers show that the
+   student list changed as well, the Dashboard is loaded again. */
+function refreshLive() {
+  if (workspaceRole === 'coordinator' && !document.hidden) loadStats({ quiet: true, resync: currentView === 'dashboard' });
+}
+setInterval(refreshLive, 20000);
+document.addEventListener('visibilitychange', refreshLive);
 
 window.addEventListener('hashchange', () => {
   const view = location.hash.replace('#', '');
@@ -1983,6 +2055,10 @@ window.addEventListener('hashchange', () => {
 
 /* ── Start ── */
 initTheme();
+setTickerPaused(!!store.get('tickerPaused'));
+let tickerResize = 0;
+window.addEventListener('resize', () => { clearTimeout(tickerResize); tickerResize = setTimeout(fitTicker, 200); });
+if (document.fonts) document.fonts.ready.then(fitTicker);        // the strip is measured again once the fonts are in
 if (workspaceRole && ROLE_META[workspaceRole]) {
   setRole(workspaceRole, { useHash: true });
 } else {

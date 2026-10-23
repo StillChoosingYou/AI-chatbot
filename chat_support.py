@@ -6,7 +6,7 @@ follow-up questions to offer and how to treat text that a user chose to share.
 """
 import re
 
-from student_data import PENALTY_AT, PENALTY_TEXT, STATUS_NOTES, gate_note
+from student_data import PENALTY_AT, PENALTY_TEXT, REQUEST_STATUS_NOTES, STATUS_NOTES, gate_note
 
 FEEDBACK_REASONS = ('Wrong answer', "Didn't understand me", 'Missing information', 'Other')
 
@@ -302,3 +302,62 @@ def asks_for_gate_log(text):
 def asks_for_records(text):
     """True for "records" on its own and for "ID not yet made" in English or Tagalog."""
     return bool(_NOT_YET_MADE.search(text) or _RECORDS_ONLY.match(text))
+
+
+# ─── Request help, inside the student's chat ──────────────────────────────
+# A student does everything in the chat: the Request help button opens a form, and following a request is
+# also a chat message. These are the few phrases that mean exactly that; anything else goes to the network.
+
+_MY_REQUESTS = re.compile(
+    r"\b(?:my\s+requests?|requests?\s+ko|(?:aking|akin)\s+requests?|track(?:\s+(?:my|the))?\s+requests?"
+    r"|requests?\s+(?:status|tracker)|status\s+of\s+(?:my\s+|the\s+)?requests?|where(?:'s|\s+is)\s+my\s+requests?)\b",
+    re.IGNORECASE)
+_REQUEST_HELP = re.compile(
+    r"^\s*(?:(?:please|pls)\s+)?(?:(?:i\s+)?(?:want|need|would\s+like)\s+(?:to\s+)?)?"
+    r"(?:request(?:ing)?\s+help|(?:submit|make|file|send)\s+(?:a\s+|my\s+)?request|help\s+request|request\s+form)"
+    r"(?:\s+(?:please|pls))?\s*[.!]?\s*$", re.IGNORECASE)
+MAX_REQUEST_WORDS = 10      # "my requests P202400230" or "track my request Alex Rivera": a short order, not a story
+
+
+def asks_for_my_requests(text):
+    """True for "my requests", "track my request P202400230", "request ko", "status of my request"."""
+    return len(text.split()) <= MAX_REQUEST_WORDS and bool(_MY_REQUESTS.search(text))
+
+
+def request_subject(text):
+    """What is left of a "my requests" message once that phrase is taken out: the ID or name it is about."""
+    return _MY_REQUESTS.sub(' ', text).strip(' \t\n.,;:!?')
+
+
+def asks_to_request_help(text):
+    """True for "request help", "I need to submit a request", "request form"."""
+    return bool(_REQUEST_HELP.match(text))
+
+
+def request_sent_reply(row, steps):
+    """The chat message that confirms a request: its number, its status and what to do next."""
+    who = f' for {row["name"]}' if row.get('name') else ''
+    lines = [f'✅ Request #{row["id"]} sent: **{row["request_type"]}**{who} ({row["student_id"]}). '
+             f'Status: **{row["status"]}**.']
+    if steps:
+        lines.append('What to do next:')
+        lines.extend(f'{number}. {step}' for number, step in enumerate(steps, 1))
+        lines.append('When the office accepts your request, your ID goes back to Pending while the replacement is processed.')
+    else:
+        lines.append('The office will look at it during office hours.')
+    lines.append('Type “my requests” whenever you want to follow it here in the chat.')
+    return '\n'.join(lines)
+
+
+def my_requests_reply(student_id, name, rows):
+    """One student's requests, newest first: number, type, status and time. What the student wrote is not repeated."""
+    who = f'{name} ({student_id})' if name else student_id
+    if not rows:
+        return (f'📋 No requests have been made with {student_id} yet. '
+                'If you need the office’s help, tap Request help below.')
+    lines = [f'📋 Requests for {who}, newest first:']
+    for row in rows:
+        note = REQUEST_STATUS_NOTES.get(row['status'], '')
+        lines.append(f'• #{row["id"]} · {row["request_type"]} · **{row["status"]}** · {row["timestamp"][:16]}'
+                     + (f' — {note}' if note else ''))
+    return '\n'.join(lines)

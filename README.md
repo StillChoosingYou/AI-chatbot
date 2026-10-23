@@ -39,11 +39,12 @@ trained with another scikit-learn version than the one installed. Run `train_mod
 
 Open http://localhost:5000. Six fictional demo students are created when the app starts on an
 empty database. Records and appointment changes persist in PostgreSQL.
-Choose a role on the first screen. The **coordinator** starts on the **Dashboard**, a table of every student
-with a status filter, **Select all** and CSV **Import**. The **guard** and the **student** start on the
-**Assistant**, a full-page chat: type a student ID such as `P202400230`, or a name, and the assistant
-answers with that student. Apart from the guard's check-in and check-out commands, chat messages never
-change anything; staff save changes on the Dashboard.
+Choose a role on the first screen. The **coordinator** starts on the **Dashboard**, a live ticker above a table of
+every student with a status filter, **Select all** and CSV **Import**. The **guard** starts on the **Assistant**, a
+full-page chat: type a student ID such as `P202400230`, or a name, and the assistant answers with that student.
+The **student** has nothing but that chat: lookups, the **Request help** button and the follow-up of a request all
+happen inside it. Apart from the guard's check-in and check-out commands and a student's own Request help form,
+chat messages never change anything; staff save changes on the Dashboard.
 
 ### QR printing and phone scanning
 
@@ -136,9 +137,9 @@ control (see [Privacy and access](#privacy-and-access)).
 
 | Role | Pages | What it does |
 |---|---|---|
-| Coordinator | Dashboard, Assistant, Appointments, Requests, Incidents, Feedback, Activity | **Dashboard**: every student with Student ID, Full name, Year & Section, Status, Address and Contact number. Filter by status, **Select all**, change the status of many students at once, print sticker sheets, **Import students** (CSV), **Add student**, export CSV. Tiles and shortcuts (Not yet made, Overdue, Today, For release without a date, Pending without a reason) sit above the table; the old Overview page is now part of it. **Requests** is an inbox: Submitted → In review → Accepted → Closed. **Incidents** shows what the guard filed and lets the coordinator mark or withdraw a false statement. |
+| Coordinator | Dashboard, Assistant, Appointments, Requests, Incidents, Feedback, Activity | **Dashboard**: every student with Student ID, Full name, Year & Section, Status, Address and Contact number. Filter by status, **Select all**, change the status of many students at once, print sticker sheets, **Import students** (CSV), **Add student**, export CSV. A **live ticker** (status counts, what is overdue or due today, open requests and incidents, the latest activity) scrolls above the table and refreshes by itself; see [The Dashboard ticker](#the-dashboard-ticker). Tiles and shortcuts (Not yet made, Overdue, Today, For release without a date, Pending without a reason) sit under it; the old Overview page is now part of it. **Requests** is an inbox: Submitted → In review → Accepted → Closed. **Incidents** shows what the guard filed and lets the coordinator mark or withdraw a false statement. |
 | Guard | Assistant, Verify ID, Incidents | **Assistant**: type a student ID or name to see whether the ID is released, then check the student in or out. The gate log and the list of IDs not yet made are typed there too. **Verify ID** finds a student by ID, name or QR scan. **Incidents** are filed and resolved here. |
-| Student | Assistant, Request help | **Assistant**: type a student ID or name to see that student's ID status (never the address, contact number, staff notes or QR token). **Request help** sends a Lost ID report or a question to the office, and follows it. |
+| Student | Assistant (the only page) | **Everything is in the chat.** Type a student ID or name to see that student's ID status (never the address, contact number, staff notes or QR token). When the answer is about a lost, missing or unreleased ID, a small **📝 Request help** button appears under it and opens the request form as a pop-up; type `my requests` to follow what was sent. There is no sidebar page for any of this and no Search ID form. |
 
 ### Students on the dashboard
 
@@ -146,7 +147,7 @@ control (see [Privacy and access](#privacy-and-access)).
 |---|---|
 | Student ID | The letter `P` and 9 digits, for example `P202400230`. The pattern is one line, `STUDENT_ID_RE` in `student_data.py`: change it there if your school numbers IDs differently. IDs already in the database in another format (such as `DEMO-001`) keep working. |
 | Full name | Required, up to 100 characters. |
-| Year & Section | A year from 1 to 6, then the section: `3E`, also typed `3-E` or `3 e`. |
+| Year & Section | A year from 1 to 4, then the section: `3E`, also typed `3-E` or `3 e`. Years 5 and 6 are refused with the reason. The limit is `MAX_YEAR` in `student_data.py`; students already stored with another year keep working and can be edited without touching the section. |
 | Status | **Pending** (ID not yet made), **Processing** (being made), **For release** (made, ready to claim) or **Released** (claimed). A CSV may also say `For released`, `Ready for release` or `Claimed`; it is stored under the four names. |
 | Address | Optional, up to 200 characters. |
 | Contact number | Optional. `09171234567`, `+63 917 123 4567` and `9171234567` (a spreadsheet drops the zero) are all stored as `09171234567`; other numbers of 7 to 13 digits are kept as typed. |
@@ -197,6 +198,42 @@ It is the same page for the three roles; only what it may show differs.
   and **New chat** forget them. A name that fits several students lists up to five as buttons.
 - The buttons under a student's card (Check in, Check out, File incident, Preview ID card, Request help …)
   act on that student.
+- No selecting is needed first: the ID or name typed in the message box is the lookup, in every role.
+
+### Request help, inside the student's chat
+
+The student role is chat-only, so the help request lives where the question is asked:
+
+1. The student types something like `I lost my ID`, an ID, or a name. The answer carries a small **📝 Request help**
+   button (and `request help` typed in full opens it too).
+2. The button opens the **Request help** form as a pop-up, already set to the right type (Lost ID, Status inquiry,
+   Appointment help …) and, when a student was found, filled with that student's ID and name. A Lost ID shows the
+   Cashier step and the ₱1,500 rule before it is sent. Cancel, ✕ or Escape closes it without sending anything.
+3. After **Send request** the chat shows the request number, what happens next and `my requests`. The text the
+   student typed in the form goes to the coordinator's Requests inbox only: it is not copied into the chat history.
+4. `my requests` lists the requests made with the selected student ID or the name typed (`my requests P202400104`),
+   with their status: Submitted → In review → Accepted → Closed.
+
+The same chat answers the staff roles as before; the button and `my requests` are for students.
+
+### The Dashboard ticker
+
+The strip under the Dashboard heading is a live news ticker for the coordinator. It reads the same records and
+counters as the tiles, so its numbers always agree with the table.
+
+| Shows | From |
+|---|---|
+| Pending, Processing, For release and Released counts | the student records |
+| Overdue appointments and appointments today | the records (overdue is shown in red) |
+| Open requests, open incidents (shown in red), feedback to review | `GET /api/stats` |
+| The latest six actions (who did what) | `recent_activity` in `GET /api/stats` |
+| "Nothing needs attention right now" | when all of the above are quiet |
+
+It scrolls on its own and **holds still while the pointer is on the text or the keyboard focus is in it**. **⏸ / ▶**
+pauses it for good (remembered in the browser). It refreshes every 20 seconds and when the tab is opened again;
+if the counts changed, the table below reloads too. Screen readers get one plain sentence instead of the moving
+text. With "reduce motion" switched on in the operating system, the ticker does not move: it shows one copy of the
+items that can be scrolled by hand.
 
 ### Gate log, in the chat (guard)
 
@@ -236,18 +273,20 @@ marks or withdraws it on the Incidents page. The count is per student ID, in the
 the **second** false statement carries the ₱1,500 penalty (once per student); the first has none. A third and
 later one is recorded without an automatic amount, because the rule you gave covers only "twice"; the coordinator
 decides. Withdrawing a statement recalculates the others. The amount and the number are `PENALTY_AMOUNT` and
-`PENALTY_AT` in `student_data.py`. Students are only told the rule (on Request help), never their count.
+`PENALTY_AT` in `student_data.py`. Students are only told the rule (in the Request help form), never their count.
 The app assumes the penalty is paid at the Cashier and does not record payment.
 
 ### Privacy and access
 
 - There is **no sign-in**. The role is a button the browser remembers, and the chat sends it to the server as
   `workspace_role`. Anyone who can reach the server can call `/api/inventory` (which includes the address and
-  contact number), the CSV export, `/api/verify` (which returns a QR token) and the other endpoints directly. Hiding
-  the address and contact number from the guard and the student in the chat is a courtesy of the interface, not a
-  protection.
+  contact number), the CSV export, `/api/verify` (which returns a QR token), `/api/stats` (whose latest-activity list
+  names student IDs) and the other endpoints directly. Hiding the address and contact number from the guard and the
+  student in the chat is a courtesy of the interface, not a protection.
 - Typing someone's name in the student's chat shows that student's name, ID, Year & Section and status. That is how
-  the chat was asked to work, and it is why a sign-in matters before real records are used.
+  the chat was asked to work, and it is why a sign-in matters before real records are used. For the same reason
+  `my requests` lists the requests of whichever student ID or name is typed, and the Request help form can be filed
+  for any student ID: nothing proves who is typing. Both need the sign-in too.
 
 ## Chatbot answers and feedback
 
@@ -388,7 +427,9 @@ a run that skipped them has not tested the app.
 `tests/test_student_data.py` covers the ID, name, section, contact and status formats, the CSV reader, the release
 hours and the name matching. `tests/test_records.py` covers the Dashboard API: add, edit, import, bulk change, the
 Lost ID rule and the release hours. `tests/test_chat_lookup.py` covers the chat: lookups by ID and name, what each role
-may see, the gate commands, visitors, the records list and the typed-command edge cases. `tests/test_incidents.py`
+may see, the gate commands, visitors, the records list and the typed-command edge cases. `tests/test_student_chat.py`
+covers the student's chat-only flow: which answers carry the Request help button, sending the form from the chat,
+`my requests` (and its 10-word limit, so a long story is never mistaken for the command), Years 1 to 4 and the data behind the ticker. `tests/test_incidents.py`
 covers the two incident types, the claim check and the ₱1,500 rule. `tests/test_assistant_tools.py` covers feedback,
 suggestions, requests and the staff tools, `tests/test_postgres.py` covers start-up, simultaneous edits and locks,
 text PostgreSQL cannot store, and a database that disappears, `tests/test_migration.py` covers the SQLite copy
@@ -405,8 +446,12 @@ browser or a camera, so check these by hand on the final machine:
 - [ ] Coordinator: release a student, then accept that student's Lost ID request; the status is Pending again.
 - [ ] Guard: type an ID, tap **Check in**, then type `gate log`; also `check in visitor Juan Dela Cruz`.
 - [ ] Guard: file **No ID** twice for the same student with *False statement* ticked; the second shows ₱1,500.
-- [ ] Student on a phone: type an ID and a name; the message box is on screen without scrolling; **Request help** →
-      Lost ID shows the Cashier step first.
+- [ ] Student on a phone: type an ID and a name; the message box is on screen without scrolling. Type `I lost my ID`:
+      a small **Request help** button appears; it opens the pop-up with the Cashier step first; **Send request**
+      puts the confirmation in the chat; `my requests` lists it. There is no tab bar and no Search ID form.
+- [ ] Coordinator: the ticker scrolls, stops under the pointer, **⏸** keeps it stopped after a reload, and the
+      numbers match the tiles. Add a request as a student in another window: within 20 seconds the ticker shows it.
+- [ ] Coordinator: **Add student** with Year & Section `5A` is refused; `4A` is accepted.
 - [ ] Guard on a phone over **https**: Verify ID → **Scan QR** reads a printed 30 mm sticker in
       your real lighting.
 - [ ] Print one sticker sheet at 100% and scan every sticker with a phone.

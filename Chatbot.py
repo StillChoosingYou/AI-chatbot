@@ -16,16 +16,16 @@ from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
 from chat_support import (
-    FEEDBACK_REASONS, asks_for_gate_log, asks_for_records, clean_text, csv_safe, gate_verb_is_a_preposition,
-    id_candidates, intent_label, is_bare_gate_verb, parse_gate_command, redact_text, reply_chips, staff_lines,
-    student_reply)
+    FEEDBACK_REASONS, asks_for_gate_log, asks_for_my_requests, asks_for_records, asks_to_request_help, clean_text,
+    csv_safe, gate_verb_is_a_preposition, id_candidates, intent_label, is_bare_gate_verb, my_requests_reply,
+    parse_gate_command, redact_text, reply_chips, request_sent_reply, request_subject, staff_lines, student_reply)
 from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
 from intent_model import ANNIntentModel, classify, rank_intents
 from student_data import (
-    ADDRESS_MAX, CONTACT_HINT, IMPORT_COLUMNS, MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, NAME_MAX, NOT_YET_MADE,
-    PENALTY_NOTE, PENALTY_TEXT, RELEASE_HOURS, STATUS_NOTES, STATUSES, STUDENT_ID_EXAMPLE, STUDENT_ID_HINT,
-    STUDENT_ID_RE, STUDENT_LOST_STEPS, YEAR_SECTION_HINT, ImportFileError, claim_check, clean_contact,
+    ADDRESS_MAX, CONTACT_HINT, IMPORT_COLUMNS, MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, MAX_YEAR, NAME_MAX,
+    NOT_YET_MADE, PENALTY_NOTE, PENALTY_TEXT, RELEASE_HOURS, STATUS_NOTES, STATUSES, STUDENT_ID_EXAMPLE,
+    STUDENT_ID_HINT, STUDENT_ID_RE, STUDENT_LOST_STEPS, YEAR_SECTION_HINT, ImportFileError, claim_check, clean_contact,
     clean_student_id, clean_status, find_by_name, format_year_section, gate_note, incident_steps,
     looks_like_a_name, name_query, office_hours_error, parse_year_section, penalty_for, read_student_csv, tidy)
 
@@ -44,14 +44,14 @@ def valid_row_id(value):
 
 
 def parse_year(value):
-    """Year level 1 to 6 from a JSON number or a short string of ASCII digits, else None."""
+    """Year level 1 to MAX_YEAR from a JSON number or a short string of ASCII digits, else None."""
     if isinstance(value, bool):
         return None
     if isinstance(value, str):
         value = int(value) if value.isascii() and value.isdigit() and len(value) <= 3 else None
     if not isinstance(value, int):
         return None
-    return value if 1 <= value <= 6 else None
+    return value if 1 <= value <= MAX_YEAR else None
 KINDS = ('New ID', 'Pending ID', 'Lost ID')
 SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
 ROLES = ('coordinator', 'guard', 'student')
@@ -77,6 +77,7 @@ API_ERRORS = {
     405: 'That method is not allowed here.',
 }
 MAX_LOOKUP_LIST = 5        # a name that matches more students than this is too vague to list
+RECENT_ACTIVITY = 6        # how many of the latest events the dashboard ticker carries
 STUDENT_HIDDEN = ('notes', 'token', 'address', 'contact_number')    # what the student lookup leaves out
 OFFICE = {
     'hours': 'Monday–Friday, 8:00 AM – 5:00 PM, closed 12:00 – 1:00 PM for lunch (school local time)',
@@ -90,6 +91,17 @@ OFFICE = {
         'Pending ID': 'Submit the missing documents listed on your record, then wait for processing.',
     },
 }
+
+def help_action(student=None, request_type=''):
+    """The small "Request help" button under a student's answer. It opens the form in the chat, filled in with
+    the student the answer is about and, when the answer already shows what is needed, the type of request."""
+    action = {'label': '📝 Request help', 'type': 'open_student_request'}
+    if student:
+        action.update(student_id=student['student_id'], name=student['name'])
+    if request_type:
+        action['request_type'] = request_type
+    return action
+
 
 INTENT_ACTIONS = {
     'id_processing_status': [{'label': '📋 View record', 'type': 'view_record'}],
@@ -265,7 +277,7 @@ def create_app(database_url=None):
             request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
             student_id_example=STUDENT_ID_EXAMPLE, id_hint=STUDENT_ID_HINT, release_hours=RELEASE_HOURS,
-            penalty_text=PENALTY_TEXT)
+            penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT)
 
     @app.get('/student/<token>')
     def profile(token):
@@ -586,7 +598,10 @@ def create_app(database_url=None):
             open_requests = db.execute("SELECT COUNT(*) FROM student_requests WHERE status IN ('Submitted','In review')").fetchone()[0]
             new_feedback = db.execute(
                 "SELECT COUNT(*) FROM chat_feedback WHERE rating='down' AND status='New'").fetchone()[0]
-        return jsonify(total=total, by_status=by_status, by_year=by_year,
+            recent = [dict(row) for row in db.execute(
+                'SELECT actor_role, action, detail, timestamp FROM activity_log ORDER BY id DESC LIMIT %s',
+                (RECENT_ACTIVITY,))]
+        return jsonify(total=total, by_status=by_status, by_year=by_year, recent_activity=recent,
                        not_yet_made=sum(by_status.get(name, 0) for name in NOT_YET_MADE),
                        by_request_type=by_request, upcoming_appointments=upcoming,
                        today=today, today_appointments=today_appointments,
@@ -707,7 +722,7 @@ def create_app(database_url=None):
                 'SELECT i.*, s.name AS student_name FROM incidents i '
                 'LEFT JOIN inventory s ON LOWER(s.student_id) = LOWER(i.student_id) ORDER BY i.id DESC LIMIT 50')]
         return jsonify(incidents=rows, categories=list(INCIDENT_CATEGORIES), penalty=penalty_for(2),
-                       penalty_text=PENALTY_TEXT)
+                       penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT)
 
     @app.get('/api/incidents/check')
     def check_incident():
@@ -839,20 +854,22 @@ def create_app(database_url=None):
         # Staff notes, the QR token, the address and the contact number are not for students.
         return jsonify(record={k: v for k, v in shape(found).items() if k not in STUDENT_HIDDEN})
 
+    def student_request_rows(student_id):
+        """A student's own requests, newest first, without the free-text details."""
+        with connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT id, request_type, status, timestamp FROM student_requests '
+                'WHERE LOWER(student_id) = LOWER(%s) ORDER BY id DESC LIMIT 10', (student_id,))]
+
     @app.post('/api/student/requests')
     def student_requests():
-        """A student's own requests, newest first, without the free-text details."""
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
         student_id = text_field(payload.get('student_id'))
         if not student_id:
             return jsonify(error='Enter your student ID.'), 400
-        with connect() as db:
-            rows = [dict(row) for row in db.execute(
-                'SELECT id, request_type, status, timestamp FROM student_requests '
-                'WHERE LOWER(student_id) = LOWER(%s) ORDER BY id DESC LIMIT 10', (student_id,))]
-        return jsonify(requests=rows)
+        return jsonify(requests=student_request_rows(student_id))
 
     @app.get('/api/requests')
     def list_requests():
@@ -870,29 +887,48 @@ def create_app(database_url=None):
                        counts={name: counts.get(name, 0) for name in REQUEST_STATUSES},
                        flow={name: list(options) for name, options in REQUEST_FLOW.items()})
 
+    def request_fields(payload):
+        """(fields, None) for a request a student filled in, or (None, message) when it cannot be filed."""
+        student_id = known_student_id(payload.get('student_id'))
+        if student_id is None:
+            return None, STUDENT_ID_HINT
+        request_type = payload.get('request_type')
+        if request_type not in REQUEST_TYPES:
+            return None, 'Choose a valid request type.'
+        name = text_field(payload.get('name', ''), NAME_MAX, required=False)
+        detail = text_field(payload.get('detail', ''), max_len=500, required=False)
+        if name is None and payload.get('name', ''):
+            return None, f'Name must be text of up to {NAME_MAX} characters.'
+        if detail is None and payload.get('detail', ''):
+            return None, 'Details must be text of up to 500 characters.'
+        return {'student_id': student_id, 'request_type': request_type, 'name': name or '', 'detail': detail or ''}, None
+
+    def file_student_request(fields):
+        """Save a request as Submitted. Returns the saved row and the student's record (None when the ID is
+        not on the list: a student may ask for help before they have been added)."""
+        found = find_by_student_id(fields['student_id'])
+        name = fields['name'] or (found['name'] if found else '')
+        with connect() as db:
+            row = dict(db.execute(
+                'INSERT INTO student_requests (student_id,name,request_type,detail,status,timestamp) '
+                'VALUES (%s,%s,%s,%s,%s,%s) RETURNING *',
+                (fields['student_id'], name, fields['request_type'], fields['detail'], 'Submitted', now_stamp())).fetchone())
+        log_activity('student', 'Submitted request', f'{row["request_type"]} · {row["student_id"]}')
+        return row, found
+
+    def request_steps(request_type):
+        return list(STUDENT_LOST_STEPS) if request_type == 'Lost ID' else []
+
     @app.post('/api/requests')
     def add_request():
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
-        student_id = known_student_id(payload.get('student_id'))
-        request_type = payload.get('request_type')
-        if student_id is None:
-            return jsonify(error=STUDENT_ID_HINT), 400
-        if request_type not in REQUEST_TYPES:
-            return jsonify(error='Choose a valid request type.'), 400
-        name = text_field(payload.get('name', ''), required=False) or ''
-        detail = text_field(payload.get('detail', ''), max_len=500, required=False) or ''
-        found = find_by_student_id(student_id)
-        if found and not name:
-            name = found['name']
-        with connect() as db:
-            row = dict(db.execute(
-                'INSERT INTO student_requests (student_id,name,request_type,detail,status,timestamp) '
-                'VALUES (%s,%s,%s,%s,%s,%s) RETURNING *',
-                (student_id, name, request_type, detail, 'Submitted', now_stamp())).fetchone())
-        log_activity('student', 'Submitted request', f'{request_type} · {student_id}')
-        return jsonify(**row, next_steps=list(STUDENT_LOST_STEPS) if request_type == 'Lost ID' else []), 201
+        fields, error = request_fields(payload)
+        if error:
+            return jsonify(error=error), 400
+        row, _ = file_student_request(fields)
+        return jsonify(**row, next_steps=request_steps(row['request_type'])), 201
 
     @app.patch('/api/requests/<rowid:request_id>')
     def update_request(request_id):
@@ -933,6 +969,27 @@ def create_app(database_url=None):
         return jsonify(updated)
 
     # ─── Chat ─────────────────────────────────────────────────────
+
+    def clean_session_id(value):
+        return value if isinstance(value, str) and 0 < len(value) <= 120 and clean_text(value) else ''
+
+    def save_chat_turn(session_id, workspace, user_text, answer, intent, confidence, about, now):
+        """Keep one question and its answer in the chat history. Returns the answer's id (what a 👍 or 👎 is
+        attached to), or None when the browser sent no session."""
+        if not session_id:
+            return None
+        with connect() as db:
+            db.execute(
+                'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                (session_id, 'user', user_text, '', 0, about, now, workspace))
+            message_id = db.execute(
+                'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                (session_id, 'bot', answer, intent, confidence, about, now, workspace)).fetchone()[0]
+            db.execute(
+                'DELETE FROM chat_history WHERE session_id=%s AND id NOT IN '
+                '(SELECT id FROM chat_history WHERE session_id=%s ORDER BY id DESC LIMIT 100)',
+                (session_id, session_id))
+        return message_id
 
     @app.get('/api/chat/history')
     def chat_history():
@@ -1114,10 +1171,49 @@ def create_app(database_url=None):
             result['actions'] = [{'label': '📋 Open in Dashboard', 'type': 'show_not_made'}]
         return result
 
-    def resolve_command(text, workspace):
+    def my_requests_answer(text, selected):
+        """"my requests": the type, status and time of one student's requests, as a chat answer. The student is
+        the one the message names (ID or name), else the one the chat is already about."""
+        subject = request_subject(text)
+        found = resolve_student(subject) if subject else None
+        if found is None and subject and (name_query(subject) or id_candidates(subject)):
+            return {'intent': 'my_requests', 'actions': [help_action()],
+                    'answer': f'I couldn’t find a student matching “{subject[:60]}”. Type your student ID, for '
+                              f'example “my requests {STUDENT_ID_EXAMPLE}”.'}
+        who = selected
+        if found and found.get('rows'):
+            rows, matched = found['rows'], found.get('matched', len(found['rows']))
+            if len(rows) != 1 or matched != 1:
+                if matched > MAX_LOOKUP_LIST:
+                    return {'intent': 'my_requests',
+                            'answer': f'“{subject[:60]}” matches {matched} students. Type your student ID, for '
+                                      f'example “my requests {STUDENT_ID_EXAMPLE}”.'}
+                listing = '\n'.join(f'• {row["name"]} · {row["student_id"]} · {row["year_section"]}' for row in rows)
+                return {'intent': 'my_requests', 'chips_title': 'Whose requests?',
+                        'answer': f'Whose requests do you want to see?\n{listing}',
+                        'chips': [{'label': row['name'], 'question': f'my requests {row["student_id"]}'} for row in rows]}
+            who = rows[0]
+        elif found and found.get('asked'):             # an ID that is not on the list can still have made requests
+            who = {'student_id': found['asked'], 'name': ''}
+        if who is None:
+            return {'intent': 'my_requests', 'actions': [help_action()],
+                    'answer': f'Type your student ID first, for example “my requests {STUDENT_ID_EXAMPLE}”, and I will '
+                              'list your requests.'}
+        return {'intent': 'my_requests', 'actions': [help_action(who)],
+                'answer': my_requests_reply(who['student_id'], who['name'], student_request_rows(who['student_id']))}
+
+    def resolve_command(text, workspace, selected=None):
         """Orders typed into the chat rather than questions: log a student in or out (the guard), show the gate
-        log (guard and coordinator) and list the IDs that are not made yet (guard and coordinator). A finished
-        answer, or None when the message is none of these."""
+        log (guard and coordinator), list the IDs that are not made yet (guard and coordinator), and, for a
+        student, follow their requests or ask for the Request help form. A finished answer, or None when the
+        message is none of these."""
+        if workspace == 'student':
+            if asks_for_my_requests(text):
+                return my_requests_answer(text, selected)
+            if asks_to_request_help(text):
+                return {'intent': 'request_help', 'actions': [help_action(selected)],
+                        'answer': 'Tap Request help below and fill in the form. The office reviews every request, '
+                                  'and you can follow yours by typing “my requests”.'}
         command = parse_gate_command(text)
         if command and workspace == 'guard':
             answer = gate_command(*command, bare=gate_verb_is_a_preposition(text))
@@ -1145,9 +1241,7 @@ def create_app(database_url=None):
             return jsonify(error='Enter a message of 1–1000 characters.'), 400
 
         user_text = payload['message']
-        session_id = payload.get('session_id', '')
-        if not isinstance(session_id, str) or len(session_id) > 120 or not clean_text(session_id):
-            session_id = ''
+        session_id = clean_session_id(payload.get('session_id'))
         workspace = payload.get('workspace_role', 'coordinator')
         if workspace not in ROLES:
             workspace = 'coordinator'
@@ -1164,7 +1258,7 @@ def create_app(database_url=None):
             else:
                 selected = shape(chosen)
 
-        found = resolve_command(user_text, workspace) or resolve_student(user_text)
+        found = resolve_command(user_text, workspace, selected) or resolve_student(user_text)
         if found:
             intent, confidence, ranked = found['intent'], 0.0, []
         else:
@@ -1187,13 +1281,13 @@ def create_app(database_url=None):
             'bot_help': {
                 'coordinator': 'Coordinator tools:\n• Type a student ID or name to see that student’s record, with address and contact number\n• Type “records” to list the IDs that are not made yet\n• Dashboard: filter by status (including “Not yet made”), select all, change many statuses at once, import students from a CSV file\n• Needs attention shortcuts, the appointment queue (Mon–Fri, 8:00–12:00 and 1:00–5:00) and QR sticker sheets\n• Student requests: accepting a lost ID request sends a Released ID back to Pending\n• Incidents: No ID and Lost ID reports, with the ' + PENALTY_TEXT + ' penalty for a second false statement\n• Review which answers people rated 👎 on the Feedback page',
                 'guard': 'Guard tools:\n• Type a student ID or name to see whether that student’s ID is made or released\n• Type “records” to list the IDs that are not made yet\n• Gate log: tap Check in or Check out under a student, or type “check in P202400230” or “check out …” (for a visitor: “check in visitor Juan Dela Cruz”); type “gate log” to see today’s entries\n• Verify ID by student number, name, QR token, or camera scan\n• Incidents: No ID or Lost ID only. A lost ID goes to the Cashier first; a second false statement carries a ' + PENALTY_TEXT + ' penalty',
-                'student': 'Student tools:\n• Type a student ID or name to see that student’s ID status, year and section, and appointment\n• Ask about requirements, office hours or the release schedule\n• Use Request help to report a lost ID, then track it (a lost ID is paid for at the Cashier first)\n• Tap 👍 or 👎 under my answers to tell the office how I did',
+                'student': 'Student tools:\n• Type a student ID or name to see that student’s ID status, year and section, and appointment\n• Ask about requirements, office hours or the release schedule\n• Tell me you lost your ID and I will show a Request help button: it opens the form, right here in the chat (a lost ID is paid for at the Cashier first)\n• Type “my requests” to track a request you made\n• Tap 👍 or 👎 under my answers to tell the office how I did',
             },
             'talk_to_human': f'Please contact the Property Management Office.\n📍 {OFFICE["location"]}\n🕒 {OFFICE["hours"]}\n☎ {OFFICE["contact"]}',
             'lost_id_report': {
                 'coordinator': 'A student reports a lost ID: send them to the Cashier first to pay the replacement fee. They then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to this office. Open the student on the Dashboard and choose “Lost ID” in its menu, or accept the student’s request in the Requests inbox. Either way a Released ID goes back to Pending. This chat has not changed any record. ' + PENALTY_NOTE,
                 'guard': 'If a student says their ID is lost, type the student ID or name here to check the records, file a Lost ID incident, and send the student to the Cashier to pay the replacement fee. Then the student goes to the Property Management Office. ' + PENALTY_NOTE,
-                'student': 'Go to the Cashier first and pay the replacement fee. Then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to the Property Management Office, or use the “Request help” form to report it. When the office accepts your request, your ID goes back to Pending while the replacement is processed. This chat does not replace the official report until you submit the form. ' + PENALTY_NOTE,
+                'student': 'Go to the Cashier first and pay the replacement fee. Then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to the Property Management Office, or tap “Request help” below to report it. When the office accepts your request, your ID goes back to Pending while the replacement is processed. This chat does not replace the official report until you send the request. ' + PENALTY_NOTE,
             },
             'id_requirements': (
                 f'New ID: {OFFICE["requirements"]["New ID"]}\n'
@@ -1324,7 +1418,7 @@ def create_app(database_url=None):
                 'student': [
                     {'label': '🖨️ Print QR sticker', 'type': 'print_sticker'},
                     {'label': '🪪 Preview ID card', 'type': 'preview_card'},
-                    {'label': '📝 Request help', 'type': 'open_student_request'},
+                    help_action(student),
                 ],
             }[workspace]
         elif found:
@@ -1344,18 +1438,22 @@ def create_app(database_url=None):
         elif workspace == 'student':
             actions = [a for a in actions if a['type'] not in ('update_record', 'new_record', 'export_csv', 'reset_filters', 'view_record')]
             if intent in ('greeting', 'bot_help'):
-                actions = [
-                    {'label': '📝 Request help', 'type': 'open_student_request'},
-                    {'label': '🕒 Office hours', 'type': 'ask_office'},
-                ]
+                actions = [help_action(selected), {'label': '🕒 Office hours', 'type': 'ask_office'}]
+                if selected:
+                    actions.insert(1, {'label': '📋 My requests', 'type': 'send',
+                                       'text': f'my requests {selected["student_id"]}'})
             if intent == 'lost_id_report':
-                actions = [{'label': '📝 Submit lost ID request', 'type': 'open_student_request'}]
+                actions = [help_action(selected, 'Lost ID')]
             if intent == 'office_hours_location':
-                actions = [{'label': '📞 Contact office', 'type': 'ask_human'}]
+                actions = [{'label': '📞 Contact office', 'type': 'ask_human'}, help_action(selected)]
+            if intent == 'talk_to_human':
+                actions = [help_action(selected)]
             if selected:
                 if intent in ('qr_sticker_request', 'qr_student_details', *lookups):
                     actions.append({'label': '🖨️ Print my sticker', 'type': 'print_sticker'})
                     actions.append({'label': '🪪 Preview ID card', 'type': 'preview_card'})
+                if intent in lookups:                   # the form opens already set to what the answer was about
+                    actions.append(help_action(selected, 'Status inquiry' if intent in lookups[:2] else 'Appointment help'))
         else:
             if intent in ('greeting', 'bot_help'):
                 actions.extend([
@@ -1375,6 +1473,8 @@ def create_app(database_url=None):
 
         if intent in ('out_of_scope', 'student_not_found'):
             actions.append({'label': '☎ Talk to the office', 'type': 'ask_human'})
+            if workspace == 'student':
+                actions.append(help_action(selected))
 
         seen = set()
         unique_actions = []
@@ -1386,26 +1486,40 @@ def create_app(database_url=None):
         actions = unique_actions
 
         now = now_stamp()
-        message_id = None
         about = selected['id'] if selected else None          # what the history remembers this message was about
-        if session_id:
-            with connect() as db:
-                db.execute(
-                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
-                    (session_id, 'user', user_text, '', 0, about, now, workspace))
-                message_id = db.execute(
-                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
-                    (session_id, 'bot', answer, intent, confidence, about, now, workspace)).fetchone()[0]
-                db.execute(
-                    'DELETE FROM chat_history WHERE session_id=%s AND id NOT IN '
-                    '(SELECT id FROM chat_history WHERE session_id=%s ORDER BY id DESC LIMIT 100)',
-                    (session_id, session_id))
+        message_id = save_chat_turn(session_id, workspace, user_text, answer, intent, confidence, about, now)
 
         return jsonify(intent=intent, reply=answer, confidence=confidence, actions=actions, timestamp=now,
                        message_id=message_id, suggestions=suggestions, suggestions_title=suggestions_title,
                        follow_ups=follow_ups, selected_missing=selected_missing,
                        student=({'id': student['id'], 'student_id': student['student_id'], 'name': student['name']}
                                 if student else None))
+
+    @app.post('/api/chat/request')
+    def chat_request():
+        """The Request help form, sent from the pop-up in the student's chat. The request is filed exactly like one
+        from /api/requests, and the confirmation comes back as a chat answer: it is kept in the chat history and can
+        be rated like any other. What the student wrote in the details is not copied into the history."""
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='Send a JSON object.'), 400
+        fields, error = request_fields(payload)
+        if error:
+            return jsonify(error=error), 400
+        row, found = file_student_request(fields)
+        steps = request_steps(row['request_type'])
+        answer = request_sent_reply(row, steps)
+        actions = [{'label': '📋 My requests', 'type': 'send', 'text': f'my requests {row["student_id"]}'}]
+        now = now_stamp()
+        message_id = save_chat_turn(clean_session_id(payload.get('session_id')), 'student',
+                                    f'📝 Request help: {row["request_type"]}', answer, 'request_submitted', 0,
+                                    found['id'] if found else None, now)
+        return jsonify(intent='request_submitted', reply=answer, confidence=0, actions=actions, timestamp=now,
+                       message_id=message_id, suggestions=[], suggestions_title='', follow_ups=[],
+                       selected_missing=False, request={'id': row['id'], 'request_type': row['request_type'],
+                                                        'status': row['status']},
+                       student=({'id': found['id'], 'student_id': found['student_id'], 'name': found['name']}
+                                if found else None)), 201
 
     # ─── Chat feedback ────────────────────────────────────────────
     # A rating belongs to the chat session that received the reply: the caller must send that

@@ -289,20 +289,20 @@ class SuggestionRouteTests(AppTestCase):
 class HardeningTests(AppTestCase):
     NEW = NEW
 
-    def test_year_and_section_accept_only_a_year_from_one_to_six_and_a_section(self):
-        for value in ('7A', '0A', 'A', '3', '', '   ', None, 3, ['3E'], True, '9' * 5000, '³A', '②A', '१A', '3E!!', '3 E E'):
+    def test_year_and_section_accept_only_a_year_from_one_to_four_and_a_section(self):
+        for value in ('5A', '6-c', '7A', '0A', 'A', '3', '', '   ', None, 3, ['3E'], True, '9' * 5000, '³A', '②A', '१A', '3E!!', '3 E E'):
             with self.subTest(value=str(value)[:12]):
                 response = self.client.post('/api/inventory', json={**self.NEW, 'year_section': value})
                 self.assertEqual(response.status_code, 400)
                 self.assertIn('Year & Section', response.json['error'])
-        for number, (written, shown) in enumerate((('4B', '4B'), ('6-c', '6C'), (' 3e ', '3E'), ('2 1', '2-1'))):
+        for number, (written, shown) in enumerate((('4B', '4B'), ('4-c', '4C'), (' 3e ', '3E'), ('2 1', '2-1'))):
             student = {**self.NEW, 'student_id': f'P20249{number + 1:04d}', 'year_section': written}
             created = self.client.post('/api/inventory', json=student)
             self.assertEqual((created.status_code, created.json['year_section']), (201, shown), written)
         older = {**self.NEW, 'student_id': 'P202499100', 'section': 'A', 'year_level': 2}      # the older two-field form
         del older['year_section']
         self.assertEqual(self.client.post('/api/inventory', json=older).json['year_section'], '2A')
-        for bad in (7, 0, '2.5', None, True):
+        for bad in (5, 6, 7, 0, '2.5', None, True):
             self.assertEqual(self.client.post('/api/inventory', json={**older, 'student_id': 'P202499101', 'year_level': bad}).status_code, 400)
 
     def test_text_that_cannot_be_stored_is_rejected_not_a_crash(self):

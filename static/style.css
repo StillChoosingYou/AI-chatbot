@@ -356,8 +356,12 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 .dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; gap: 12px; }
 #processing-fields { margin-top: 17px; }
 #schedule-hint { margin: 12px 0; line-height: 1.6; }
-#form-error, #import-error { color: var(--danger); font-size: 12px; margin: 10px 0; line-height: 1.5; }
-#form-error:empty, #import-error:empty { display: none; }
+#form-error, #import-error, #request-error { color: var(--danger); font-size: 12px; margin: 10px 0; line-height: 1.5; }
+#form-error:empty, #import-error:empty, #request-error:empty { display: none; }
+.request-intro { margin: 0 0 16px; font-size: 12px; line-height: 1.6; }
+#request-dialog .notice { margin-top: 16px; }
+#request-dialog textarea { min-height: 96px; }
+#request-dialog .form-buttons { margin-top: 16px; }
 .role-choices { display: grid; gap: 10px; margin-top: 16px; }
 .role-card { border: 1px solid var(--border); background: var(--surface-alt); border-radius: 10px; padding: 16px; text-align: left; color: var(--ink); }
 .role-card span { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.5; }
@@ -376,6 +380,29 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 #scan-dialog video { display: block; width: 100%; max-height: 60vh; border-radius: 10px; background: #000; margin-bottom: 12px; }
 #toast { position: fixed; bottom: 15px; right: 20px; border-radius: 8px; background: var(--toast-bg); color: var(--toast-fg); padding: 12px 18px; font-size: 12px; max-width: 85vw; box-shadow: var(--shadow-lg); z-index: 100; animation: slideUp 0.3s ease-out; backdrop-filter: blur(8px); }
 #toast:empty { display: none; }
+
+/* ========= DASHBOARD TICKER ========= */
+.ticker { display: flex; align-items: stretch; margin: 22px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.ticker[hidden] { display: none; }
+.ticker-live { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 0 14px; background: var(--green-bg); color: var(--green); font: 700 10px/1 Manrope, system-ui, sans-serif; letter-spacing: 1.4px; }
+.ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green-light); animation: tickerPulse 1.8s ease-in-out infinite; }
+.ticker-window { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); }
+.ticker-track { display: flex; width: max-content; animation: tickerScroll var(--ticker-seconds, 40s) linear infinite; will-change: transform; }
+.ticker-group { display: flex; flex: none; }
+.ticker-item { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 13px 18px; border-right: 1px solid var(--border); white-space: nowrap; font-size: 12px; color: var(--ink); }
+.ticker-item b { font-family: Manrope, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.ticker-item.muted { color: var(--muted); }
+.ticker-item.alert, .ticker-item.alert b { color: var(--danger); }
+.ticker-item .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.ticker-item .dot.pending { background: var(--pending-fg); }
+.ticker-item .dot.processing { background: var(--processing-fg); }
+.ticker-item .dot.for-release { background: var(--ready-fg); }
+.ticker-item .dot.released { background: var(--released-fg); }
+.ticker-toggle { flex: none; width: 40px; padding: 0; border: 0; border-left: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; }
+.ticker-toggle:hover { background: var(--surface-hover); color: var(--ink); }
+/* Pointing at the text holds it still so it can be read. The Play/Pause button is outside the window on purpose:
+   after pressing Play the pointer and the keyboard focus are still on the button, and that must not keep it paused. */
+.ticker-window:hover .ticker-track, .ticker-window:focus-within .ticker-track, .ticker.paused .ticker-track { animation-play-state: paused; }
 
 /* ========= PUBLIC PAGES: QR PROFILE AND CARD PREVIEW ========= */
 .profile-body { padding: 25px; }
@@ -396,8 +423,15 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes typingBounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+@keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes tickerPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.7); } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  /* the ticker stands still: one copy of the items, which can be scrolled by hand */
+  .ticker-track { animation: none !important; width: auto; }
+  .ticker-window { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
+  .ticker-dot { animation: none !important; }
+  .ticker-toggle { display: none; }
 }
 
 /* ========= RESPONSIVE: WIDE ========= */
@@ -433,7 +467,9 @@ dialog::backdrop { background: var(--dialog-backdrop); }
   .mobile-dock::-webkit-scrollbar { display: none; }
   .mobile-dock a { color: var(--muted); font-size: 10px; font-weight: 600; text-align: center; padding: 8px 6px; border-radius: 8px; flex: 1 0 auto; min-width: 62px; white-space: nowrap; }
   .mobile-dock a.active { background: var(--green-bg); color: var(--green); }
+  .mobile-dock[hidden] { display: none; }
   main { margin-left: 0; padding-bottom: 72px; }
+  body.single-view main { padding-bottom: 0; }                 /* a role with one page (the student's chat) has no dock */
   .topbar { height: 58px; padding: 0 20px 0 62px; position: sticky; top: 0; z-index: 12; }   /* the menu button sits in the bar, so scrolling never puts it over the page */
   .content { padding: 24px 15px; }
   .title-row { align-items: flex-start; flex-direction: column; gap: 12px; }
@@ -474,6 +510,7 @@ dialog::backdrop { background: var(--dialog-backdrop); }
   /* Assistant */
   .assistant-page { max-width: none; }
   .chat-card { margin-top: 16px; border-radius: 12px; height: clamp(420px, calc(100vh - 262px), 780px); height: clamp(420px, calc(100dvh - 262px), 780px); }
+  body.single-view .chat-card { height: clamp(420px, calc(100vh - 190px), 860px); height: clamp(420px, calc(100dvh - 190px), 860px); }
   #view-assistant .title-row { flex-direction: row; align-items: center; }
   #assistant-blurb { display: none; }                         /* the welcome message says the same; the room is better used by the chat */
   .chat-context { padding: 10px 14px; }
