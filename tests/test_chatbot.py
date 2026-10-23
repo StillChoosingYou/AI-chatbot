@@ -1,24 +1,15 @@
 import csv
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 from xml.etree import ElementTree
 
-from Chatbot import ROOT, create_app
+from Chatbot import ROOT
 from intent_model import ANNIntentModel
+from pg_support import DatabaseTestCase
 
 
-class SchoolIDTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.db = Path(self.temp.name) / 'test.sqlite3'
-        self.app = create_app(self.db)
-        self.client = self.app.test_client()
-        self.row = self.client.get('/api/inventory').json['records'][0]
-
-    def tearDown(self):
-        self.temp.cleanup()
+class DatasetTests(unittest.TestCase):
+    """These need no database."""
 
     def test_dataset_integrity(self):
         with (ROOT/'property_management_dataset.csv').open() as f:
@@ -47,14 +38,22 @@ class SchoolIDTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(matcher.match(text),intent)
 
+
+class SchoolIDTests(DatabaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.app = self.make_app()
+        self.client = self.app.test_client()
+        self.row = self.client.get('/api/inventory').json['records'][0]
+
     def test_appointments_status_and_live_chat(self):
         rid=self.row['id']
-        self.assertIn('Select a student',self.client.post('/api/chat',json={'message':'What is the status of my student ID?'}).json['reply'])
-        saved=self.client.patch(f'/api/inventory/{rid}',json={'status':'Ready for release','schedule_type':'Release','schedule_date':'2026-11-04','schedule_time':'09:30'})
+        self.assertIn('Type a student ID',self.client.post('/api/chat',json={'message':'What is the status of my student ID?'}).json['reply'])
+        saved=self.client.patch(f'/api/inventory/{rid}',json={'status':'For release','schedule_type':'Release','schedule_date':'2026-11-04','schedule_time':'09:30'})
         self.assertEqual(saved.status_code,200)
         answer=self.client.post('/api/chat',json={'message':'When can I collect my school ID?','record_id':rid}).json['reply']
         self.assertIn('2026-11-04 at 09:30',answer)
-        rows=create_app(self.db).test_client().get('/api/inventory').json['records']
+        rows=self.make_app().test_client().get('/api/inventory').json['records']
         self.assertEqual(next(r for r in rows if r['id']==rid)['schedule_time'],'09:30')
         self.assertEqual(self.client.patch(f'/api/inventory/{rid}',json={'schedule_time':''}).status_code,400)
         self.assertEqual(self.client.patch(f'/api/inventory/{rid}',json={'schedule_type':'','schedule_time':'','schedule_date':''}).status_code,200)
@@ -64,14 +63,15 @@ class SchoolIDTests(unittest.TestCase):
             self.assertIn('2026-11-05 at 14:00',self.client.post('/api/chat',json={'message':message,'record_id':rid}).json['reply'])
 
     def test_invalid_and_duplicate_records(self):
-        row={'student_id':'TEST-01','name':'<script>student</script>','course':'BSIT','section':'A','year_level':2,'request_type':'Lost ID'}
+        row={'student_id':'P202400230','name':'<script>student</script>','year_section':'2B','request_type':'Lost ID'}
         added=self.client.post('/api/inventory',json=row)
         self.assertEqual(added.status_code,201)
         self.assertEqual(self.client.post('/api/inventory',json=row).status_code,409)
-        self.assertEqual(self.client.post('/api/inventory',json={**row,'year_level':8}).status_code,400)
+        self.assertEqual(self.client.post('/api/inventory',json={**row,'student_id':'P202400231','year_section':'8A'}).status_code,400)
         rid=added.json['id']
-        for payload in ({'status':'invalid'},{'schedule_type':'Release','schedule_date':'2026-02-30','schedule_time':'10:00'},{'name':'tamper'},{'status':3}):
-            self.assertEqual(self.client.patch(f'/api/inventory/{rid}',json=payload).status_code,400)
+        for payload in ({'status':'invalid'},{'schedule_type':'Release','schedule_date':'2026-02-30','schedule_time':'10:00'},
+                        {'name':''},{'year_section':'9Z'},{'contact_number':'call me'},{'status':3},{'student_id':'P202400232'}):
+            self.assertEqual(self.client.patch(f'/api/inventory/{rid}',json=payload).status_code,400,payload)
         self.assertEqual(self.client.post('/api/chat',json={'message':'hello','record_id':True}).status_code,400)
         self.assertEqual(self.client.get('/qr/9999.png').status_code,404)
         page=self.client.get('/student/'+added.json['token']).get_data(as_text=True)
@@ -80,7 +80,7 @@ class SchoolIDTests(unittest.TestCase):
 
     def test_qr_url_and_public_fields(self):
         with patch.dict('os.environ',{'PUBLIC_BASE_URL':'https://school.example'}):
-            app=create_app(self.db)
+            app=self.make_app()
         with patch('Chatbot.qrcode.QRCode.add_data') as add:
             image=app.test_client().get(f'/qr/{self.row["id"]}.png')
             self.assertEqual(image.status_code,200)
@@ -88,8 +88,10 @@ class SchoolIDTests(unittest.TestCase):
             add.assert_called_once_with('https://school.example/student/'+self.row['token'])
         profile=self.client.get('/student/'+self.row['token'])
         page=profile.get_data(as_text=True)
-        for field in ('name','course','section','year_level'):
+        for field in ('name','year_section'):
             self.assertIn(str(self.row[field]),page)
+        self.assertNotIn(self.row['address'],page)
+        self.assertNotIn(self.row['contact_number'],page)
         self.assertNotIn(self.row['student_id'],page)
         if self.row['pending_reason']:
             self.assertNotIn(self.row['pending_reason'],page)
@@ -113,15 +115,15 @@ class SchoolIDTests(unittest.TestCase):
             'category': 'No ID', 'location': 'Main gate', 'detail': 'Visitor without a card'})
         self.assertEqual(incident.status_code, 201)
         ticket = self.client.post('/api/requests', json={
-            'student_id': 'DEMO-LOST', 'name': 'Pat Lee', 'request_type': 'Lost ID', 'detail': 'Wallet stolen'})
+            'student_id': 'P202400231', 'name': 'Pat Lee', 'request_type': 'Lost ID', 'detail': 'Wallet stolen'})
         self.assertEqual(ticket.status_code, 201)
         accepted = self.client.patch(f'/api/requests/{ticket.json["id"]}', json={'status': 'Accepted'})
         self.assertEqual(accepted.status_code, 200)
         inventory = self.client.get('/api/inventory').json['records']
-        self.assertTrue(any(r['student_id'] == 'DEMO-LOST' and r['request_type'] == 'Lost ID' for r in inventory))
+        self.assertTrue(any(r['student_id'] == 'P202400231' and r['request_type'] == 'Lost ID' for r in inventory))
         student_chat = self.client.post('/api/chat', json={
             'message': 'What can you do?', 'workspace_role': 'student'}).json
-        self.assertIn('Look up', student_chat['reply'])
+        self.assertIn('Type a student ID', student_chat['reply'])
         guard_chat = self.client.post('/api/chat', json={
             'message': 'hello', 'workspace_role': 'guard'}).json
         self.assertTrue(any(a['type'] == 'open_verify' for a in guard_chat['actions']))

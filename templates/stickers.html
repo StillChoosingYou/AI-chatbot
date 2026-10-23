@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>QR sticker sheet · {{ students|length }} sticker{{ '' if students|length == 1 else 's' }}</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; background: #f4f6f5; color: #20322c; margin: 0; }
+    main { max-width: 900px; margin: 40px auto; padding: 0 20px; text-align: center; }
+    .controls p { margin: 6px 0; }
+    button { padding: 12px 18px; margin: 16px 0; border: 0; border-radius: 7px; background: #176c53; color: #fff; font-weight: 600; cursor: pointer; }
+    .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(36mm, 1fr)); gap: 3mm; justify-items: center; margin-top: 20px; }
+    .sticker { display: inline-flex; flex-direction: column; align-items: center; padding: 2mm; background: #fff; border: 1px dashed #999; break-inside: avoid; }
+    .sticker img { width: 30mm; height: 30mm; }
+    .sticker small { font-size: 8pt; }
+    @media print {
+      @page { margin: 10mm; }
+      body { background: #fff; }
+      main { margin: 0; max-width: none; padding: 0; text-align: left; }
+      .controls { display: none; }
+      .sheet { margin-top: 0; grid-template-columns: repeat(auto-fill, 36mm); justify-content: start; justify-items: start; }
+      .sticker { border: 1px dotted #bbb; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="controls">
+    <h1>QR sticker sheet</h1>
+    <p>{{ students|length }} sticker{{ '' if students|length == 1 else 's' }}. Print at actual size (100%); each QR area is 30 × 30 mm.</p>
+    {% if skipped %}<p>{{ skipped }} selected record{{ '' if skipped == 1 else 's' }} no longer exist and {{ 'was' if skipped == 1 else 'were' }} skipped.</p>{% endif %}
+    <p>Scanning shows only name and year &amp; section. Use a reachable PUBLIC_BASE_URL before printing for phones.</p>
+    <button type="button" onclick="window.print()">Print sheet</button>
+  </div>
+  <div class="sheet">
+    {% for s in students %}<div class="sticker"><img src="/qr/{{ s.id }}.png" alt="QR code for {{ s.student_id }}"><small>{{ s.student_id }}</small></div>
+    {% endfor %}
+  </div>
+</main>
+</body>
+</html>

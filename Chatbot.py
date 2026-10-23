@@ -1,37 +1,92 @@
-"""Local school ID management prototype. Run with .venv/bin/python Chatbot.py."""
+"""School ID management prototype. Needs PostgreSQL: set DATABASE_URL, then run .venv/bin/python Chatbot.py."""
 import csv
 import io
 import os
+import re
 import secrets
-import sqlite3
-from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import psycopg
 import qrcode
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
+from psycopg import errors as pg_errors
+from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
+from werkzeug.routing import IntegerConverter
 
+from chat_support import (
+    FEEDBACK_REASONS, asks_for_gate_log, asks_for_records, clean_text, csv_safe, gate_verb_is_a_preposition,
+    id_candidates, intent_label, is_bare_gate_verb, parse_gate_command, redact_text, reply_chips, staff_lines,
+    student_reply)
+from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
-from intent_model import ANNIntentModel, classify
+from intent_model import ANNIntentModel, classify, rank_intents
+from student_data import (
+    ADDRESS_MAX, CONTACT_HINT, IMPORT_COLUMNS, MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, NAME_MAX, NOT_YET_MADE,
+    PENALTY_NOTE, PENALTY_TEXT, RELEASE_HOURS, STATUS_NOTES, STATUSES, STUDENT_ID_EXAMPLE, STUDENT_ID_HINT,
+    STUDENT_ID_RE, STUDENT_LOST_STEPS, YEAR_SECTION_HINT, ImportFileError, claim_check, clean_contact,
+    clean_student_id, clean_status, find_by_name, format_year_section, gate_note, incident_steps,
+    looks_like_a_name, name_query, office_hours_error, parse_year_section, penalty_for, read_student_csv, tidy)
 
 ROOT = Path(__file__).resolve().parent
-STATUSES = ('Pending', 'Processing', 'Ready for release', 'Released')
+MAX_ROW_ID = 2 ** 63 - 1   # the largest BIGINT; anything larger would raise instead of "not found"
+MAX_STICKERS = 60          # one printed sheet
+
+
+class RowIdConverter(IntegerConverter):
+    """URL number that always fits a BIGINT; longer numbers are a plain 404."""
+    regex = r'\d{1,18}'
+
+
+def valid_row_id(value):
+    return isinstance(value, int) and not isinstance(value, bool) and 0 < value <= MAX_ROW_ID
+
+
+def parse_year(value):
+    """Year level 1 to 6 from a JSON number or a short string of ASCII digits, else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = int(value) if value.isascii() and value.isdigit() and len(value) <= 3 else None
+    if not isinstance(value, int):
+        return None
+    return value if 1 <= value <= 6 else None
 KINDS = ('New ID', 'Pending ID', 'Lost ID')
 SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
 ROLES = ('coordinator', 'guard', 'student')
 GATE_DIRECTIONS = ('in', 'out')
-INCIDENT_CATEGORIES = ('No ID', 'Lost ID found', 'Visitor', 'Suspicious activity', 'Other')
+INCIDENT_CATEGORIES = ('No ID', 'Lost ID')
 INCIDENT_STATUSES = ('Open', 'Resolved')
 REQUEST_TYPES = ('Lost ID', 'Status inquiry', 'Appointment help', 'Other')
 REQUEST_STATUSES = ('Submitted', 'In review', 'Accepted', 'Closed')
+# Where a request may go next. Accepting a lost-ID request changes the inventory record,
+# so it can only happen once and a closed request stays closed.
+REQUEST_FLOW = {
+    'Submitted': ('In review', 'Accepted', 'Closed'),
+    'In review': ('Accepted', 'Closed'),
+    'Accepted': ('Closed',),
+    'Closed': (),
+}
+FEEDBACK_RATINGS = ('up', 'down')
+FEEDBACK_STATUSES = ('New', 'Reviewed')
+UNSURE_REPLY = 'I’m an automated assistant and I’m not sure what you meant. Did you mean one of these?'
+API_ERRORS = {
+    400: 'The request could not be understood.',
+    404: 'That record or page was not found.',
+    405: 'That method is not allowed here.',
+}
+MAX_LOOKUP_LIST = 5        # a name that matches more students than this is too vague to list
+STUDENT_HIDDEN = ('notes', 'token', 'address', 'contact_number')    # what the student lookup leaves out
 OFFICE = {
-    'hours': 'Monday–Friday, 8:00 AM – 5:00 PM (school local time)',
+    'hours': 'Monday–Friday, 8:00 AM – 5:00 PM, closed 12:00 – 1:00 PM for lunch (school local time)',
+    'release_hours': RELEASE_HOURS,
     'location': 'Property Management Office, Ground Floor, Admin Building',
     'contact': 'pmo@school.example · local 2100',
     'requirements': {
         'New ID': 'Filled application form, recent 1×1 photo, and proof of enrollment.',
-        'Lost ID': 'Affidavit of loss, recent 1×1 photo, and replacement fee receipt.',
+        'Lost ID': ('Pay the replacement fee at the Cashier first. Then bring the Cashier’s receipt, an '
+                    'affidavit of loss and a recent 1×1 photo to the office.'),
         'Pending ID': 'Submit the missing documents listed on your record, then wait for processing.',
     },
 }
@@ -48,33 +103,83 @@ INTENT_ACTIONS = {
     ],
     'pending_id_schedule': [{'label': '✏️ Update schedule', 'type': 'update_record'}],
     'lost_id_schedule': [{'label': '✏️ Update schedule', 'type': 'update_record'}],
-    'lost_id_report': [{'label': '➕ Add lost ID request', 'type': 'new_record'}],
+    'lost_id_report': [{'label': '📋 Open Dashboard', 'type': 'open_dashboard'}],
     'qr_sticker_request': [{'label': '🖨️ Print sticker', 'type': 'print_sticker'}],
-    'id_inventory': [{'label': '🔄 Reset filters', 'type': 'reset_filters'}],
+    'id_inventory': [
+        {'label': '🔄 Reset filters', 'type': 'reset_filters'},
+        {'label': '📥 Export CSV', 'type': 'export_csv'},
+    ],
     'export_data': [{'label': '📥 Export CSV', 'type': 'export_csv'}],
-    'id_process_steps': [{'label': '📋 View requirements', 'type': 'ask_requirements'}],
-    'id_validity_renewal': [{'label': '🕒 Office hours', 'type': 'ask_office'}],
 }
 
 
-def create_app(database=None):
+def create_app(database_url=None):
+    """Build the app. The database is the PostgreSQL URL given here, or else the DATABASE_URL variable."""
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 32 * 1024
-    app.config['DATABASE'] = str(database or ROOT / 'data' / 'inventory.sqlite3')
+    database_url = database_url or os.environ.get('DATABASE_URL', '').strip()
+    if not database_url:
+        raise RuntimeError(
+            'DATABASE_URL is not set. Point it at a PostgreSQL database, for example the one from '
+            'docker-compose.yml:\n  postgresql://school_id:school_id_dev@localhost:5432/school_id\n'
+            'See the "Database" section of README.md.')
     public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
     if public_base and (urlparse(public_base).scheme not in ('http', 'https') or not urlparse(public_base).netloc):
         raise ValueError('PUBLIC_BASE_URL must be an absolute HTTP(S) URL')
     matcher = ANNIntentModel()
+    app.url_map.converters['rowid'] = RowIdConverter
 
-    @contextmanager
-    def connect():
-        connection = sqlite3.connect(app.config['DATABASE'])
-        connection.row_factory = sqlite3.Row
-        try:
-            yield connection
-            connection.commit()
-        finally:
-            connection.close()
+    @app.errorhandler(HTTPException)
+    def http_error(error):
+        """JSON for the API, the normal page for everything else."""
+        if not request.path.startswith('/api/'):
+            return error
+        message = API_ERRORS.get(error.code, error.name)
+        if error.code == 413:
+            limit = request.max_content_length or app.config['MAX_CONTENT_LENGTH']
+            message = (f'The file is too large (the limit is {limit // 1024 // 1024} MB).' if limit >= 1024 * 1024
+                       else f'The request is too large (the limit is {limit // 1024} KB).')
+        response = jsonify(error=message)
+        response.status_code = error.code
+        if isinstance(error, MethodNotAllowed) and error.valid_methods:
+            response.headers['Allow'] = ', '.join(error.valid_methods)
+        return response
+
+    @app.errorhandler(Exception)
+    def unexpected_error(error):
+        if isinstance(error, HTTPException):
+            return http_error(error)
+        app.logger.exception('Unhandled error on %s %s', request.method, request.path)
+        if request.path.startswith('/api/'):
+            return jsonify(error='Something went wrong on the server. Please try again.'), 500
+        return 'Something went wrong on the server.', 500
+
+    @app.errorhandler(psycopg.DataError)
+    @app.errorhandler(UnicodeEncodeError)
+    def unusable_text(error):
+        """Text PostgreSQL cannot store (a NUL character, a lone surrogate) is a bad request, not a crash."""
+        app.logger.warning('Rejected unusable text on %s %s (%s)', request.method, request.path, type(error).__name__)
+        return http_error(BadRequest())
+
+    @app.errorhandler(psycopg.OperationalError)
+    def database_unavailable(error):
+        """The database is down, restarting, out of connections or deadlocked: ask the caller to retry."""
+        app.logger.error('Database unavailable on %s %s: %s', request.method, request.path, str(error).strip())
+        message = 'The database is not available right now. Please try again in a moment.'
+        if request.path.startswith('/api/'):
+            return jsonify(error=message), 503
+        return message, 503
+
+    database = Database(database_url)
+    try:
+        with database.connect() as db:         # creates missing tables; an empty database gets the demo students
+            init_schema(db)
+            seed_demo_records(db)
+    except BaseException:
+        database.close()
+        raise
+    app.extensions['database'] = database
+    connect = database.connect                 # `with connect() as db:` commits on success, rolls back on error
 
     def now_stamp():
         return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -82,70 +187,30 @@ def create_app(database=None):
     def log_activity(actor_role, action, detail=''):
         with connect() as db:
             db.execute(
-                'INSERT INTO activity_log (actor_role, action, detail, timestamp) VALUES (?,?,?,?)',
+                'INSERT INTO activity_log (actor_role, action, detail, timestamp) VALUES (%s,%s,%s,%s)',
                 (actor_role, action, detail[:500], now_stamp()))
 
-    Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
-    with connect() as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY, student_id TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL, course TEXT NOT NULL, section TEXT NOT NULL,
-            year_level INTEGER NOT NULL CHECK(year_level BETWEEN 1 AND 6),
-            status TEXT NOT NULL, request_type TEXT NOT NULL, pending_reason TEXT NOT NULL DEFAULT '',
-            schedule_type TEXT NOT NULL DEFAULT '', schedule_date TEXT NOT NULL DEFAULT '',
-            schedule_time TEXT NOT NULL DEFAULT '', token TEXT NOT NULL UNIQUE,
-            notes TEXT NOT NULL DEFAULT '')''')
-        columns = {row[1] for row in db.execute('PRAGMA table_info(inventory)')}
-        if 'notes' not in columns:
-            db.execute("ALTER TABLE inventory ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
-        db.execute('''CREATE TABLE IF NOT EXISTS chat_history (
-            id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('user', 'bot')),
-            message TEXT NOT NULL, intent TEXT NOT NULL DEFAULT '',
-            confidence REAL NOT NULL DEFAULT 0,
-            record_id INTEGER, timestamp TEXT NOT NULL)''')
-        db.execute('CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_history(session_id)')
-        db.execute('''CREATE TABLE IF NOT EXISTS gate_logs (
-            id INTEGER PRIMARY KEY, student_id TEXT NOT NULL DEFAULT '',
-            name TEXT NOT NULL DEFAULT '', direction TEXT NOT NULL,
-            note TEXT NOT NULL DEFAULT '', timestamp TEXT NOT NULL)''')
-        db.execute('''CREATE TABLE IF NOT EXISTS incidents (
-            id INTEGER PRIMARY KEY, category TEXT NOT NULL, location TEXT NOT NULL DEFAULT '',
-            detail TEXT NOT NULL, student_id TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'Open', timestamp TEXT NOT NULL)''')
-        db.execute('''CREATE TABLE IF NOT EXISTS student_requests (
-            id INTEGER PRIMARY KEY, student_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
-            request_type TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'Submitted', timestamp TEXT NOT NULL)''')
-        db.execute('''CREATE TABLE IF NOT EXISTS activity_log (
-            id INTEGER PRIMARY KEY, actor_role TEXT NOT NULL, action TEXT NOT NULL,
-            detail TEXT NOT NULL DEFAULT '', timestamp TEXT NOT NULL)''')
-        if not db.execute('SELECT 1 FROM inventory LIMIT 1').fetchone():
-            demo = [
-                ('DEMO-001','Alex Rivera','BSIT','A',1,'Ready for release','New ID',''),
-                ('DEMO-002','Jamie Santos','BSCS','B',2,'Pending','Pending ID','Photo verification needed'),
-                ('DEMO-003','Sam Reyes','BSBA','A',3,'Processing','Lost ID',''),
-                ('DEMO-004','Taylor Cruz','BSIT','B',4,'Released','New ID',''),
-                ('DEMO-005','Casey Garcia','BSED','A',1,'Processing','New ID',''),
-                ('DEMO-006','Jordan Flores','BSCS','A',2,'Pending','Pending ID','Enrollment verification needed'),
-            ]
-            db.executemany(
-                'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,pending_reason,token) VALUES (?,?,?,?,?,?,?,?,?)',
-                [(*row, secrets.token_urlsafe(18)) for row in demo])
+    def shape(row):
+        """A record as the browser sees it: the stored columns plus year and section written as one ("3E")."""
+        row = dict(row)
+        row['year_section'] = format_year_section(row['year_level'], row['section'])
+        return row
 
     def record(record_id):
+        if not valid_row_id(record_id):
+            abort(404)
         with connect() as db:
-            row = db.execute('SELECT * FROM inventory WHERE id=?', (record_id,)).fetchone()
+            row = db.execute('SELECT * FROM inventory WHERE id=%s', (record_id,)).fetchone()
         if row is None:
             abort(404)
-        return dict(row)
+        return shape(row)
 
     def scan_url(token):
         path = url_for('profile', token=token)
         return public_base + path if public_base else url_for('profile', token=token, _external=True)
 
     def text_field(value, max_len=100, required=True):
-        if not isinstance(value, str):
+        if not isinstance(value, str) or not clean_text(value):
             return None
         value = value.strip()
         if required and not value:
@@ -154,11 +219,41 @@ def create_app(database=None):
             return None
         return value
 
+    def like_pattern(word):
+        """A word as an ILIKE pattern that finds it anywhere; a % or _ typed in the word means itself."""
+        escaped = word.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        return f'%{escaped}%'
+
     def find_by_student_id(student_id):
         with connect() as db:
             return db.execute(
-                'SELECT * FROM inventory WHERE student_id=? COLLATE NOCASE',
+                'SELECT * FROM inventory WHERE LOWER(student_id) = LOWER(%s)',
                 (student_id,)).fetchone()
+
+    def known_student_id(value):
+        """A student ID as it is stored: the ID of a record that already exists (whatever its format, for
+        records made by earlier versions), else a well-formed new one. None when it is neither."""
+        if not isinstance(value, str) or not clean_text(value):
+            return None
+        value = tidy(value)
+        if not value or len(value) > 40:
+            return None
+        found = find_by_student_id(value)
+        return found['student_id'] if found else clean_student_id(value)
+
+    def add_incident_facts(rows):
+        """Adds how many false statements each student has made and the penalty still due, for staff."""
+        ids = [row['student_id'].lower() for row in rows]
+        if not ids:
+            return rows
+        with connect() as db:
+            facts = {row[0]: (row[1], int(row[2])) for row in db.execute(
+                "SELECT LOWER(student_id), COUNT(*) FILTER (WHERE false_statement), "
+                "COALESCE(SUM(penalty) FILTER (WHERE false_statement AND status = 'Open'), 0) "
+                "FROM incidents WHERE LOWER(student_id) = ANY(%s) GROUP BY 1", (ids,))}
+        for row in rows:
+            row['false_statements'], row['penalty_due'] = facts.get(row['student_id'].lower(), (0, 0))
+        return rows
 
     # ─── Page routes ───────────────────────────────────────────────
 
@@ -167,29 +262,34 @@ def create_app(database=None):
         return render_template(
             'index.html', statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
-            request_types=REQUEST_TYPES)
+            request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
+            max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
+            student_id_example=STUDENT_ID_EXAMPLE, id_hint=STUDENT_ID_HINT, release_hours=RELEASE_HOURS,
+            penalty_text=PENALTY_TEXT)
 
     @app.get('/student/<token>')
     def profile(token):
+        if not clean_text(token):                # a NUL or a lone surrogate cannot be part of a real token
+            abort(404)
         with connect() as db:
             row = db.execute(
-                'SELECT name,course,section,year_level FROM inventory WHERE token=?',
+                'SELECT name,section,year_level FROM inventory WHERE token=%s',
                 (token,)).fetchone()
         if row is None:
             abort(404)
-        return render_template('profile.html', student=row)
+        return render_template('profile.html', student=shape(row))
 
-    @app.get('/sticker/<int:record_id>')
+    @app.get('/sticker/<rowid:record_id>')
     def sticker(record_id):
         row = record(record_id)
         return render_template('sticker.html', student=row, scan_url=scan_url(row['token']))
 
-    @app.get('/card/<int:record_id>')
+    @app.get('/card/<rowid:record_id>')
     def card_preview(record_id):
         row = record(record_id)
         return render_template('card.html', student=row)
 
-    @app.get('/qr/<int:record_id>.png')
+    @app.get('/qr/<rowid:record_id>.png')
     def qr_image(record_id):
         row = record(record_id)
         stream = io.BytesIO()
@@ -200,7 +300,7 @@ def create_app(database=None):
         stream.seek(0)
         return send_file(stream, mimetype='image/png')
 
-    @app.get('/card/<int:record_id>/<side>.png')
+    @app.get('/card/<rowid:record_id>/<side>.png')
     def card_image(record_id, side):
         if side not in ('front', 'back'):
             abort(404)
@@ -210,78 +310,177 @@ def create_app(database=None):
         stream.seek(0)
         return send_file(stream, mimetype='image/png')
 
+    @app.get('/stickers')
+    def sticker_sheet():
+        """Print many QR stickers at once: /stickers?ids=1,2,3 (up to MAX_STICKERS)."""
+        try:
+            ids = list(dict.fromkeys(int(part) for part in request.args.get('ids', '').split(',') if part.strip()))
+        except ValueError:
+            abort(400)
+        if not ids or len(ids) > MAX_STICKERS or not all(valid_row_id(i) for i in ids):
+            abort(400)
+        with connect() as db:
+            rows = {row['id']: dict(row) for row in db.execute(
+                'SELECT id, student_id FROM inventory WHERE id = ANY(%s::bigint[])', (ids,))}
+        students = [rows[i] for i in ids if i in rows]
+        if not students:
+            abort(404)
+        return render_template('stickers.html', students=students, skipped=len(ids) - len(students))
+
     @app.get('/api/office')
     def office_info():
         return jsonify(OFFICE)
 
     # ─── Inventory CRUD ───────────────────────────────────────────
 
+    def reset_after_lost(db, row, reason):
+        """The card is gone, so the record starts over: Pending again, as a Lost ID request.
+
+        If the card had already been Released, its release appointment is over, so that appointment is
+        cleared too (left in place it would show up as overdue).
+        """
+        fields = {'status': 'Pending', 'request_type': 'Lost ID', 'pending_reason': reason[:500]}
+        if row['status'] == 'Released' and row['schedule_type'] == 'Release':
+            fields.update(schedule_type='', schedule_date='', schedule_time='')
+        columns = ', '.join(f'{column}=%s' for column in fields)          # the names are the ones above
+        db.execute(f'UPDATE inventory SET {columns} WHERE id=%s', (*fields.values(), row['id']))
+
     @app.get('/api/inventory')
     def inventory():
         with connect() as db:
-            rows = [dict(row) for row in db.execute('SELECT * FROM inventory ORDER BY id DESC')]
-        return jsonify(records=rows, statuses=STATUSES)
+            rows = [shape(row) for row in db.execute('SELECT * FROM inventory ORDER BY id DESC')]
+        return jsonify(records=rows, statuses=STATUSES, status_notes=STATUS_NOTES, not_yet_made=list(NOT_YET_MADE))
 
     @app.post('/api/inventory')
     def add_record():
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
-        fields = {}
-        for key in ('student_id', 'name', 'course', 'section'):
-            value = payload.get(key)
-            if not isinstance(value, str) or not value.strip() or len(value) > 100:
-                return jsonify(error=f'{key.replace("_", " ")} is required (maximum 100 characters).'), 400
-            fields[key] = value.strip()
-        year = payload.get('year_level')
-        if isinstance(year, bool) or not str(year).isdigit() or not 1 <= int(year) <= 6:
-            return jsonify(error='Year level must be between 1 and 6.'), 400
+        student_id = clean_student_id(payload.get('student_id'))
+        if student_id is None:
+            return jsonify(error=STUDENT_ID_HINT), 400
+        name = text_field(payload.get('name'), NAME_MAX)
+        if not name:
+            return jsonify(error=f'Full name is required (maximum {NAME_MAX} characters).'), 400
+        if 'section' in payload and 'year_section' not in payload:        # the older form: year level and section apart
+            section, year = text_field(payload.get('section'), 10), parse_year(payload.get('year_level'))
+            year_section = (year, section.upper()) if section and year else None
+        else:
+            year_section = parse_year_section(payload.get('year_section'))
+        if year_section is None:
+            return jsonify(error=YEAR_SECTION_HINT), 400
+        address = text_field(payload.get('address', ''), ADDRESS_MAX, required=False)
+        if address is None:
+            return jsonify(error=f'Address must be text of up to {ADDRESS_MAX} characters.'), 400
+        contact = clean_contact(payload.get('contact_number', ''))
+        if contact is None:
+            return jsonify(error=CONTACT_HINT), 400
+        course = text_field(payload.get('course', ''), required=False)
+        if course is None:
+            return jsonify(error='Course must be text of up to 100 characters.'), 400
         kind = payload.get('request_type', 'New ID')
         if kind not in KINDS:
             return jsonify(error='Choose a valid request type.'), 400
+        # A quick, friendly answer. The unique index on LOWER(student_id) is what guarantees it.
+        if find_by_student_id(student_id):
+            return jsonify(error='That student ID already exists.'), 409
         try:
             with connect() as db:
-                cursor = db.execute(
-                    'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,token) VALUES (?,?,?,?,?,?,?,?)',
-                    (*fields.values(), int(year), 'Pending', kind, secrets.token_urlsafe(18)))
-                new_id = cursor.lastrowid
-        except sqlite3.IntegrityError:
+                lock_student(db, student_id)                  # one writer per student ID at a time
+                created = db.execute(
+                    'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,'
+                    'address,contact_number,token) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',
+                    (student_id, tidy(name), course, year_section[1], year_section[0], 'Pending', kind,
+                     tidy(address), contact, secrets.token_urlsafe(18))).fetchone()
+        except pg_errors.UniqueViolation:
             return jsonify(error='That student ID already exists.'), 409
-        log_activity('coordinator', 'Added record', fields['student_id'])
-        return jsonify(record(new_id)), 201
+        log_activity('coordinator', 'Added record', student_id)
+        return jsonify(shape(created)), 201
 
-    @app.patch('/api/inventory/<int:record_id>')
+    @app.patch('/api/inventory/<rowid:record_id>')
     def update_record(record_id):
-        current = record(record_id)
         payload = request.get_json(silent=True)
-        allowed = ('status', 'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time', 'notes')
-        if not isinstance(payload, dict) or not payload or set(payload) - set(allowed):
-            return jsonify(error='Supply status, pending reason, notes, or schedule fields.'), 400
-        if any(not isinstance(v, str) or len(v) > 500 for v in payload.values()):
-            return jsonify(error='Fields must be text of up to 500 characters.'), 400
-        current.update(payload)
-        if current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
-            return jsonify(error='Choose a valid status and appointment type.'), 400
-        schedule = [current[k] for k in ('schedule_type', 'schedule_date', 'schedule_time')]
-        if any(schedule):
-            if not all(schedule):
-                return jsonify(error='Appointment type, date, and time must be filled together.'), 400
-            try:
-                datetime.strptime(current['schedule_date'] + ' ' + current['schedule_time'], '%Y-%m-%d %H:%M')
-            except ValueError:
-                return jsonify(error='Use a valid date and time.'), 400
+        allowed = ('status', 'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time', 'notes',
+                   'name', 'year_section', 'address', 'contact_number')
         with connect() as db:
+            # FOR UPDATE: two coordinators editing different fields must not overwrite each other.
+            row = db.execute('SELECT * FROM inventory WHERE id=%s FOR UPDATE', (record_id,)).fetchone()
+            if row is None:
+                abort(404)
+            current = dict(row)
+            if not isinstance(payload, dict) or not payload or set(payload) - set(allowed):
+                return jsonify(error='Supply status, pending reason, notes, appointment or student fields.'), 400
+            if any(not isinstance(v, str) or len(v) > 500 or not clean_text(v) for v in payload.values()):
+                return jsonify(error='Fields must be text of up to 500 characters.'), 400
+            changes = dict(payload)
+            if 'status' in changes:
+                changes['status'] = clean_status(changes['status'], default=None)
+                if changes['status'] is None:
+                    return jsonify(error='Choose a valid status: ' + ', '.join(STATUSES) + '.'), 400
+            if 'name' in changes:
+                changes['name'] = tidy(changes['name'])
+                if not changes['name'] or len(changes['name']) > NAME_MAX:
+                    return jsonify(error=f'Full name is required (maximum {NAME_MAX} characters).'), 400
+            if 'year_section' in changes:
+                year_section = parse_year_section(changes.pop('year_section'))
+                if year_section is None:
+                    return jsonify(error=YEAR_SECTION_HINT), 400
+                changes['year_level'], changes['section'] = year_section
+            if 'address' in changes:
+                changes['address'] = tidy(changes['address'])
+                if len(changes['address']) > ADDRESS_MAX:
+                    return jsonify(error=f'Address must be text of up to {ADDRESS_MAX} characters.'), 400
+            if 'contact_number' in changes:
+                changes['contact_number'] = clean_contact(changes['contact_number'])
+                if changes['contact_number'] is None:
+                    return jsonify(error=CONTACT_HINT), 400
+            current.update(changes)
+            if current['status'] not in STATUSES or current['schedule_type'] not in ('', *SCHEDULES):
+                return jsonify(error='Choose a valid status and appointment type.'), 400
+            keys = ('schedule_type', 'schedule_date', 'schedule_time')
+            schedule = [current[k] for k in keys]
+            if any(schedule):
+                if not all(schedule):
+                    return jsonify(error='Appointment type, date, and time must be filled together.'), 400
+                try:
+                    when = datetime.strptime(current['schedule_date'] + ' ' + current['schedule_time'], '%Y-%m-%d %H:%M')
+                except ValueError:
+                    return jsonify(error='Use a valid date and time.'), 400
+                # Always stored as 2026-01-05 and 09:30, so dates sort and compare correctly.
+                current['schedule_date'], current['schedule_time'] = when.isoformat(sep=' ', timespec='minutes').split(' ')
+                # The release hours are checked when the appointment is set or moved, not every time
+                # someone edits another field of a record that already has an older appointment.
+                if [current[k] for k in keys] != [row[k] for k in keys]:
+                    problem = office_hours_error(when)
+                    if problem:
+                        return jsonify(error=problem), 400
+            columns = ('status', 'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time', 'notes',
+                       'name', 'year_level', 'section', 'address', 'contact_number')
             db.execute(
-                'UPDATE inventory SET status=?,pending_reason=?,schedule_type=?,schedule_date=?,schedule_time=?,notes=? WHERE id=?',
-                (*[current[k] for k in allowed], record_id))
+                f'UPDATE inventory SET {", ".join(f"{c}=%s" for c in columns)} WHERE id=%s',
+                (*[current[c] for c in columns], record_id))
         log_activity('coordinator', 'Updated record', current['student_id'])
         return jsonify(record(record_id))
 
-    @app.delete('/api/inventory/<int:record_id>')
+    @app.post('/api/inventory/<rowid:record_id>/lost')
+    def report_lost(record_id):
+        """The student's ID card was lost. A Released record goes back to Pending."""
+        with connect() as db:
+            row = db.execute('SELECT * FROM inventory WHERE id=%s FOR UPDATE', (record_id,)).fetchone()
+            if row is None:
+                abort(404)
+            row = dict(row)
+            if row['status'] != 'Released':
+                return jsonify(error=f'Only a released ID can be reported lost. This one is {row["status"]}.'), 409
+            reset_after_lost(db, row, 'Lost ID reported to the office')
+        log_activity('coordinator', 'Lost ID', f"{row['student_id']}: {row['status']} → Pending")
+        return jsonify(record(record_id))
+
+    @app.delete('/api/inventory/<rowid:record_id>')
     def delete_record(record_id):
         row = record(record_id)
         with connect() as db:
-            db.execute('DELETE FROM inventory WHERE id=?', (record_id,))
+            db.execute('DELETE FROM inventory WHERE id=%s', (record_id,))
         log_activity('coordinator', 'Deleted record', row['student_id'])
         return jsonify(success=True)
 
@@ -291,34 +490,74 @@ def create_app(database=None):
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
         ids = payload.get('record_ids')
-        status = payload.get('status')
-        if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+        status = clean_status(payload.get('status'), default=None)
+        if not isinstance(ids, list) or not ids or not all(valid_row_id(i) for i in ids):
             return jsonify(error='Provide a list of record IDs.'), 400
         if len(ids) > 500:
             return jsonify(error='Bulk update is limited to 500 records.'), 400
-        if not isinstance(status, str) or status not in STATUSES:
-            return jsonify(error='Choose a valid processing status.'), 400
-        placeholders = ','.join('?' * len(ids))
+        if status is None:
+            return jsonify(error='Choose a valid status: ' + ', '.join(STATUSES) + '.'), 400
         with connect() as db:
-            cursor = db.execute(f'UPDATE inventory SET status=? WHERE id IN ({placeholders})', (status, *ids))
+            cursor = db.execute('UPDATE inventory SET status=%s WHERE id = ANY(%s::bigint[])', (status, ids))
             updated = cursor.rowcount
         log_activity('coordinator', 'Bulk status update', f'{updated} → {status}')
         return jsonify(updated=updated)
 
+    @app.post('/api/inventory/import')
+    def import_students():
+        """Add students from a CSV file. Students already on the dashboard are skipped, never overwritten."""
+        request.max_content_length = MAX_IMPORT_BYTES + 64 * 1024      # before the body is read: room for the file
+        upload = request.files.get('file')
+        if upload is None or not upload.filename:
+            return jsonify(error='Choose a CSV file to import.'), 400
+        data = upload.read(MAX_IMPORT_BYTES + 1)
+        if len(data) > MAX_IMPORT_BYTES:
+            return jsonify(error=f'The file is too large (the limit is {MAX_IMPORT_BYTES // 1024 // 1024} MB).'), 413
+        try:
+            students, problems, total = read_student_csv(data)
+        except ImportFileError as error:
+            return jsonify(error=str(error)), 400
+        added = 0
+        with connect() as db:                     # one transaction: a database error adds nobody
+            for student in students:
+                created = db.execute(
+                    'INSERT INTO inventory (student_id,name,section,year_level,status,request_type,address,'
+                    'contact_number,token) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',
+                    (student['student_id'], student['name'], student['section'], student['year_level'],
+                     student['status'], 'New ID', student['address'], student['contact_number'],
+                     secrets.token_urlsafe(18))).rowcount
+                if created:
+                    added += 1
+                else:
+                    problems.append({'line': student['line'], 'student_id': student['student_id'],
+                                     'error': 'Already on the dashboard, so it was not added again.'})
+        problems.sort(key=lambda problem: problem['line'])
+        log_activity('coordinator', 'Imported students', f'{added} added, {len(problems)} skipped of {total} rows')
+        return jsonify(added=added, skipped=len(problems), total=total, problems=problems[:50])
+
+    @app.get('/api/inventory/template')
+    def import_template():
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator='\n')
+        writer.writerow(IMPORT_COLUMNS)
+        writer.writerow(['P202400001', 'Maria L. Santos', '1A', 'Pending', 'Purok 2, Brgy. Poblacion, Sample City', '09170000001'])
+        writer.writerow(['P202400002', 'Juan D. Dela Cruz', '3E', 'Processing', '', ''])
+        mem = io.BytesIO(output.getvalue().encode('utf-8-sig'))
+        return send_file(mem, mimetype='text/csv', as_attachment=True, download_name='student_import_template.csv')
+
     @app.get('/api/inventory/export')
     def export_inventory():
         with connect() as db:
-            rows = [dict(row) for row in db.execute(
-                'SELECT student_id, name, course, section, year_level, status, request_type, '
-                'pending_reason, schedule_type, schedule_date, schedule_time, notes '
-                'FROM inventory ORDER BY id DESC')]
+            rows = [shape(row) for row in db.execute('SELECT * FROM inventory ORDER BY id DESC')]
+        # The first six columns are the ones the import reads, so an export can be imported elsewhere.
+        columns = [*IMPORT_COLUMNS, 'request_type', 'pending_reason', 'schedule_type', 'schedule_date',
+                   'schedule_time', 'notes']
         output = io.StringIO()
-        columns = ['student_id', 'name', 'course', 'section', 'year_level', 'status',
-                   'request_type', 'pending_reason', 'schedule_type', 'schedule_date', 'schedule_time', 'notes']
         writer = csv.DictWriter(output, fieldnames=columns, lineterminator='\n')
         writer.writeheader()
-        if rows:
-            writer.writerows(rows)
+        for row in rows:
+            row['full_name'] = row['name']
+            writer.writerow({key: csv_safe(row[key]) for key in columns})
         mem = io.BytesIO(output.getvalue().encode('utf-8-sig'))
         return send_file(mem, mimetype='text/csv', as_attachment=True, download_name='id_inventory.csv')
 
@@ -326,30 +565,42 @@ def create_app(database=None):
 
     @app.get('/api/stats')
     def stats():
+        today = datetime.now().strftime('%Y-%m-%d')
         with connect() as db:
             total = db.execute('SELECT COUNT(*) FROM inventory').fetchone()[0]
             by_status = {row[0]: row[1] for row in db.execute(
                 'SELECT status, COUNT(*) FROM inventory GROUP BY status')}
-            by_course = {row[0]: row[1] for row in db.execute(
-                'SELECT course, COUNT(*) FROM inventory GROUP BY course ORDER BY COUNT(*) DESC')}
+            by_year = {f'Year {row[0]}': row[1] for row in db.execute(
+                'SELECT year_level, COUNT(*) FROM inventory GROUP BY year_level ORDER BY year_level')}
             by_request = {row[0]: row[1] for row in db.execute(
                 'SELECT request_type, COUNT(*) FROM inventory GROUP BY request_type')}
             upcoming = [dict(row) for row in db.execute(
                 "SELECT id, name, student_id, schedule_type, schedule_date, schedule_time "
-                "FROM inventory WHERE schedule_date != '' ORDER BY schedule_date, schedule_time LIMIT 8")]
+                "FROM inventory WHERE schedule_date >= %s ORDER BY schedule_date, schedule_time, id LIMIT 8", (today,))]
+            today_appointments = db.execute(
+                'SELECT COUNT(*) FROM inventory WHERE schedule_date = %s', (today,)).fetchone()[0]
+            overdue_appointments = db.execute(
+                "SELECT COUNT(*) FROM inventory WHERE schedule_date != '' AND schedule_date < %s AND status != 'Released'",
+                (today,)).fetchone()[0]
             open_incidents = db.execute("SELECT COUNT(*) FROM incidents WHERE status='Open'").fetchone()[0]
             open_requests = db.execute("SELECT COUNT(*) FROM student_requests WHERE status IN ('Submitted','In review')").fetchone()[0]
-        return jsonify(total=total, by_status=by_status, by_course=by_course,
+            new_feedback = db.execute(
+                "SELECT COUNT(*) FROM chat_feedback WHERE rating='down' AND status='New'").fetchone()[0]
+        return jsonify(total=total, by_status=by_status, by_year=by_year,
+                       not_yet_made=sum(by_status.get(name, 0) for name in NOT_YET_MADE),
                        by_request_type=by_request, upcoming_appointments=upcoming,
-                       open_incidents=open_incidents, open_requests=open_requests)
+                       today=today, today_appointments=today_appointments,
+                       overdue_appointments=overdue_appointments,
+                       open_incidents=open_incidents, open_requests=open_requests,
+                       new_feedback=new_feedback)
 
     @app.get('/api/queue')
     def appointment_queue():
         today = datetime.now().strftime('%Y-%m-%d')
         with connect() as db:
-            rows = [dict(row) for row in db.execute(
-                "SELECT id, student_id, name, course, status, schedule_type, schedule_date, schedule_time "
-                "FROM inventory WHERE schedule_date != '' ORDER BY schedule_date, schedule_time")]
+            rows = [shape(row) for row in db.execute(
+                "SELECT id, student_id, name, section, year_level, status, schedule_type, schedule_date, schedule_time "
+                "FROM inventory WHERE schedule_date != '' ORDER BY schedule_date, schedule_time, id")]
         return jsonify(today=today, appointments=rows)
 
     @app.get('/api/activity')
@@ -363,26 +614,45 @@ def create_app(database=None):
 
     @app.get('/api/verify')
     def verify():
-        raw = request.args.get('q', '')
-        if not isinstance(raw, str):
+        query = request.args.get('q', '').strip()
+        if not query or len(query) > 100 or not clean_text(query):
             return jsonify(error='Enter a student ID, name, or QR token.'), 400
-        query = raw.strip().replace('%', '').replace('_', '')
-        if not query or len(query) > 100:
-            return jsonify(error='Enter a student ID, name, or QR token.'), 400
-        like = f'%{query}%'
+        # Exact matches use the text as typed: QR tokens contain "_" and "-" (about one token in
+        # three has an underscore), so stripping them made those students impossible to find.
+        # Only the name search treats % and _ as wildcards, so they are escaped there.
+        # "Reynald Malabanan" finds "Reynald Jake L. Malabanan": every word must be in the name, in any order.
+        likes = [like_pattern(word) for word in query.split()[:6]]
+        name_match = ' AND '.join(["name ILIKE %s ESCAPE '\\'"] * len(likes))    # one placeholder per word
         with connect() as db:
-            rows = [dict(row) for row in db.execute(
-                '''SELECT id, student_id, name, course, section, year_level, status, request_type, token
-                   FROM inventory WHERE student_id = ? COLLATE NOCASE OR token = ? OR name LIKE ? COLLATE NOCASE
-                   LIMIT 8''', (query, query, like))]
+            rows = [shape(row) for row in db.execute(
+                f'''SELECT id, student_id, name, section, year_level, status, request_type, token
+                    FROM inventory
+                    WHERE LOWER(student_id) = LOWER(%s) OR token = %s OR ({name_match})
+                    ORDER BY (LOWER(student_id) = LOWER(%s) OR token = %s) DESC, id
+                    LIMIT 8''', (query, query, *likes, query, query))]
+        for row in rows:
+            row['status_note'] = STATUS_NOTES.get(row['status'], '')
+            row['gate_note'] = gate_note(row['status'])
+        add_incident_facts(rows)
         return jsonify(matches=rows)
+
+    def write_gate(direction, student_id, name, note=''):
+        with connect() as db:
+            row = dict(db.execute(
+                'INSERT INTO gate_logs (student_id,name,direction,note,timestamp) VALUES (%s,%s,%s,%s,%s) RETURNING *',
+                (student_id, name or 'Visitor', direction, note, now_stamp())).fetchone())
+        log_activity('guard', f'Gate {direction}', student_id or name)
+        return row
 
     @app.get('/api/gate')
     def list_gate():
+        today = datetime.now().strftime('%Y-%m-%d')
         with connect() as db:
             rows = [dict(row) for row in db.execute(
                 'SELECT * FROM gate_logs ORDER BY id DESC LIMIT 50')]
-        return jsonify(logs=rows)
+            counts = {row[0]: row[1] for row in db.execute(
+                'SELECT direction, COUNT(*) FROM gate_logs WHERE timestamp >= %s GROUP BY direction', (today,))}
+        return jsonify(logs=rows, today={'in': counts.get('in', 0), 'out': counts.get('out', 0)})
 
     @app.post('/api/gate')
     def add_gate():
@@ -402,21 +672,63 @@ def create_app(database=None):
                 student_id = found['student_id']
         if not name and not student_id:
             return jsonify(error='Enter a student ID or visitor name.'), 400
-        with connect() as db:
-            cursor = db.execute(
-                'INSERT INTO gate_logs (student_id,name,direction,note,timestamp) VALUES (?,?,?,?,?)',
-                (student_id, name or 'Visitor', direction, note, now_stamp()))
-            new_id = cursor.lastrowid
-            row = dict(db.execute('SELECT * FROM gate_logs WHERE id=?', (new_id,)).fetchone())
-        log_activity('guard', f'Gate {direction}', student_id or name)
-        return jsonify(row), 201
+        return jsonify(write_gate(direction, student_id, name, note)), 201
+
+    # ─── Incidents: a student at the gate with no ID, or with a lost one ──────
+
+    def false_statements_of(db, student_id):
+        return db.execute(
+            'SELECT COUNT(*) FROM incidents WHERE LOWER(student_id) = LOWER(%s) AND false_statement',
+            (student_id,)).fetchone()[0]
+
+    def recompute_penalties(db, student_id):
+        """The penalty is charged at a student's second false statement. The count follows the order the
+        incidents were filed, so withdrawing the first one moves the penalty to what is then the second."""
+        flagged = db.execute(
+            'SELECT id, penalty FROM incidents WHERE LOWER(student_id) = LOWER(%s) AND false_statement ORDER BY id',
+            (student_id,)).fetchall()
+        for number, row in enumerate(flagged, start=1):
+            if row['penalty'] != penalty_for(number):
+                db.execute('UPDATE incidents SET penalty=%s WHERE id=%s', (penalty_for(number), row['id']))
+
+    def incident_row(db, incident_id):
+        return dict(db.execute(
+            'SELECT i.*, s.name AS student_name FROM incidents i '
+            'LEFT JOIN inventory s ON LOWER(s.student_id) = LOWER(i.student_id) WHERE i.id = %s',
+            (incident_id,)).fetchone())
+
+    NO_RECORD = ('No student with this ID is on the dashboard yet. Ask the coordinator to add them (Add student '
+                 'or Import) so their ID can be made.')
 
     @app.get('/api/incidents')
     def list_incidents():
         with connect() as db:
             rows = [dict(row) for row in db.execute(
-                'SELECT * FROM incidents ORDER BY id DESC LIMIT 50')]
-        return jsonify(incidents=rows)
+                'SELECT i.*, s.name AS student_name FROM incidents i '
+                'LEFT JOIN inventory s ON LOWER(s.student_id) = LOWER(i.student_id) ORDER BY i.id DESC LIMIT 50')]
+        return jsonify(incidents=rows, categories=list(INCIDENT_CATEGORIES), penalty=penalty_for(2),
+                       penalty_text=PENALTY_TEXT)
+
+    @app.get('/api/incidents/check')
+    def check_incident():
+        """What the records say about a student, before an incident is filed."""
+        category = request.args.get('category', '')
+        student_id = request.args.get('student_id', '')
+        if category not in INCIDENT_CATEGORIES:
+            return jsonify(error='Choose No ID or Lost ID.'), 400
+        if not student_id.strip() or len(student_id) > 40 or not clean_text(student_id):
+            return jsonify(error='Enter a student ID.'), 400
+        found = find_by_student_id(tidy(student_id))
+        if found is None:
+            return jsonify(found=False, message=NO_RECORD)
+        row = add_incident_facts([shape(found)])[0]
+        agrees, message = claim_check(category, row['status'])
+        return jsonify(found=True,
+                       student={'student_id': row['student_id'], 'name': row['name'], 'year_section': row['year_section'],
+                                'status': row['status'], 'status_note': STATUS_NOTES.get(row['status'], '')},
+                       claim={'agrees': agrees, 'message': message},
+                       false_statements=row['false_statements'], penalty_due=row['penalty_due'],
+                       next_penalty=penalty_for(row['false_statements'] + 1), penalty_text=PENALTY_TEXT)
 
     @app.post('/api/incidents')
     def add_incident():
@@ -425,33 +737,90 @@ def create_app(database=None):
             return jsonify(error='Send a JSON object.'), 400
         category = payload.get('category')
         if category not in INCIDENT_CATEGORIES:
-            return jsonify(error='Choose a valid incident category.'), 400
+            return jsonify(error='Choose No ID or Lost ID.'), 400
         detail = text_field(payload.get('detail'), max_len=500)
         if not detail:
             return jsonify(error='Describe the incident (maximum 500 characters).'), 400
-        location = text_field(payload.get('location', ''), required=False) or ''
-        student_id = text_field(payload.get('student_id', ''), required=False) or ''
+        location = payload.get('location')
+        location = '' if location is None else text_field(location, required=False)
+        if location is None:
+            return jsonify(error='Location must be text of up to 100 characters.'), 400
+        raw_id = payload.get('student_id', '')
+        student_id = ''
+        if isinstance(raw_id, str) and raw_id.strip():
+            student_id = known_student_id(raw_id)
+            if student_id is None:
+                return jsonify(error=STUDENT_ID_HINT), 400
+        elif raw_id not in ('', None) and not isinstance(raw_id, str):
+            return jsonify(error=STUDENT_ID_HINT), 400
+        false_statement = payload.get('false_statement', False)
+        if not isinstance(false_statement, bool):
+            return jsonify(error='false_statement must be true or false.'), 400
+        if false_statement and not student_id:
+            return jsonify(error='Enter the student ID of the student who gave false information.'), 400
         with connect() as db:
-            cursor = db.execute(
-                'INSERT INTO incidents (category,location,detail,student_id,status,timestamp) VALUES (?,?,?,?,?,?)',
-                (category, location, detail, student_id, 'Open', now_stamp()))
-            new_id = cursor.lastrowid
-            row = dict(db.execute('SELECT * FROM incidents WHERE id=?', (new_id,)).fetchone())
-        log_activity('guard', 'Logged incident', category)
-        return jsonify(row), 201
+            record = None
+            if student_id:
+                lock_student(db, student_id)          # two guards filing at once are counted one after the other
+                record = db.execute('SELECT * FROM inventory WHERE LOWER(student_id) = LOWER(%s)',
+                                    (student_id,)).fetchone()
+            if false_statement and record is None:
+                return jsonify(error='No student with that ID is on the dashboard, so the false statement '
+                                     'cannot be counted.'), 400
+            number = false_statements_of(db, student_id) + 1 if false_statement else 0
+            penalty = penalty_for(number) if false_statement else 0
+            new_id = db.execute(
+                'INSERT INTO incidents (category,location,detail,student_id,status,timestamp,false_statement,penalty) '
+                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                (category, location, detail, student_id, 'Open', now_stamp(), false_statement, penalty)).fetchone()[0]
+            incident = incident_row(db, new_id)
+            total = false_statements_of(db, student_id) if student_id else 0
+        log_activity('guard', 'Logged incident', category + (f' · {student_id}' if student_id else ''))
+        if false_statement:
+            log_activity('guard', 'False statement', f'{student_id}: number {number}'
+                         + (f', penalty {PENALTY_TEXT}' if penalty else ''))
+        if record is None:
+            claim = {'agrees': None, 'message': NO_RECORD} if student_id else None
+        else:
+            agrees, message = claim_check(category, record['status'])
+            claim = {'agrees': agrees, 'message': message}
+        return jsonify(**incident, false_statements=total, claim=claim,
+                       next_steps=incident_steps(category, penalty)), 201
 
-    @app.patch('/api/incidents/<int:incident_id>')
+    @app.patch('/api/incidents/<rowid:incident_id>')
     def update_incident(incident_id):
+        """Mark an incident Open or Resolved, or confirm or withdraw its false statement."""
         payload = request.get_json(silent=True)
-        if not isinstance(payload, dict) or payload.get('status') not in INCIDENT_STATUSES:
+        if not isinstance(payload, dict) or not payload or set(payload) - {'status', 'false_statement'}:
+            return jsonify(error='Choose Open or Resolved, or confirm or withdraw the false statement.'), 400
+        if 'status' in payload and payload['status'] not in INCIDENT_STATUSES:
             return jsonify(error='Choose Open or Resolved.'), 400
+        if 'false_statement' in payload and not isinstance(payload['false_statement'], bool):
+            return jsonify(error='false_statement must be true or false.'), 400
         with connect() as db:
-            row = db.execute('SELECT * FROM incidents WHERE id=?', (incident_id,)).fetchone()
-            if row is None:
+            probe = db.execute('SELECT student_id FROM incidents WHERE id=%s', (incident_id,)).fetchone()
+            if probe is None:
                 abort(404)
-            db.execute('UPDATE incidents SET status=? WHERE id=?', (payload['status'], incident_id))
-            updated = dict(db.execute('SELECT * FROM incidents WHERE id=?', (incident_id,)).fetchone())
-        log_activity('guard', 'Updated incident', payload['status'])
+            if probe['student_id']:
+                lock_student(db, probe['student_id'])   # the same order as filing one: student first, then rows
+            row = dict(db.execute('SELECT * FROM incidents WHERE id=%s FOR UPDATE', (incident_id,)).fetchone())
+            status = payload.get('status', row['status'])
+            flag = payload.get('false_statement', row['false_statement'])
+            if flag and not row['false_statement']:
+                if not row['student_id'] or find_by_student_id(row['student_id']) is None:
+                    return jsonify(error='This incident has no student on the dashboard, so it cannot count as a '
+                                         'false statement.'), 400
+            db.execute('UPDATE incidents SET status=%s, false_statement=%s WHERE id=%s', (status, flag, incident_id))
+            if row['student_id']:
+                recompute_penalties(db, row['student_id'])
+            if not flag:
+                db.execute('UPDATE incidents SET penalty=0 WHERE id=%s', (incident_id,))
+            updated = incident_row(db, incident_id)
+        if 'status' in payload:
+            log_activity('guard', 'Updated incident', payload['status'])
+        if 'false_statement' in payload and flag != row['false_statement']:
+            log_activity('coordinator', 'False statement' if flag else 'False statement withdrawn',
+                         row['student_id'])
         return jsonify(updated)
 
     # ─── Student tools ────────────────────────────────────────────
@@ -467,24 +836,49 @@ def create_app(database=None):
         found = find_by_student_id(student_id)
         if found is None:
             return jsonify(error='No ID record found for that student ID. Visit the Property Management Office if you need a new ID.'), 404
-        return jsonify(record=dict(found))
+        # Staff notes, the QR token, the address and the contact number are not for students.
+        return jsonify(record={k: v for k, v in shape(found).items() if k not in STUDENT_HIDDEN})
+
+    @app.post('/api/student/requests')
+    def student_requests():
+        """A student's own requests, newest first, without the free-text details."""
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='Send a JSON object.'), 400
+        student_id = text_field(payload.get('student_id'))
+        if not student_id:
+            return jsonify(error='Enter your student ID.'), 400
+        with connect() as db:
+            rows = [dict(row) for row in db.execute(
+                'SELECT id, request_type, status, timestamp FROM student_requests '
+                'WHERE LOWER(student_id) = LOWER(%s) ORDER BY id DESC LIMIT 10', (student_id,))]
+        return jsonify(requests=rows)
 
     @app.get('/api/requests')
     def list_requests():
+        status = request.args.get('status', '')
+        if status and status not in REQUEST_STATUSES:
+            return jsonify(error='Choose a valid request status.'), 400
+        where, params = ('WHERE status=%s ', (status,)) if status else ('', ())
         with connect() as db:
             rows = [dict(row) for row in db.execute(
-                'SELECT * FROM student_requests ORDER BY id DESC LIMIT 50')]
-        return jsonify(requests=rows)
+                f'SELECT * FROM student_requests {where}ORDER BY id DESC LIMIT 50', params)]
+            counts = {row[0]: row[1] for row in db.execute(
+                'SELECT status, COUNT(*) FROM student_requests GROUP BY status')}
+        # JSON objects come back with sorted keys, so the workflow order travels as a list.
+        return jsonify(requests=rows, statuses=list(REQUEST_STATUSES),
+                       counts={name: counts.get(name, 0) for name in REQUEST_STATUSES},
+                       flow={name: list(options) for name, options in REQUEST_FLOW.items()})
 
     @app.post('/api/requests')
     def add_request():
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
-        student_id = text_field(payload.get('student_id'))
+        student_id = known_student_id(payload.get('student_id'))
         request_type = payload.get('request_type')
-        if not student_id:
-            return jsonify(error='Enter a student ID.'), 400
+        if student_id is None:
+            return jsonify(error=STUDENT_ID_HINT), 400
         if request_type not in REQUEST_TYPES:
             return jsonify(error='Choose a valid request type.'), 400
         name = text_field(payload.get('name', ''), required=False) or ''
@@ -493,41 +887,49 @@ def create_app(database=None):
         if found and not name:
             name = found['name']
         with connect() as db:
-            cursor = db.execute(
-                'INSERT INTO student_requests (student_id,name,request_type,detail,status,timestamp) VALUES (?,?,?,?,?,?)',
-                (student_id, name, request_type, detail, 'Submitted', now_stamp()))
-            new_id = cursor.lastrowid
-            row = dict(db.execute('SELECT * FROM student_requests WHERE id=?', (new_id,)).fetchone())
+            row = dict(db.execute(
+                'INSERT INTO student_requests (student_id,name,request_type,detail,status,timestamp) '
+                'VALUES (%s,%s,%s,%s,%s,%s) RETURNING *',
+                (student_id, name, request_type, detail, 'Submitted', now_stamp())).fetchone())
         log_activity('student', 'Submitted request', f'{request_type} · {student_id}')
-        return jsonify(row), 201
+        return jsonify(**row, next_steps=list(STUDENT_LOST_STEPS) if request_type == 'Lost ID' else []), 201
 
-    @app.patch('/api/requests/<int:request_id>')
+    @app.patch('/api/requests/<rowid:request_id>')
     def update_request(request_id):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or payload.get('status') not in REQUEST_STATUSES:
             return jsonify(error='Choose a valid request status.'), 400
         with connect() as db:
-            row = db.execute('SELECT * FROM student_requests WHERE id=?', (request_id,)).fetchone()
+            # FOR UPDATE: a double click, or two coordinators, must not accept the same request twice.
+            row = db.execute('SELECT * FROM student_requests WHERE id=%s FOR UPDATE', (request_id,)).fetchone()
             if row is None:
                 abort(404)
             current = dict(row)
-            db.execute('UPDATE student_requests SET status=? WHERE id=?', (payload['status'], request_id))
+            if payload['status'] == current['status']:
+                return jsonify(current)
+            if payload['status'] not in REQUEST_FLOW[current['status']]:
+                return jsonify(error=f"A request cannot move from {current['status']} to {payload['status']}."), 409
+            updated = dict(db.execute('UPDATE student_requests SET status=%s WHERE id=%s RETURNING *',
+                                      (payload['status'], request_id)).fetchone())
+            lost_note = ''
             if payload['status'] == 'Accepted' and current['request_type'] == 'Lost ID':
+                lock_student(db, current['student_id'])       # same lock as "add a record": no duplicate record
                 existing = db.execute(
-                    'SELECT id FROM inventory WHERE student_id=? COLLATE NOCASE',
+                    'SELECT * FROM inventory WHERE LOWER(student_id) = LOWER(%s) FOR UPDATE',
                     (current['student_id'],)).fetchone()
                 if existing:
-                    db.execute(
-                        "UPDATE inventory SET status='Pending', request_type='Lost ID', "
-                        "pending_reason=? WHERE id=?",
-                        (current['detail'] or 'Lost ID request accepted', existing['id']))
+                    existing = dict(existing)                    # a Released ID goes back to Pending
+                    reset_after_lost(db, existing, current['detail'] or 'Lost ID request accepted')
+                    lost_note = f"{existing['student_id']}: {existing['status']} → Pending"
                 else:
                     db.execute(
-                        'INSERT INTO inventory (student_id,name,course,section,year_level,status,request_type,pending_reason,token) VALUES (?,?,?,?,?,?,?,?,?)',
-                        (current['student_id'], current['name'] or current['student_id'], 'TBD', 'TBD', 1,
+                        'INSERT INTO inventory (student_id,name,section,year_level,status,request_type,pending_reason,token) '
+                        'VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                        (current['student_id'], current['name'] or current['student_id'], 'TBD', 1,
                          'Pending', 'Lost ID', current['detail'] or 'Lost ID request accepted', secrets.token_urlsafe(18)))
-            updated = dict(db.execute('SELECT * FROM student_requests WHERE id=?', (request_id,)).fetchone())
         log_activity('coordinator', 'Updated request', f"{current['student_id']} → {payload['status']}")
+        if lost_note:
+            log_activity('coordinator', 'Lost ID', lost_note)
         return jsonify(updated)
 
     # ─── Chat ─────────────────────────────────────────────────────
@@ -535,65 +937,263 @@ def create_app(database=None):
     @app.get('/api/chat/history')
     def chat_history():
         session_id = request.args.get('session_id', '')
-        if not session_id or len(session_id) > 120:
+        if not session_id or len(session_id) > 120 or not clean_text(session_id):
             return jsonify(messages=[])
         with connect() as db:
             rows = [dict(row) for row in db.execute(
-                'SELECT role, message, intent, confidence, record_id, timestamp '
-                'FROM chat_history WHERE session_id=? ORDER BY id DESC LIMIT 50',
-                (session_id,))]
+                'SELECT h.id, h.role, h.message, h.intent, h.confidence, h.record_id, h.timestamp, f.rating '
+                'FROM chat_history h LEFT JOIN chat_feedback f ON f.message_id = h.id AND h.role = %s '
+                'WHERE h.session_id=%s ORDER BY h.id DESC LIMIT 50',
+                ('bot', session_id))]
         rows.reverse()
         return jsonify(messages=rows)
 
     @app.delete('/api/chat/history')
     def clear_chat_history():
         session_id = request.args.get('session_id', '')
-        if session_id and len(session_id) <= 120:
+        if session_id and len(session_id) <= 120 and clean_text(session_id):
             with connect() as db:
-                db.execute('DELETE FROM chat_history WHERE session_id=?', (session_id,))
+                db.execute('DELETE FROM chat_history WHERE session_id=%s', (session_id,))
         return jsonify(success=True)
+
+    def resolve_student(text):
+        """Work out whether a message names a student, by ID or by name. None when it does not.
+
+        This is a lookup in the database, not the neural network: the network labels what a message is
+        about, this finds who it is about. Returns {'intent', 'reply', 'student', 'chips'}.
+        """
+        words = id_candidates(text)
+        if words:
+            with connect() as db:
+                rows = [shape(row) for row in db.execute(
+                    'SELECT * FROM inventory WHERE LOWER(student_id) = ANY(%s)', ([w.lower() for w in words],))]
+            if rows:
+                order = {word.lower(): position for position, word in enumerate(words)}
+                rows.sort(key=lambda row: order[row['student_id'].lower()])
+                known = set(order) & {row['student_id'].lower() for row in rows}
+                missing = [word.upper() for word in words
+                           if STUDENT_ID_RE.fullmatch(word.upper()) and word.lower() not in known]
+                return {'intent': 'student_lookup', 'rows': rows[:3], 'missing': missing}
+            shaped = [word for word in words if STUDENT_ID_RE.fullmatch(word.upper())]
+            only_word = len(words) == 1 and text.strip(' .,;:!?').lower() == words[0].lower()
+            if shaped or only_word:
+                return {'intent': 'student_not_found', 'asked': (shaped or words)[0].upper()}
+        if name_query(text):
+            with connect() as db:
+                people = [dict(row) for row in db.execute('SELECT id, student_id, name FROM inventory')]
+                matches = find_by_name(text, people)
+                ids = [person['id'] for person in matches[:MAX_LOOKUP_LIST]]
+                rows = {row['id']: shape(row) for row in db.execute(
+                    'SELECT * FROM inventory WHERE id = ANY(%s::bigint[])', (ids,))} if ids else {}
+            if matches:
+                return {'intent': 'student_lookup', 'rows': [rows[i] for i in ids], 'matched': len(matches),
+                        'by_name': True}
+        return None
+
+    MAX_RECORDS_LIST = 10      # how many "not yet made" records one chat answer lists
+    DOUBLE_TAP_SECONDS = 20    # the same student logged the same way again within this time is one tap, not two
+
+    def gate_log_answer():
+        today = datetime.now().strftime('%Y-%m-%d')
+        with connect() as db:
+            rows = [dict(row) for row in db.execute(
+                'SELECT * FROM gate_logs WHERE timestamp >= %s ORDER BY id DESC LIMIT 15', (today,))]
+            counts = {row[0]: row[1] for row in db.execute(
+                'SELECT direction, COUNT(*) FROM gate_logs WHERE timestamp >= %s GROUP BY direction', (today,))}
+        total = counts.get('in', 0) + counts.get('out', 0)
+        if not total:
+            return {'intent': 'gate_log', 'answer': '🚪 No gate entries today yet. To log one, type “check in” or '
+                                                    '“check out” followed by a student ID or name.'}
+        lines = [f'🚪 Gate log for {today}: {counts.get("in", 0)} in, {counts.get("out", 0)} out (latest first)']
+        for entry in rows:
+            who = entry['name'] + (f' · {entry["student_id"]}' if entry['student_id'] else '')
+            lines.append(f'• {entry["timestamp"][11:16]} · {entry["direction"].upper()} · {who}')
+        if total > len(rows):
+            lines.append(f'…and {total - len(rows)} earlier entries today.')
+        return {'intent': 'gate_log', 'answer': '\n'.join(lines)}
+
+    VISITOR = re.compile(r'^\s*(?:visitor|bisita)\b\s*[:\-]?\s*(.*?)\s*$', re.IGNORECASE)
+
+    def visitor_gate(direction, raw_name):
+        """A visitor is not on the student list: only the name and the time are logged."""
+        name = tidy(raw_name)
+        if len(name) < 2 or len(name) > NAME_MAX or not clean_text(name):
+            return {'intent': 'gate_not_logged',
+                    'answer': 'Nothing was logged. Type the visitor’s name, for example '
+                              '“check in visitor Juan Dela Cruz”.'}
+        with connect() as db:
+            last = db.execute(
+                "SELECT timestamp FROM gate_logs WHERE student_id = '' AND LOWER(name) = LOWER(%s) AND direction = %s "
+                'ORDER BY id DESC LIMIT 1', (name, direction)).fetchone()
+        if last and (datetime.now() - datetime.strptime(last[0], '%Y-%m-%d %H:%M:%S')).total_seconds() < DOUBLE_TAP_SECONDS:
+            lead = f'↩️ Visitor {name} was already logged {direction} a moment ago, so nothing was added.'
+        else:
+            entry = write_gate(direction, '', name, 'visitor, logged in the chat')
+            lead = f'✅ Visitor {name} checked {direction} at {entry["timestamp"][11:16]}.'
+        return {'intent': f'gate_check_{direction}',
+                'answer': lead + '\nA visitor is not on the student list, so there is no ID record to check.'}
+
+    def gate_command(direction, who, bare=False):
+        """Log a student in or out, from "check in P202400230" or "out Alex Rivera", or a visitor, from
+        "check in visitor Juan Dela Cruz". A finished answer, or None when the words after the verb name
+        nobody at all (then it is an ordinary message).
+
+        `bare` is a command that began with just "in" or "out", which also start ordinary sentences ("in case I
+        lost my ID ..."). It counts only when it names a student, or a visitor by a name that is shaped like one."""
+        visitor = VISITOR.match(who)
+        if visitor:
+            name = visitor.group(1)
+            if bare and name and not (looks_like_a_name(name) or re.fullmatch(r"[^\W\d_][\w'’.-]{1,29}", name)):
+                return None                              # "in visitor parking, where do I go" is a sentence
+            return visitor_gate(direction, name)
+        found = resolve_student(who)
+        if found is None:
+            if bare or not (name_query(who) or id_candidates(who)):
+                return None
+            return {'intent': 'gate_not_logged',
+                    'answer': f'Nothing was logged. I couldn’t find a student named “{who.strip()[:60]}”. '
+                              'Type the student ID or the full name.'}
+        if found['intent'] == 'student_not_found':
+            return {'intent': 'gate_not_logged',
+                    'answer': f'Nothing was logged. I couldn’t find a student with ID {found["asked"]}.'}
+        if found.get('missing'):
+            return {'intent': 'gate_not_logged',
+                    'answer': f'Nothing was logged. I couldn’t find a student with ID {found["missing"][0]}. '
+                              'Type one student at a time.'}
+        rows, matched = found['rows'], found.get('matched', len(found['rows']))
+        if len(rows) != 1 or matched != 1:
+            if matched > MAX_LOOKUP_LIST:
+                return {'intent': 'gate_not_logged',
+                        'answer': f'Nothing was logged. “{who.strip()[:60]}” matches {matched} students. '
+                                  'Type the student ID or the full name.'}
+            listing = '\n'.join(f'• {row["name"]} · {row["student_id"]} · {row["year_section"]}' for row in rows)
+            return {'intent': 'gate_not_logged', 'chips_title': 'Which student?',
+                    'answer': f'Nothing was logged yet. Which student checked {direction}?\n{listing}',
+                    'chips': [{'label': row['name'], 'question': f'check {direction} {row["student_id"]}'}
+                              for row in rows]}
+        row = add_incident_facts([rows[0]])[0]
+        with connect() as db:
+            last = db.execute(
+                'SELECT timestamp FROM gate_logs WHERE LOWER(student_id) = LOWER(%s) AND direction = %s '
+                'ORDER BY id DESC LIMIT 1', (row['student_id'], direction)).fetchone()
+        if last and (datetime.now() - datetime.strptime(last[0], '%Y-%m-%d %H:%M:%S')).total_seconds() < DOUBLE_TAP_SECONDS:
+            lead = f'↩️ {row["name"]} was already logged {direction} a moment ago, so nothing was added.'
+        else:
+            entry = write_gate(direction, row['student_id'], row['name'], 'logged in the chat')
+            lead = f'✅ {row["name"]} ({row["student_id"]}) checked {direction} at {entry["timestamp"][11:16]}.'
+        status = f'Year & Section: {row["year_section"]} · Status: **{row["status"]}** ({STATUS_NOTES.get(row["status"], "see the office")})'
+        return {'intent': f'gate_check_{direction}', 'student': row,
+                'answer': '\n'.join([lead, status, gate_note(row['status']), *staff_lines(row)])}
+
+    def records_answer(workspace):
+        """The IDs that are not made yet (Pending and Processing): "hindi pa nagagawang ID"."""
+        if workspace == 'student':
+            return {'intent': 'records_list',
+                    'answer': 'The list of IDs that are not made yet is for the office and the guard. Type your '
+                              'student ID or name to see whether your own ID is made.'}
+        with connect() as db:
+            rows = [shape(row) for row in db.execute(
+                "SELECT * FROM inventory WHERE status = ANY(%s) ORDER BY (status = 'Pending') DESC, id DESC LIMIT %s",
+                (list(NOT_YET_MADE), MAX_RECORDS_LIST))]
+            counts = {row[0]: row[1] for row in db.execute(
+                'SELECT status, COUNT(*) FROM inventory WHERE status = ANY(%s) GROUP BY status', (list(NOT_YET_MADE),))}
+        total = sum(counts.values())
+        if not total:
+            return {'intent': 'records_list', 'answer': '📂 Every student on the dashboard has an ID that is made. '
+                                                        'Nothing is waiting to be made.'}
+        lines = [f'📂 IDs not yet made: {total} (' + ' · '.join(f'{name} {counts.get(name, 0)}' for name in NOT_YET_MADE) + ')']
+        for row in rows:
+            reason = f' — {row["pending_reason"]}' if row['status'] == 'Pending' and row['pending_reason'] else ''
+            lines.append(f'• {row["name"]} · {row["student_id"]} · {row["year_section"]} · {row["status"]}{reason}')
+        if total > len(rows):
+            lines.append(f'…and {total - len(rows)} more.'
+                         + (' Use the “Not yet made” filter on the Dashboard to see them all.' if workspace == 'coordinator' else ''))
+        result = {'intent': 'records_list', 'answer': '\n'.join(lines), 'chips_title': 'Open a record:',
+                  'chips': [{'label': row['name'], 'question': row['student_id']} for row in rows[:6]]}
+        if workspace == 'coordinator':
+            result['actions'] = [{'label': '📋 Open in Dashboard', 'type': 'show_not_made'}]
+        return result
+
+    def resolve_command(text, workspace):
+        """Orders typed into the chat rather than questions: log a student in or out (the guard), show the gate
+        log (guard and coordinator) and list the IDs that are not made yet (guard and coordinator). A finished
+        answer, or None when the message is none of these."""
+        command = parse_gate_command(text)
+        if command and workspace == 'guard':
+            answer = gate_command(*command, bare=gate_verb_is_a_preposition(text))
+            if answer is not None:
+                return answer
+        if workspace == 'guard' and is_bare_gate_verb(text):
+            return {'intent': 'gate_not_logged',
+                    'answer': 'Nothing was logged. Type check in or check out, then the student ID or name, '
+                              f'for example “check in {STUDENT_ID_EXAMPLE}”.'}
+        if asks_for_gate_log(text):
+            if workspace == 'student':
+                return {'intent': 'gate_log', 'answer': 'The gate log is kept by the guard. Type your student ID '
+                                                        'or name to see your own ID status.'}
+            return gate_log_answer()
+        if asks_for_records(text):
+            return records_answer(workspace)
+        return None
 
     @app.post('/api/chat')
     def chat():
         payload = request.get_json(silent=True)
-        if not isinstance(payload, dict) or not isinstance(payload.get('message'), str) or not payload['message'].strip() or len(payload['message']) > 1000:
+        if (not isinstance(payload, dict) or not isinstance(payload.get('message'), str)
+                or not payload['message'].strip() or len(payload['message']) > 1000
+                or not clean_text(payload['message'])):
             return jsonify(error='Enter a message of 1–1000 characters.'), 400
 
         user_text = payload['message']
         session_id = payload.get('session_id', '')
-        if not isinstance(session_id, str) or len(session_id) > 120:
+        if not isinstance(session_id, str) or len(session_id) > 120 or not clean_text(session_id):
             session_id = ''
         workspace = payload.get('workspace_role', 'coordinator')
         if workspace not in ROLES:
             workspace = 'coordinator'
 
-        labels, confidences = classify(matcher.pipeline, [user_text], matcher.threshold)
-        intent = str(labels[0])
-        confidence = round(float(confidences[0]), 4)
-
-        selected = None
+        selected = None                    # the student the conversation is about, kept by the browser
+        selected_missing = False
         if payload.get('record_id') is not None:
-            if not isinstance(payload['record_id'], int) or isinstance(payload['record_id'], bool):
+            if not valid_row_id(payload['record_id']):
                 return jsonify(error='Choose a valid inventory record.'), 400
-            selected = record(payload['record_id'])
+            with connect() as db:
+                chosen = db.execute('SELECT * FROM inventory WHERE id=%s', (payload['record_id'],)).fetchone()
+            if chosen is None:
+                selected_missing = True    # deleted since it was picked: carry on as if none was picked
+            else:
+                selected = shape(chosen)
+
+        found = resolve_command(user_text, workspace) or resolve_student(user_text)
+        if found:
+            intent, confidence, ranked = found['intent'], 0.0, []
+        else:
+            labels, confidences = classify(matcher.pipeline, [user_text], matcher.threshold)
+            intent = str(labels[0])
+            confidence = round(float(confidences[0]), 4)
+            ranked = rank_intents(matcher.pipeline, user_text)
+            # A few plain words the network cannot place are most likely the name of someone not on the list.
+            if intent == 'out_of_scope' and looks_like_a_name(user_text):
+                found = {'intent': 'student_not_found', 'asked_name': user_text.strip()[:60]}
+                intent, ranked = 'student_not_found', []
 
         answers = {
             'greeting': {
-                'coordinator': 'Hello, coordinator. I can check ID status, queues, requests, inventory, and QR stickers. What should we handle first?',
-                'guard': 'Hello. I can help you verify a student ID, log a gate entry or exit, or file an incident. Scan or type a student ID to start.',
-                'student': 'Hi! I can check your ID status, explain requirements, and help you request a lost ID replacement. Look up your student ID, then ask me anything.',
+                'coordinator': 'Hello, coordinator. Type a student ID or name and I will show that student’s record. I can also help with the queue, requests, imports and QR stickers.',
+                'guard': 'Hello. Type a student ID or name and I will show whether that student’s ID is released. I can also help you log a gate entry or file an incident.',
+                'student': 'Hi! Type a student ID or name and I will show that student’s ID status. You can also ask me about requirements, office hours or a lost ID.',
             },
             'thanks_goodbye': 'You’re welcome! Come back whenever you need help with school IDs. Have a great day!',
             'bot_help': {
-                'coordinator': 'Coordinator tools:\n• Inventory search, filters, bulk status updates, CSV export\n• Appointment queue and staff notes\n• Student request inbox (accept lost ID reports)\n• Print QR stickers and preview sample ID cards\n\nSelect a record with “Ask about ID”, then ask about status or schedules.',
-                'guard': 'Guard tools:\n• Verify ID by student number, name, or QR token\n• Gate check-in / check-out log\n• Incident reports (no ID, visitor, lost ID found)\n• Confirm whether an ID is released and valid at the gate\n\nUse Verify ID, then ask me about that student.',
-                'student': 'Student tools:\n• Look up your ID with your student number\n• Check processing status and appointments\n• Submit a lost ID or appointment request\n• Learn requirements, office hours, and QR scanning\n\nLook up your ID first so I can answer about your record.',
+                'coordinator': 'Coordinator tools:\n• Type a student ID or name to see that student’s record, with address and contact number\n• Type “records” to list the IDs that are not made yet\n• Dashboard: filter by status (including “Not yet made”), select all, change many statuses at once, import students from a CSV file\n• Needs attention shortcuts, the appointment queue (Mon–Fri, 8:00–12:00 and 1:00–5:00) and QR sticker sheets\n• Student requests: accepting a lost ID request sends a Released ID back to Pending\n• Incidents: No ID and Lost ID reports, with the ' + PENALTY_TEXT + ' penalty for a second false statement\n• Review which answers people rated 👎 on the Feedback page',
+                'guard': 'Guard tools:\n• Type a student ID or name to see whether that student’s ID is made or released\n• Type “records” to list the IDs that are not made yet\n• Gate log: tap Check in or Check out under a student, or type “check in P202400230” or “check out …” (for a visitor: “check in visitor Juan Dela Cruz”); type “gate log” to see today’s entries\n• Verify ID by student number, name, QR token, or camera scan\n• Incidents: No ID or Lost ID only. A lost ID goes to the Cashier first; a second false statement carries a ' + PENALTY_TEXT + ' penalty',
+                'student': 'Student tools:\n• Type a student ID or name to see that student’s ID status, year and section, and appointment\n• Ask about requirements, office hours or the release schedule\n• Use Request help to report a lost ID, then track it (a lost ID is paid for at the Cashier first)\n• Tap 👍 or 👎 under my answers to tell the office how I did',
             },
             'talk_to_human': f'Please contact the Property Management Office.\n📍 {OFFICE["location"]}\n🕒 {OFFICE["hours"]}\n☎ {OFFICE["contact"]}',
             'lost_id_report': {
-                'coordinator': 'Use “Add student ID” with request type Lost ID, or accept a student request from the Requests inbox. This chat has not created a record yet.',
-                'guard': 'If a student reports a lost ID at the gate, log an incident and direct them to the Property Management Office. You can also file “Lost ID found” if you recovered a card.',
-                'student': 'Use the “Request help” form to submit a Lost ID request. Bring an affidavit of loss, a 1×1 photo, and the replacement fee receipt to the office. This chat does not replace the official report until you submit the form.',
+                'coordinator': 'A student reports a lost ID: send them to the Cashier first to pay the replacement fee. They then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to this office. Open the student on the Dashboard and choose “Lost ID” in its menu, or accept the student’s request in the Requests inbox. Either way a Released ID goes back to Pending. This chat has not changed any record. ' + PENALTY_NOTE,
+                'guard': 'If a student says their ID is lost, type the student ID or name here to check the records, file a Lost ID incident, and send the student to the Cashier to pay the replacement fee. Then the student goes to the Property Management Office. ' + PENALTY_NOTE,
+                'student': 'Go to the Cashier first and pay the replacement fee. Then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to the Property Management Office, or use the “Request help” form to report it. When the office accepts your request, your ID goes back to Pending while the replacement is processed. This chat does not replace the official report until you submit the form. ' + PENALTY_NOTE,
             },
             'id_requirements': (
                 f'New ID: {OFFICE["requirements"]["New ID"]}\n'
@@ -601,22 +1201,22 @@ def create_app(database=None):
                 f'Pending ID: {OFFICE["requirements"]["Pending ID"]}'
             ),
             'office_hours_location': f'📍 {OFFICE["location"]}\n🕒 {OFFICE["hours"]}\n☎ {OFFICE["contact"]}',
-            'qr_student_details': 'Scan the QR sticker with your phone camera. It opens the student’s name, course, section, and year level. Your phone must be able to reach this app’s URL.',
+            'qr_student_details': 'Scan the QR sticker with your phone camera. It opens the student’s name, year and section. Your phone must be able to reach this app’s URL.',
             'qr_sticker_request': {
                 'coordinator': 'Use “Print sticker” on a student record. The label has a 30 mm QR code; print at actual size and test a scan before attaching it.',
                 'guard': 'Ask the student to show the QR on their sticker or printed card. Use Verify ID with the student number if the scan fails.',
-                'student': 'After you look up your ID, use “Print my QR sticker”. Print at actual size (30 mm QR) and keep it with your card.',
+                'student': 'Type your student ID, then use “Print QR sticker” under my answer. Print at actual size (30 mm QR) and keep it with your card.',
             },
             'id_inventory': {
-                'coordinator': 'Use search and filters to find records by name, student ID, course, section, year, request type, or status. Open Queue for today’s appointments.',
+                'coordinator': 'Open the Dashboard to filter students by status, search them, select several and change their status, or import a CSV file of new students. Export CSV downloads everything.',
                 'guard': 'Guards do not edit inventory. Use Verify ID to look up a student at the gate.',
-                'student': 'You can look up only your own record with your student ID. Staff manage the full inventory.',
+                'student': 'I can show the ID status of a student when you type their student ID or name. Staff manage the full inventory.',
             },
-            'out_of_scope': 'I can help with school IDs. Try “When is my ID release?”, “Why is my ID pending?”, or “How do I print a QR sticker?”',
+            'out_of_scope': 'I’m an automated assistant for school IDs, so I can’t help with that. Try typing a student ID or name, or ask “When is my ID release?”, “Why is my ID pending?” or “How do I print a QR sticker?” For anything else, please contact the office.',
             'export_data': {
-                'coordinator': 'Click “Export CSV” in the inventory panel to download all records as a spreadsheet.',
+                'coordinator': 'Click “Export CSV” on the Dashboard to download all records as a spreadsheet.',
                 'guard': 'CSV export is a coordinator tool. I can still help you verify a student or log a gate event.',
-                'student': 'Inventory export is for staff. You can copy your own status after looking up your student ID.',
+                'student': 'Inventory export is for staff. Type a student ID or name and I will show that student’s status.',
             },
         }
 
@@ -626,23 +1226,54 @@ def create_app(database=None):
             return value
 
         lookups = ('id_processing_status', 'pending_id', 'id_release_schedule', 'pending_id_schedule', 'lost_id_schedule')
-        if intent in lookups:
+        lookup_chips, lookup_title = [], ''
+        student = None                       # set when this reply is about exactly one student
+        if found:
+            if found.get('answer') is not None:          # a command that has already been carried out
+                answer = found['answer']
+                student = found.get('student')
+                lookup_chips, lookup_title = found.get('chips', []), found.get('chips_title', '')
+            elif intent == 'student_not_found':
+                if found.get('asked'):
+                    answer = (f'I couldn’t find a student with ID {found["asked"]}. Check the number and try again, '
+                              'or type the student’s name. '
+                              + (f'Student IDs look like {STUDENT_ID_EXAMPLE}. ' if not STUDENT_ID_RE.fullmatch(found['asked']) else '')
+                              + 'If the student should be on the list, please contact the office.')
+                else:
+                    answer = (f'I couldn’t find a student named “{found["asked_name"]}”. To look someone up, type the '
+                              'student ID or the full name. If you meant a question, try “When is my ID release?” or '
+                              '“What do I need for a new ID?”. If the student should be on the list, please contact '
+                              'the office.')
+            else:
+                rows = found['rows']
+                if workspace in ('guard', 'coordinator'):
+                    add_incident_facts(rows)
+                matched = found.get('matched', len(rows))
+                if len(rows) == 1 and matched == 1:
+                    student = rows[0]
+                    answer = student_reply(student, workspace, RELEASE_HOURS)
+                elif found.get('by_name') and matched > MAX_LOOKUP_LIST:
+                    answer = (f'That matches {matched} students, which is too many to list. '
+                              'Type the full name or the student ID.')
+                elif found.get('by_name'):
+                    listing = '\n'.join(f'• {row["name"]} · {row["student_id"]} · {row["year_section"]} · {row["status"]}'
+                                        for row in rows)
+                    answer = f'I found {matched} students that match “{user_text.strip()[:60]}”:\n{listing}\nTap a name, or type the student ID, to see the details.'
+                    lookup_chips = [{'label': row['name'], 'question': row['student_id']} for row in rows]
+                    lookup_title = 'Which student?'
+                else:
+                    answer = '\n\n'.join(student_reply(row, workspace, RELEASE_HOURS) for row in rows)
+                for asked in found.get('missing', []):
+                    answer += f'\n\nI couldn’t find a student with ID {asked}.'
+            if student is not None:
+                selected = student
+        elif intent in lookups:
             if selected is None:
-                prompt = {
-                    'coordinator': 'Select a student record using “Ask about ID” so I can check its status or appointment.',
-                    'guard': 'Verify a student ID first (search box in Verify), then ask about that person.',
-                    'student': 'Look up your student ID first, then ask about status or your appointment.',
-                }[workspace]
-                answer = '⚡ ' + prompt
+                answer = f'⚡ Type a student ID (for example {STUDENT_ID_EXAMPLE}) or a name first, then ask about status or schedule.'
             elif intent == 'id_processing_status':
                 gate_hint = ''
                 if workspace == 'guard':
-                    allowed = selected['status'] in ('Ready for release', 'Released')
-                    gate_hint = ' Gate: **admit with extra check**.' if not allowed else ' Gate: **ID recorded as issued or ready**.'
-                    if selected['status'] != 'Released':
-                        gate_hint = ' Gate: **ID not yet released** — send the student to Property Management if they need the physical card.'
-                    else:
-                        gate_hint = ' Gate: **Released** — physical ID should be with the student.'
+                    gate_hint = ' ' + gate_note(selected['status'])
                 answer = f'📋 {selected["name"]}: ID status is **{selected["status"]}** ({selected["request_type"]}).{gate_hint}'
             elif intent == 'pending_id':
                 answer = f'📋 {selected["name"]}: status is **{selected["status"]}**. ' + (
@@ -658,28 +1289,62 @@ def create_app(database=None):
                               f'**{selected["schedule_date"]} at {selected["schedule_time"]}** (school local time).')
                 else:
                     answer = (f'📅 No {expected.lower()} appointment is recorded for {selected["name"]}. '
-                              'Staff can set the date and time using “Update / schedule”. This chat has not booked an appointment.')
+                              'Staff can set the date and time using “Update”. This chat has not booked an appointment.')
+                if expected == 'Release':
+                    answer += f'\nRelease hours: {RELEASE_HOURS}.'
         else:
             answer = pick(answers.get(intent, answers['out_of_scope']))
 
+        # Second guesses when the match is weak, otherwise likely next questions. A lookup that
+        # only asked the user to pick a student gets neither: the next step is typing one.
+        if found:
+            suggestions, suggestions_title, follow_ups = lookup_chips, lookup_title, []
+        else:
+            suggestions, suggestions_title, follow_ups = reply_chips(
+                ranked, intent, confidence, workspace,
+                with_follow_ups=not (intent in lookups and selected is None))
+            if intent == 'out_of_scope' and suggestions:
+                answer = UNSURE_REPLY
+
         actions = list(INTENT_ACTIONS.get(intent, []))
-        if workspace == 'guard':
+        if student is not None:                # the same card for everyone, with the buttons that fit the role
+            actions = {
+                'coordinator': [
+                    {'label': '📋 Show in dashboard', 'type': 'view_record'},
+                    {'label': '✏️ Update', 'type': 'update_record'},
+                    {'label': '🖨️ Print sticker', 'type': 'print_sticker'},
+                    {'label': '🪪 Preview ID card', 'type': 'preview_card'},
+                ],
+                'guard': [
+                    {'label': '✅ Check in', 'type': 'send', 'text': f'check in {student["student_id"]}'},
+                    {'label': '⬅️ Check out', 'type': 'send', 'text': f'check out {student["student_id"]}'},
+                    {'label': '⚠️ File incident', 'type': 'open_incident', 'student_id': student['student_id']},
+                    {'label': '🪪 Preview ID card', 'type': 'preview_card'},
+                ],
+                'student': [
+                    {'label': '🖨️ Print QR sticker', 'type': 'print_sticker'},
+                    {'label': '🪪 Preview ID card', 'type': 'preview_card'},
+                    {'label': '📝 Request help', 'type': 'open_student_request'},
+                ],
+            }[workspace]
+        elif found:
+            actions = list(found.get('actions', []))
+        elif workspace == 'guard':
             actions = [a for a in actions if a['type'] not in ('update_record', 'new_record', 'export_csv', 'reset_filters')]
             if intent in ('greeting', 'bot_help', 'id_inventory'):
                 actions = [
                     {'label': '🔎 Verify ID', 'type': 'open_verify'},
-                    {'label': '🚪 Log gate entry', 'type': 'open_gate'},
+                    {'label': '📜 Gate log', 'type': 'send', 'text': 'gate log'},
                     {'label': '⚠️ File incident', 'type': 'open_incident'},
                 ]
             if intent == 'lost_id_report':
                 actions = [{'label': '⚠️ File incident', 'type': 'open_incident'}]
             if selected and intent in lookups:
-                actions.append({'label': '🚪 Check in', 'type': 'open_gate'})
+                actions.append({'label': '✅ Check in', 'type': 'send', 'text': f'check in {selected["student_id"]}'})
         elif workspace == 'student':
             actions = [a for a in actions if a['type'] not in ('update_record', 'new_record', 'export_csv', 'reset_filters', 'view_record')]
             if intent in ('greeting', 'bot_help'):
                 actions = [
-                    {'label': '🔍 Look up my ID', 'type': 'open_lookup'},
                     {'label': '📝 Request help', 'type': 'open_student_request'},
                     {'label': '🕒 Office hours', 'type': 'ask_office'},
                 ]
@@ -696,6 +1361,9 @@ def create_app(database=None):
                 actions.extend([
                     {'label': '📅 Appointment queue', 'type': 'open_queue'},
                     {'label': '📥 Student requests', 'type': 'open_requests'},
+                    {'label': '📂 IDs not yet made', 'type': 'send', 'text': 'records'},
+                    {'label': '⚠️ Incidents', 'type': 'open_incidents'},
+                    {'label': '👍 Chatbot feedback', 'type': 'open_feedback'},
                 ])
             if intent == 'lost_id_report':
                 actions.append({'label': '📥 Open requests', 'type': 'open_requests'})
@@ -705,29 +1373,185 @@ def create_app(database=None):
                     actions.append({'label': '🖨️ Print sticker', 'type': 'print_sticker'})
                 actions.append({'label': '🪪 Preview ID card', 'type': 'preview_card'})
 
+        if intent in ('out_of_scope', 'student_not_found'):
+            actions.append({'label': '☎ Talk to the office', 'type': 'ask_human'})
+
         seen = set()
         unique_actions = []
         for action in actions:
-            if action['type'] not in seen:
-                seen.add(action['type'])
+            key = (action['type'], action.get('text', ''), action.get('student_id', ''))
+            if key not in seen:
+                seen.add(key)
                 unique_actions.append(action)
         actions = unique_actions
 
         now = now_stamp()
+        message_id = None
+        about = selected['id'] if selected else None          # what the history remembers this message was about
         if session_id:
             with connect() as db:
                 db.execute(
-                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp) VALUES (?,?,?,?,?,?,?)',
-                    (session_id, 'user', user_text, '', 0, payload.get('record_id'), now))
+                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (session_id, 'user', user_text, '', 0, about, now, workspace))
+                message_id = db.execute(
+                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp,workspace_role) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                    (session_id, 'bot', answer, intent, confidence, about, now, workspace)).fetchone()[0]
                 db.execute(
-                    'INSERT INTO chat_history (session_id,role,message,intent,confidence,record_id,timestamp) VALUES (?,?,?,?,?,?,?)',
-                    (session_id, 'bot', answer, intent, confidence, payload.get('record_id'), now))
-                db.execute(
-                    'DELETE FROM chat_history WHERE session_id=? AND id NOT IN '
-                    '(SELECT id FROM chat_history WHERE session_id=? ORDER BY id DESC LIMIT 100)',
+                    'DELETE FROM chat_history WHERE session_id=%s AND id NOT IN '
+                    '(SELECT id FROM chat_history WHERE session_id=%s ORDER BY id DESC LIMIT 100)',
                     (session_id, session_id))
 
-        return jsonify(intent=intent, reply=answer, confidence=confidence, actions=actions, timestamp=now)
+        return jsonify(intent=intent, reply=answer, confidence=confidence, actions=actions, timestamp=now,
+                       message_id=message_id, suggestions=suggestions, suggestions_title=suggestions_title,
+                       follow_ups=follow_ups, selected_missing=selected_missing,
+                       student=({'id': student['id'], 'student_id': student['student_id'], 'name': student['name']}
+                                if student else None))
+
+    # ─── Chat feedback ────────────────────────────────────────────
+    # A rating belongs to the chat session that received the reply: the caller must send that
+    # session's id, so nobody can rate (or "share") another person's messages by counting ids.
+
+    def known_people():
+        with connect() as db:
+            people = db.execute('SELECT student_id, name FROM inventory').fetchall()
+        return [p['student_id'] for p in people], [p['name'] for p in people]
+
+    @app.post('/api/chat/feedback')
+    def save_feedback():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='Send a JSON object.'), 400
+        message_id, session_id, rating = payload.get('message_id'), payload.get('session_id'), payload.get('rating')
+        if (not valid_row_id(message_id) or not isinstance(session_id, str) or not session_id
+                or len(session_id) > 120 or not clean_text(session_id)):
+            return jsonify(error='Choose a reply to rate.'), 400
+        if rating not in FEEDBACK_RATINGS:
+            return jsonify(error='Choose thumbs up or thumbs down.'), 400
+        reason = payload.get('reason', '')
+        if rating == 'down' and reason not in ('', *FEEDBACK_REASONS):
+            return jsonify(error='Choose one of the listed reasons.'), 400
+        comment = text_field(payload.get('comment', ''), max_len=200, required=False)
+        if comment is None:
+            return jsonify(error='Comments must be text of up to 200 characters.'), 400
+        share = payload.get('share_text', False)
+        if not isinstance(share, bool):
+            return jsonify(error='share_text must be true or false.'), 400
+        if rating == 'up':
+            reason, comment, share = '', '', False
+        ids, names = known_people() if (share or comment) else ([], [])
+        if comment:
+            comment = redact_text(comment, ids, names)
+        with connect() as db:
+            bot = db.execute(
+                "SELECT id, intent, confidence, workspace_role FROM chat_history "
+                "WHERE id=%s AND role='bot' AND session_id=%s", (message_id, session_id)).fetchone()
+            if bot is None:
+                abort(404)
+            question = ''
+            if share:
+                previous = db.execute(
+                    "SELECT message FROM chat_history WHERE session_id=%s AND role='user' AND id<%s "
+                    "ORDER BY id DESC LIMIT 1", (session_id, message_id)).fetchone()
+                if previous:
+                    question = redact_text(previous['message'], ids, names)
+            saved = db.execute(
+                '''INSERT INTO chat_feedback
+                   (message_id,rating,reason,comment,workspace_role,intent,confidence,shared_question,status,timestamp)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'New',%s)
+                   ON CONFLICT (message_id) DO UPDATE SET rating=EXCLUDED.rating, reason=EXCLUDED.reason,
+                       comment=EXCLUDED.comment, shared_question=EXCLUDED.shared_question,
+                       correct_intent='', status='New', timestamp=EXCLUDED.timestamp
+                   RETURNING id''',
+                (message_id, rating, reason, comment, bot['workspace_role'], bot['intent'],
+                 bot['confidence'], question, now_stamp())).fetchone()
+        return jsonify(id=saved['id'], rating=rating, reason=reason, shared=bool(question))
+
+    @app.delete('/api/chat/feedback')
+    def remove_feedback():
+        message_id = request.args.get('message_id', type=int)
+        session_id = request.args.get('session_id', '')
+        if not valid_row_id(message_id) or not session_id or len(session_id) > 120 or not clean_text(session_id):
+            return jsonify(error='Choose a reply to un-rate.'), 400
+        removed = 0
+        with connect() as db:
+            owned = db.execute(
+                "SELECT 1 FROM chat_history WHERE id=%s AND role='bot' AND session_id=%s",
+                (message_id, session_id)).fetchone()
+            if owned:
+                removed = db.execute('DELETE FROM chat_feedback WHERE message_id=%s', (message_id,)).rowcount
+        return jsonify(removed=bool(removed))
+
+    FEEDBACK_COLUMNS = ('id, rating, reason, comment, workspace_role, intent, confidence, '
+                        'shared_question, correct_intent, status, timestamp')
+
+    @app.get('/api/feedback')
+    def list_feedback():
+        rating = request.args.get('rating', '')
+        status = request.args.get('status', '')
+        if rating and rating not in FEEDBACK_RATINGS:
+            return jsonify(error='Choose up or down.'), 400
+        if status and status not in FEEDBACK_STATUSES:
+            return jsonify(error='Choose New or Reviewed.'), 400
+        clauses = [f'{column}=%s' for column, value in (('rating', rating), ('status', status)) if value]
+        params = [value for value in (rating, status) if value]
+        where = f'WHERE {" AND ".join(clauses)} ' if clauses else ''
+        with connect() as db:
+            items = [dict(row) for row in db.execute(
+                f'SELECT {FEEDBACK_COLUMNS} FROM chat_feedback {where}ORDER BY id DESC LIMIT 100', params)]
+            totals = {row[0]: row[1] for row in db.execute(
+                'SELECT rating, COUNT(*) FROM chat_feedback GROUP BY rating')}
+            shared = db.execute("SELECT COUNT(*) FROM chat_feedback WHERE shared_question != ''").fetchone()[0]
+            new_down = db.execute(
+                "SELECT COUNT(*) FROM chat_feedback WHERE rating='down' AND status='New'").fetchone()[0]
+            by_intent = [dict(row) for row in db.execute(
+                "SELECT intent, COUNT(*) FILTER (WHERE rating='up') AS up, "
+                "COUNT(*) FILTER (WHERE rating='down') AS down FROM chat_feedback "
+                'GROUP BY intent ORDER BY down DESC, up DESC, intent COLLATE "C" LIMIT 8')]
+            by_reason = {row[0]: row[1] for row in db.execute(
+                "SELECT reason, COUNT(*) FROM chat_feedback WHERE rating='down' AND reason != '' "
+                'GROUP BY reason ORDER BY COUNT(*) DESC, reason COLLATE "C"')}
+        up, down = totals.get('up', 0), totals.get('down', 0)
+        summary = {'total': up + down, 'up': up, 'down': down, 'new_down': new_down, 'shared': shared,
+                   'helpful_percent': round(100 * up / (up + down)) if up + down else None,
+                   'by_intent': by_intent, 'by_reason': by_reason}
+        return jsonify(summary=summary, items=items, intents=matcher.intents,
+                       intent_labels={name: intent_label(name) for name in matcher.intents})
+
+    @app.patch('/api/feedback/<rowid:feedback_id>')
+    def review_feedback(feedback_id):
+        payload = request.get_json(silent=True)
+        allowed = ('status', 'correct_intent')
+        if not isinstance(payload, dict) or not payload or set(payload) - set(allowed):
+            return jsonify(error='Supply status or correct_intent.'), 400
+        if 'status' in payload and payload['status'] not in FEEDBACK_STATUSES:
+            return jsonify(error='Choose New or Reviewed.'), 400
+        if 'correct_intent' in payload:
+            correct = payload['correct_intent']
+            if not isinstance(correct, str) or (correct and correct not in matcher.intents):
+                return jsonify(error='Choose one of the assistant’s topics.'), 400
+        changes = ', '.join(f'{column}=%s' for column in payload)       # the column names come from `allowed`
+        with connect() as db:
+            row = db.execute(f'UPDATE chat_feedback SET {changes} WHERE id=%s RETURNING {FEEDBACK_COLUMNS}',
+                             (*payload.values(), feedback_id)).fetchone()
+            if row is None:
+                abort(404)
+            item = dict(row)
+        log_activity('coordinator', 'Reviewed chat feedback', f'#{feedback_id} → {item["status"]}')
+        return jsonify(item)
+
+    @app.get('/api/feedback/export')
+    def export_feedback():
+        with connect() as db:
+            rows = db.execute(
+                'SELECT id, timestamp, rating, reason, comment, intent, confidence, workspace_role, '
+                'shared_question, correct_intent, status FROM chat_feedback ORDER BY id DESC').fetchall()
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator='\n')
+        writer.writerow(['id', 'timestamp', 'rating', 'reason', 'comment', 'predicted_intent', 'match_score',
+                         'role', 'shared_question', 'correct_intent', 'status'])
+        writer.writerows([[csv_safe(value) for value in row] for row in rows])
+        mem = io.BytesIO(output.getvalue().encode('utf-8-sig'))
+        return send_file(mem, mimetype='text/csv', as_attachment=True, download_name='chat_feedback.csv')
 
     @app.after_request
     def private_pages(response):
@@ -738,5 +1562,10 @@ def create_app(database=None):
 
     return app
 
+
 if __name__ == '__main__':
-    create_app().run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)
+    try:
+        application = create_app()
+    except RuntimeError as error:              # DATABASE_URL missing, or the database cannot be reached
+        raise SystemExit(f'Cannot start: {error}')
+    application.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')), debug=False)
