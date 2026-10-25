@@ -119,6 +119,8 @@ main { margin-left: 235px; }
 .title-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .title-row p { margin-top: 8px; color: var(--muted); line-height: 1.5; }
 .title-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.title-actions.keep-width { flex: none; }
+.title-actions.keep-width button { white-space: nowrap; }          /* a lone button in a heading keeps one line */
 footer { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); padding: 22px 0; }
 
 /* ========= BUTTONS ========= */
