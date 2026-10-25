@@ -89,7 +89,7 @@ separate setup step. If the database cannot be reached at start, the app says so
 |---|---|
 | **Docker** (easiest on a laptop) | `docker compose up -d`, then use the URL from `docker-compose.yml` (shown in Run above). Data lives in a Docker volume: `docker compose down` keeps it, `docker compose down -v` deletes it. That password is for your own laptop only. |
 | **PostgreSQL installed on your computer** | Create a login and a database, for example in `psql`: `CREATE ROLE school_id LOGIN PASSWORD 'choose-one';` and `CREATE DATABASE school_id OWNER school_id;`. Then `DATABASE_URL=postgresql://school_id:choose-one@localhost:5432/school_id`. |
-| **Hosted** (Supabase, Neon, Railway and similar) | Copy the connection string the host shows you and use it as `DATABASE_URL`. Keep `sslmode=require` if it has it. If the host gives you a pooled address as well as a direct one, the direct one is the one this app was tested with. The app turns prepared statements off so a pooler should also work, but that was not tried. Never commit the URL: it contains the password. |
+| **Hosted** (Supabase, Neon, Railway and similar) | Copy the connection string the host shows you and use it as `DATABASE_URL`. Keep `sslmode=require` if it has it. If the host gives you a pooled address as well as a direct one, the direct one is the one this app was tested with. The app turns prepared statements off so a pooler should also work, but that was not tried. Never commit the URL: it contains the password. For Vercel see [Put it online](#put-it-online-vercel). |
 
 `DATABASE_POOL_SIZE` (default 10) is the most connections one app process opens. If the database goes
 away while the app runs (restart, network), requests answer "not available right now" (HTTP 503) and
@@ -135,6 +135,38 @@ checked the records in the app. If it is tracked by Git, `git rm --cached data/i
 - Appointment dates and times are always saved as `2026-01-05` and `09:30`, so they sort correctly.
 - Verify lists exact ID or QR matches first, then name matches.
 - Two coordinators saving at the same moment no longer overwrite each other, and a request cannot be accepted twice.
+
+## Put it online (Vercel)
+
+`app.py` is the entry point for hosts that look for a WSGI object called `app`; on your own computer keep using
+`python Chatbot.py`. A Vercel project connected to this repository installs `requirements.txt` on Python 3.12
+(`.python-version`) and needs these settings from you:
+
+| Setting | Value |
+|---|---|
+| `DATABASE_URL` (required) | A hosted PostgreSQL connection string. Vercel does not host the database, and the app writes nothing to disk. |
+| `DATABASE_POOL_SIZE` (recommended) | `3`. Every running copy of the app opens its own connections, so keep each copy small. |
+| `PUBLIC_BASE_URL` (for the QR stickers) | The site's address, for example `https://your-project.vercel.app` (see [QR printing](#qr-printing-and-phone-scanning)). |
+
+Add them under Project → Settings → Environment Variables (tick Preview as well as Production when you deploy a
+branch), then redeploy: a variable only reaches deployments made after it was saved. Until `DATABASE_URL` works, the
+site answers every request with a 503 page that says so, and it starts by itself once the database can be reached.
+The exact reason is in the deployment's runtime logs.
+
+- **Which connection string.** Use the provider's pooled string on Vercel (Supabase: Transaction pooler, port 6543;
+  Neon: the string with `-pooler` in the host name). Supabase's *direct* string is IPv6-only on the free plan and
+  Vercel cannot reach it. The app is written for poolers (prepared statements off, transaction-level locks), but only
+  a direct connection was tested here. If a pooled string gives errors in the runtime logs, use Supabase's Session
+  pooler string (port 5432), or Neon's direct one with `DATABASE_POOL_SIZE=2`.
+- **Retrain before you commit.** Vercel installs exactly the scikit-learn version in `requirements.txt` and cannot
+  train, so `data/intent_model.joblib` in Git must come from that version. After changing either CSV or the pin, run
+  `python train_model.py` and commit the new `data/intent_model.joblib` (`tests/test_vercel_entry.py` fails when
+  the two disagree).
+- **Time zone.** The hosted copy runs on Philippine time (`SCHOOL_TZ` changes it), so "today", "overdue" and every
+  timestamp match the school and not the host's UTC clock.
+- **There is no login.** The role is picked in the browser, so anyone with the address can use any role. Put only
+  demo data on a public site, and keep the real records on the copy that runs at school.
+- **Show the local copy at the defense.** It needs no internet (see [Run](#run)). The hosted copy is for sharing a link.
 
 ## Pages by role
 
@@ -488,7 +520,8 @@ covers the two incident types, the claim check and the ₱1,500 rule, and `tests
 resolving them from the chat (the pop-up's endpoint, the `incidents` and `resolve incident N` commands, and that a
 student is refused). `tests/test_motion.py` guards the animation layer (the vendored file is the recorded one, nothing
 is loaded from the internet, every `fx` call in the page exists) and `tests/test_offline_assets.py` checks that the
-pages and the stylesheet ask for nothing outside the app and that the fonts ship. `tests/test_assistant_tools.py` covers feedback,
+pages and the stylesheet ask for nothing outside the app and that the fonts ship. `tests/test_vercel_entry.py` guards the hosted entry point (`app.py`: what Vercel looks for, the 503 page and the
+restart by itself, the clock) and that the committed model matches the pinned scikit-learn. `tests/test_assistant_tools.py` covers feedback,
 suggestions, requests and the staff tools, `tests/test_postgres.py` covers start-up, simultaneous edits and locks,
 text PostgreSQL cannot store, and a database that disappears, `tests/test_migration.py` covers the SQLite copy
 script, and `tests/test_feedback_dataset.py` covers the feedback-to-test-set script. They do not drive a
