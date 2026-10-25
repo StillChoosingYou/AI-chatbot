@@ -1,4 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+/* The two fonts are served by this app (static/vendor/fonts, SIL Open Font License), so the page looks the same with no
+   internet connection. They are variable fonts: one file covers every weight. A character they do not have (such as ₱)
+   is drawn by the next font in the list. */
+@font-face {
+  font-family: 'DM Sans'; font-style: normal; font-weight: 100 1000; font-display: swap;
+  src: url('vendor/fonts/dm-sans-latin-wght-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope'; font-style: normal; font-weight: 200 800; font-display: swap;
+  src: url('vendor/fonts/manrope-latin-wght-normal.woff2') format('woff2');
+}
 
 /* ========= LIGHT THEME ========= */
 :root {
@@ -352,16 +362,16 @@ table.students tbody tr.empty-row:hover { background: none; }
 /* ========= DIALOGS, TOAST, QR SCANNER ========= */
 dialog { border: 1px solid var(--border); border-radius: 13px; padding: 28px; width: 540px; max-width: 94vw; max-height: 94vh; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-lg); }
 dialog::backdrop { background: var(--dialog-backdrop); }
-#record-dialog, #import-dialog { width: 620px; }
+#record-dialog, #import-dialog, #incident-dialog { width: 620px; }
 .dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; gap: 12px; }
 #processing-fields { margin-top: 17px; }
 #schedule-hint { margin: 12px 0; line-height: 1.6; }
-#form-error, #import-error, #request-error { color: var(--danger); font-size: 12px; margin: 10px 0; line-height: 1.5; }
-#form-error:empty, #import-error:empty, #request-error:empty { display: none; }
+#form-error, #import-error, #request-error, #incident-error { color: var(--danger); font-size: 12px; margin: 10px 0; line-height: 1.5; }
+#form-error:empty, #import-error:empty, #request-error:empty, #incident-error:empty { display: none; }
 .request-intro { margin: 0 0 16px; font-size: 12px; line-height: 1.6; }
 #request-dialog .notice { margin-top: 16px; }
-#request-dialog textarea { min-height: 96px; }
-#request-dialog .form-buttons { margin-top: 16px; }
+#request-dialog textarea, #incident-dialog textarea { min-height: 96px; }
+#request-dialog .form-buttons, #incident-dialog .form-buttons { margin-top: 16px; }
 .role-choices { display: grid; gap: 10px; margin-top: 16px; }
 .role-card { border: 1px solid var(--border); background: var(--surface-alt); border-radius: 10px; padding: 16px; text-align: left; color: var(--ink); }
 .role-card span { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.5; }
@@ -377,7 +387,9 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 #import-form .form-buttons { margin-top: 12px; }
 #scan-dialog { width: 480px; }
 #scan-status { max-width: none; line-height: 1.6; }
-#scan-dialog video { display: block; width: 100%; max-height: 60vh; border-radius: 10px; background: #000; margin-bottom: 12px; }
+#scan-dialog video { display: block; width: 100%; max-height: 60vh; border-radius: 10px; background: #000; }
+.scan-frame { position: relative; margin-bottom: 12px; border-radius: 10px; overflow: hidden; }
+.scan-line { position: absolute; left: 6%; right: 6%; top: 8%; height: 3px; border-radius: 2px; background: var(--green-light); box-shadow: 0 0 14px 2px var(--green-light); opacity: 0; pointer-events: none; }
 #toast { position: fixed; bottom: 15px; right: 20px; border-radius: 8px; background: var(--toast-bg); color: var(--toast-fg); padding: 12px 18px; font-size: 12px; max-width: 85vw; box-shadow: var(--shadow-lg); z-index: 100; animation: slideUp 0.3s ease-out; backdrop-filter: blur(8px); }
 #toast:empty { display: none; }
 
@@ -434,6 +446,16 @@ dialog::backdrop { background: var(--dialog-backdrop); }
   .ticker-toggle { display: none; }
 }
 
+/* ========= MOTION (static/fx.js) =========
+   fx.js puts the class "fx" on <html> while Motion is animating. Each rule below turns off the stylesheet's own version
+   of an effect that Motion now plays, so the two never run together. Without Motion, with reduced motion, or with
+   localStorage.motion = 'off', "fx" is absent and the stylesheet's animations above stay as they were. */
+html.fx .message, html.fx #toast, html.fx .bulk-toolbar, html.fx .row-menu, html.fx .typing-indicator, html.fx .typing-dot { animation: none; }
+html.fx button.tile:hover, html.fx .primary:hover:not(:disabled), html.fx .primary:active:not(:disabled), html.fx .emoji-btn:hover { transform: none; }
+html.fx dialog[open]::backdrop { animation: backdropIn 0.25s ease-out; }
+html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
+@keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+
 /* ========= RESPONSIVE: WIDE ========= */
 @media (min-width: 1280px) {
   .tiles.six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
@@ -481,7 +503,7 @@ dialog::backdrop { background: var(--dialog-backdrop); }
   footer span { display: block; }
   .form-grid { grid-template-columns: 1fr; }
   .wide { grid-column: auto; }
-  dialog, #record-dialog, #import-dialog { width: min(620px, 94vw); padding: 22px 18px; }
+  dialog, #record-dialog, #import-dialog, #incident-dialog { width: min(620px, 94vw); padding: 22px 18px; }
   .tiles, .tiles.four, .tiles.six { grid-template-columns: 1fr 1fr; gap: 10px; }
   .insight-grid, .info-grid, .card-faces { grid-template-columns: 1fr; }
   .tool-row { flex-direction: column; }

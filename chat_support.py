@@ -6,7 +6,8 @@ follow-up questions to offer and how to treat text that a user chose to share.
 """
 import re
 
-from student_data import PENALTY_AT, PENALTY_TEXT, REQUEST_STATUS_NOTES, STATUS_NOTES, gate_note
+from student_data import (
+    PENALTY_AT, PENALTY_NOTE, PENALTY_TEXT, REQUEST_STATUS_NOTES, STATUS_NOTES, claim_check, gate_note)
 
 FEEDBACK_REASONS = ('Wrong answer', "Didn't understand me", 'Missing information', 'Other')
 
@@ -360,4 +361,106 @@ def my_requests_reply(student_id, name, rows):
         note = REQUEST_STATUS_NOTES.get(row['status'], '')
         lines.append(f'• #{row["id"]} · {row["request_type"]} · **{row["status"]}** · {row["timestamp"][:16]}'
                      + (f' — {note}' if note else ''))
+    return '\n'.join(lines)
+
+
+# ─── Incidents, inside the chat (guard and coordinator) ───────────────────
+# The guard files an incident from a pop-up that a button in the chat opens, follows the list in the chat and
+# resolves from it. Like the Request help phrases, these are the few messages that mean exactly that.
+
+_FILE_INCIDENT = re.compile(
+    r"^\s*(?:(?:please|pls)\s+)?(?:(?:i\s+)?(?:want|need|would\s+like)\s+(?:to\s+)?)?"
+    r"(?:(?:file|report|log|make|create|open|submit|add)\s+(?:an?\s+|the\s+|new\s+)?incident(?:\s+report)?"
+    r"|(?:new\s+)?incident(?:\s+report)?"
+    r"|(?P<no_id>no\s+id(?:\s+incident)?|walang\s+id)"
+    r"|(?P<lost_id>lost\s+id\s+incident|incident\s+(?:for\s+)?lost\s+id))"
+    r"(?:\s+(?:please|pls))?\s*[.!]?\s*$", re.IGNORECASE)
+_LIST_INCIDENTS = re.compile(
+    r"^\s*(?:(?:please|pls)\s+)?(?:(?:show|list|see|view|open|check|display)\s+(?:me\s+)?)?"
+    r"(?:(?:the|all|my|recent|latest|open|today'?s)\s+)*"
+    r"(?:incidents|incident\s+(?:log|list|reports))\s*[.!]?\s*$", re.IGNORECASE)
+_INCIDENT_STATUS = re.compile(
+    r"^\s*(?P<verb>resolve|reopen|re-open)\s+(?:the\s+)?incident\s+#?(?P<number>\d{1,9})\s*[.!]?\s*$", re.IGNORECASE)
+
+
+def asks_to_file_incident(text):
+    """The category a message names ("No ID", "Lost ID", or "" for plain "file incident"), None when the
+    message is not a request to file an incident."""
+    match = _FILE_INCIDENT.match(text)
+    if not match:
+        return None
+    if match.group('no_id'):
+        return 'No ID'
+    if match.group('lost_id'):
+        return 'Lost ID'
+    return ''
+
+
+def asks_for_incidents(text):
+    """True for "incidents", "show incidents", "incident log"."""
+    return bool(_LIST_INCIDENTS.match(text))
+
+
+def incident_status_command(text):
+    """("Resolved" or "Open", number) for "resolve incident 12" and "reopen incident 12", else None."""
+    match = _INCIDENT_STATUS.match(text)
+    if not match:
+        return None
+    return ('Resolved' if match.group('verb').lower() == 'resolve' else 'Open'), int(match.group('number'))
+
+
+def incident_help_reply(selected, category):
+    """What the chat says before the pop-up opens: the records for the student the chat is on, and what the
+    form is for."""
+    parts = []
+    if selected:
+        parts.append(f'Selected: {selected["name"]} ({selected["student_id"]}), status **{selected["status"]}**.')
+        if category:
+            parts.append(claim_check(category, selected['status'])[1])
+    parts.append('Tap File incident below to fill in the report. A lost ID goes to the Cashier first. '
+                 f'{PENALTY_NOTE}')
+    return ' '.join(parts)
+
+
+def incident_filed_reply(incident, steps):
+    """The chat message that confirms an incident: its number, who it is about, what the records say, the
+    false statement and its penalty, and what to do next."""
+    if incident.get('student_name'):
+        who = f' for {incident["student_name"]} ({incident["student_id"]})'
+    elif incident.get('student_id'):
+        who = f' for {incident["student_id"]} (not on the dashboard)'
+    else:
+        who = ''
+    lines = [f'✅ Incident #{incident["id"]} filed: **{incident["category"]}**{who}. Status: **{incident["status"]}**.']
+    claim = incident.get('claim') or {}
+    if claim.get('message'):
+        lines.append(claim['message'])
+    if incident.get('false_statement'):
+        lines.append(f'⚠️ False statement no. {incident.get("false_statements") or 0} for this student'
+                     + (f': penalty ₱{int(incident["penalty"]):,}.' if incident.get('penalty') else '.'))
+    if steps:
+        lines.append('What to do next:')
+        lines.extend(f'{number}. {step}' for number, step in enumerate(steps, 1))
+    lines.append('Type “incidents” to see the list.')
+    return '\n'.join(lines)
+
+
+def incidents_reply(rows, open_count):
+    """The latest incidents, newest first: number, category, status, who, where and when. What the guard wrote
+    in "What happened?" stays on the coordinator's Incidents page."""
+    if not rows:
+        return ('⚠️ No incidents have been filed yet. Tap File incident below when a student has no ID or has '
+                'lost it.')
+    lines = [f'⚠️ Incidents: {open_count} open. The latest {len(rows)}, newest first:']
+    for row in rows:
+        if row.get('student_name'):
+            who = f'{row["student_name"]} ({row["student_id"]})'
+        else:
+            who = row.get('student_id') or 'no student ID'
+        flag = ''
+        if row.get('false_statement'):
+            flag = ' · false statement' + (f' ₱{int(row["penalty"]):,}' if row.get('penalty') else '')
+        where = f' · {row["location"]}' if row.get('location') else ''
+        lines.append(f'• #{row["id"]} · {row["category"]} · **{row["status"]}** · {who}{where} · '
+                     f'{row["timestamp"][:16]}{flag}')
     return '\n'.join(lines)

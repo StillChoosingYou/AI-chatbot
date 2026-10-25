@@ -16,9 +16,11 @@ from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
 from chat_support import (
-    FEEDBACK_REASONS, asks_for_gate_log, asks_for_my_requests, asks_for_records, asks_to_request_help, clean_text,
-    csv_safe, gate_verb_is_a_preposition, id_candidates, intent_label, is_bare_gate_verb, my_requests_reply,
-    parse_gate_command, redact_text, reply_chips, request_sent_reply, request_subject, staff_lines, student_reply)
+    FEEDBACK_REASONS, asks_for_gate_log, asks_for_incidents, asks_for_my_requests, asks_for_records,
+    asks_to_file_incident, asks_to_request_help, clean_text, csv_safe, gate_verb_is_a_preposition, id_candidates,
+    incident_filed_reply, incident_help_reply, incident_status_command, incidents_reply, intent_label,
+    is_bare_gate_verb, my_requests_reply, parse_gate_command, redact_text, reply_chips, request_sent_reply,
+    request_subject, staff_lines, student_reply)
 from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
 from intent_model import ANNIntentModel, classify, rank_intents
@@ -78,6 +80,9 @@ API_ERRORS = {
 }
 MAX_LOOKUP_LIST = 5        # a name that matches more students than this is too vague to list
 RECENT_ACTIVITY = 6        # how many of the latest events the dashboard ticker carries
+MAX_INCIDENTS_LIST = 8     # how many incidents "incidents" lists in the chat
+MAX_RESOLVE_BUTTONS = 3    # ...and how many of the open ones get a Resolve button under the list
+BUILD = '25 Oct 2026 · forms in the chat + motion'     # shown in the page footer, so a copy that was not updated is easy to see
 STUDENT_HIDDEN = ('notes', 'token', 'address', 'contact_number')    # what the student lookup leaves out
 OFFICE = {
     'hours': 'Monday–Friday, 8:00 AM – 5:00 PM, closed 12:00 – 1:00 PM for lunch (school local time)',
@@ -100,6 +105,17 @@ def help_action(student=None, request_type=''):
         action.update(student_id=student['student_id'], name=student['name'])
     if request_type:
         action['request_type'] = request_type
+    return action
+
+
+def incident_action(student=None, category=''):
+    """The small "File incident" button (guard and coordinator). It opens the incident form over the chat, filled in
+    with the student the answer is about and, when the answer already shows it, the category."""
+    action = {'label': '⚠️ File incident', 'type': 'open_incident'}
+    if student:
+        action['student_id'] = student['student_id']
+    if category:
+        action['category'] = category
     return action
 
 
@@ -277,7 +293,7 @@ def create_app(database_url=None):
             request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
             student_id_example=STUDENT_ID_EXAMPLE, id_hint=STUDENT_ID_HINT, release_hours=RELEASE_HOURS,
-            penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT)
+            penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT, build=BUILD)
 
     @app.get('/student/<token>')
     def profile(token):
@@ -715,12 +731,19 @@ def create_app(database_url=None):
     NO_RECORD = ('No student with this ID is on the dashboard yet. Ask the coordinator to add them (Add student '
                  'or Import) so their ID can be made.')
 
-    @app.get('/api/incidents')
-    def list_incidents():
+    def incident_rows(limit):
+        """The latest incidents with the student's name, newest first, and how many are still open."""
         with connect() as db:
             rows = [dict(row) for row in db.execute(
                 'SELECT i.*, s.name AS student_name FROM incidents i '
-                'LEFT JOIN inventory s ON LOWER(s.student_id) = LOWER(i.student_id) ORDER BY i.id DESC LIMIT 50')]
+                'LEFT JOIN inventory s ON LOWER(s.student_id) = LOWER(i.student_id) ORDER BY i.id DESC LIMIT %s',
+                (limit,))]
+            open_count = db.execute("SELECT COUNT(*) FROM incidents WHERE status='Open'").fetchone()[0]
+        return rows, open_count
+
+    @app.get('/api/incidents')
+    def list_incidents():
+        rows, _ = incident_rows(50)
         return jsonify(incidents=rows, categories=list(INCIDENT_CATEGORIES), penalty=penalty_for(2),
                        penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT)
 
@@ -745,34 +768,32 @@ def create_app(database_url=None):
                        false_statements=row['false_statements'], penalty_due=row['penalty_due'],
                        next_penalty=penalty_for(row['false_statements'] + 1), penalty_text=PENALTY_TEXT)
 
-    @app.post('/api/incidents')
-    def add_incident():
-        payload = request.get_json(silent=True)
-        if not isinstance(payload, dict):
-            return jsonify(error='Send a JSON object.'), 400
+    def file_incident(payload, actor):
+        """Check and save an incident. Returns (the saved incident with its claim check and next steps, 201), or
+        ({'error': message}, 400). `actor` is the role written to the activity log."""
         category = payload.get('category')
         if category not in INCIDENT_CATEGORIES:
-            return jsonify(error='Choose No ID or Lost ID.'), 400
+            return {'error': 'Choose No ID or Lost ID.'}, 400
         detail = text_field(payload.get('detail'), max_len=500)
         if not detail:
-            return jsonify(error='Describe the incident (maximum 500 characters).'), 400
+            return {'error': 'Describe the incident (maximum 500 characters).'}, 400
         location = payload.get('location')
         location = '' if location is None else text_field(location, required=False)
         if location is None:
-            return jsonify(error='Location must be text of up to 100 characters.'), 400
+            return {'error': 'Location must be text of up to 100 characters.'}, 400
         raw_id = payload.get('student_id', '')
         student_id = ''
         if isinstance(raw_id, str) and raw_id.strip():
             student_id = known_student_id(raw_id)
             if student_id is None:
-                return jsonify(error=STUDENT_ID_HINT), 400
+                return {'error': STUDENT_ID_HINT}, 400
         elif raw_id not in ('', None) and not isinstance(raw_id, str):
-            return jsonify(error=STUDENT_ID_HINT), 400
+            return {'error': STUDENT_ID_HINT}, 400
         false_statement = payload.get('false_statement', False)
         if not isinstance(false_statement, bool):
-            return jsonify(error='false_statement must be true or false.'), 400
+            return {'error': 'false_statement must be true or false.'}, 400
         if false_statement and not student_id:
-            return jsonify(error='Enter the student ID of the student who gave false information.'), 400
+            return {'error': 'Enter the student ID of the student who gave false information.'}, 400
         with connect() as db:
             record = None
             if student_id:
@@ -780,8 +801,8 @@ def create_app(database_url=None):
                 record = db.execute('SELECT * FROM inventory WHERE LOWER(student_id) = LOWER(%s)',
                                     (student_id,)).fetchone()
             if false_statement and record is None:
-                return jsonify(error='No student with that ID is on the dashboard, so the false statement '
-                                     'cannot be counted.'), 400
+                return {'error': 'No student with that ID is on the dashboard, so the false statement '
+                                 'cannot be counted.'}, 400
             number = false_statements_of(db, student_id) + 1 if false_statement else 0
             penalty = penalty_for(number) if false_statement else 0
             new_id = db.execute(
@@ -790,17 +811,38 @@ def create_app(database_url=None):
                 (category, location, detail, student_id, 'Open', now_stamp(), false_statement, penalty)).fetchone()[0]
             incident = incident_row(db, new_id)
             total = false_statements_of(db, student_id) if student_id else 0
-        log_activity('guard', 'Logged incident', category + (f' · {student_id}' if student_id else ''))
+        log_activity(actor, 'Logged incident', category + (f' · {student_id}' if student_id else ''))
         if false_statement:
-            log_activity('guard', 'False statement', f'{student_id}: number {number}'
+            log_activity(actor, 'False statement', f'{student_id}: number {number}'
                          + (f', penalty {PENALTY_TEXT}' if penalty else ''))
         if record is None:
             claim = {'agrees': None, 'message': NO_RECORD} if student_id else None
         else:
             agrees, message = claim_check(category, record['status'])
             claim = {'agrees': agrees, 'message': message}
-        return jsonify(**incident, false_statements=total, claim=claim,
-                       next_steps=incident_steps(category, penalty)), 201
+        return {**incident, 'false_statements': total, 'claim': claim,
+                'next_steps': incident_steps(category, penalty)}, 201
+
+    @app.post('/api/incidents')
+    def add_incident():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='Send a JSON object.'), 400
+        body, status = file_incident(payload, 'guard')
+        return jsonify(body), status
+
+    def set_incident_status(incident_id, status, actor):
+        """Mark one incident Open or Resolved (false statements and penalties are not touched). False when there
+        is no such incident."""
+        with connect() as db:
+            probe = db.execute('SELECT student_id FROM incidents WHERE id=%s', (incident_id,)).fetchone()
+            if probe is None:
+                return False
+            if probe['student_id']:
+                lock_student(db, probe['student_id'])   # the same order as filing one: student first, then the row
+            db.execute('UPDATE incidents SET status=%s WHERE id=%s', (status, incident_id))
+        log_activity(actor, 'Updated incident', status)
+        return True
 
     @app.patch('/api/incidents/<rowid:incident_id>')
     def update_incident(incident_id):
@@ -1171,6 +1213,36 @@ def create_app(database_url=None):
             result['actions'] = [{'label': '📋 Open in Dashboard', 'type': 'show_not_made'}]
         return result
 
+    def incidents_answer(workspace):
+        """"incidents": the latest incidents and their status, with a Resolve button for the open ones."""
+        rows, open_count = incident_rows(MAX_INCIDENTS_LIST)
+        actions = [{'label': f'✔ Resolve #{row["id"]}', 'type': 'send', 'text': f'resolve incident {row["id"]}'}
+                   for row in rows if row['status'] == 'Open'][:MAX_RESOLVE_BUTTONS]
+        actions.append(incident_action())
+        if workspace == 'coordinator':
+            actions.append({'label': '📋 Open Incidents page', 'type': 'open_incidents'})
+        return {'intent': 'incidents_list', 'answer': incidents_reply(rows, open_count), 'actions': actions}
+
+    def incident_status_answer(workspace, status, incident_id):
+        """"resolve incident 12" / "reopen incident 12"."""
+        with connect() as db:
+            row = db.execute('SELECT status FROM incidents WHERE id=%s', (incident_id,)).fetchone()
+        list_button = {'label': '📋 Incidents', 'type': 'send', 'text': 'incidents'}
+        if row is None:
+            return {'intent': 'incident_status', 'actions': [list_button],
+                    'answer': f'There is no incident #{incident_id}. Type “incidents” to see the list.'}
+        if row['status'] == status:
+            answer = f'Incident #{incident_id} is already {status}. Nothing was changed.'
+        else:
+            set_incident_status(incident_id, status, workspace)
+            answer = f'✅ Incident #{incident_id} marked **{status}**.'
+        return {'intent': 'incident_status', 'answer': answer, 'actions': [list_button]}
+
+    def incident_help_answer(selected, category):
+        """"file incident": the records for the student the chat is on, and the button that opens the form."""
+        return {'intent': 'incident_help', 'answer': incident_help_reply(selected, category),
+                'actions': [incident_action(selected, category), {'label': '📋 Incidents', 'type': 'send', 'text': 'incidents'}]}
+
     def my_requests_answer(text, selected):
         """"my requests": the type, status and time of one student's requests, as a chat answer. The student is
         the one the message names (ID or name), else the one the chat is already about."""
@@ -1204,9 +1276,9 @@ def create_app(database_url=None):
 
     def resolve_command(text, workspace, selected=None):
         """Orders typed into the chat rather than questions: log a student in or out (the guard), show the gate
-        log (guard and coordinator), list the IDs that are not made yet (guard and coordinator), and, for a
-        student, follow their requests or ask for the Request help form. A finished answer, or None when the
-        message is none of these."""
+        log (guard and coordinator), list the IDs that are not made yet (guard and coordinator), file, list and
+        resolve incidents (guard and coordinator) and, for a student, follow their requests or ask for the Request
+        help form. A finished answer, or None when the message is none of these."""
         if workspace == 'student':
             if asks_for_my_requests(text):
                 return my_requests_answer(text, selected)
@@ -1214,6 +1286,20 @@ def create_app(database_url=None):
                 return {'intent': 'request_help', 'actions': [help_action(selected)],
                         'answer': 'Tap Request help below and fill in the form. The office reviews every request, '
                                   'and you can follow yours by typing “my requests”.'}
+        if workspace in ('guard', 'coordinator'):
+            status_change = incident_status_command(text)
+            if status_change:
+                return incident_status_answer(workspace, *status_change)
+            if asks_for_incidents(text):
+                return incidents_answer(workspace)
+            category = asks_to_file_incident(text)
+            if category is not None:
+                return incident_help_answer(selected, category)
+        elif asks_for_incidents(text) or incident_status_command(text) or (
+                asks_to_file_incident(text) is not None and 'incident' in text.lower()):
+            return {'intent': 'incident_not_for_students', 'actions': [help_action(selected, 'Lost ID')],
+                    'answer': 'Incidents are filed by the guard and the office. If you lost your ID, tap Request '
+                              'help below and the office will take it from there.'}
         command = parse_gate_command(text)
         if command and workspace == 'guard':
             answer = gate_command(*command, bare=gate_verb_is_a_preposition(text))
@@ -1279,14 +1365,14 @@ def create_app(database_url=None):
             },
             'thanks_goodbye': 'You’re welcome! Come back whenever you need help with school IDs. Have a great day!',
             'bot_help': {
-                'coordinator': 'Coordinator tools:\n• Type a student ID or name to see that student’s record, with address and contact number\n• Type “records” to list the IDs that are not made yet\n• Dashboard: filter by status (including “Not yet made”), select all, change many statuses at once, import students from a CSV file\n• Needs attention shortcuts, the appointment queue (Mon–Fri, 8:00–12:00 and 1:00–5:00) and QR sticker sheets\n• Student requests: accepting a lost ID request sends a Released ID back to Pending\n• Incidents: No ID and Lost ID reports, with the ' + PENALTY_TEXT + ' penalty for a second false statement\n• Review which answers people rated 👎 on the Feedback page',
-                'guard': 'Guard tools:\n• Type a student ID or name to see whether that student’s ID is made or released\n• Type “records” to list the IDs that are not made yet\n• Gate log: tap Check in or Check out under a student, or type “check in P202400230” or “check out …” (for a visitor: “check in visitor Juan Dela Cruz”); type “gate log” to see today’s entries\n• Verify ID by student number, name, QR token, or camera scan\n• Incidents: No ID or Lost ID only. A lost ID goes to the Cashier first; a second false statement carries a ' + PENALTY_TEXT + ' penalty',
+                'coordinator': 'Coordinator tools:\n• Type a student ID or name to see that student’s record, with address and contact number\n• Type “records” to list the IDs that are not made yet\n• Dashboard: filter by status (including “Not yet made”), select all, change many statuses at once, import students from a CSV file\n• Needs attention shortcuts, the appointment queue (Mon–Fri, 8:00–12:00 and 1:00–5:00) and QR sticker sheets\n• Student requests: accepting a lost ID request sends a Released ID back to Pending\n• Incidents: tap File incident (or type “file incident”) for a No ID or Lost ID report, type “incidents” to list them; the Incidents page is where a false statement is marked or withdrawn, with the ' + PENALTY_TEXT + ' penalty for a second one\n• Review which answers people rated 👎 on the Feedback page',
+                'guard': 'Guard tools:\n• Type a student ID or name to see whether that student’s ID is made or released\n• Type “records” to list the IDs that are not made yet\n• Gate log: tap Check in or Check out under a student, or type “check in P202400230” or “check out …” (for a visitor: “check in visitor Juan Dela Cruz”); type “gate log” to see today’s entries\n• Verify ID by student number, name, QR token, or camera scan\n• Incidents: tap File incident (or type “file incident”) to open the report form. Only two kinds: No ID or Lost ID. A lost ID goes to the Cashier first; a second false statement carries a ' + PENALTY_TEXT + ' penalty\n• Type “incidents” to see the latest ones and resolve them',
                 'student': 'Student tools:\n• Type a student ID or name to see that student’s ID status, year and section, and appointment\n• Ask about requirements, office hours or the release schedule\n• Tell me you lost your ID and I will show a Request help button: it opens the form, right here in the chat (a lost ID is paid for at the Cashier first)\n• Type “my requests” to track a request you made\n• Tap 👍 or 👎 under my answers to tell the office how I did',
             },
             'talk_to_human': f'Please contact the Property Management Office.\n📍 {OFFICE["location"]}\n🕒 {OFFICE["hours"]}\n☎ {OFFICE["contact"]}',
             'lost_id_report': {
                 'coordinator': 'A student reports a lost ID: send them to the Cashier first to pay the replacement fee. They then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to this office. Open the student on the Dashboard and choose “Lost ID” in its menu, or accept the student’s request in the Requests inbox. Either way a Released ID goes back to Pending. This chat has not changed any record. ' + PENALTY_NOTE,
-                'guard': 'If a student says their ID is lost, type the student ID or name here to check the records, file a Lost ID incident, and send the student to the Cashier to pay the replacement fee. Then the student goes to the Property Management Office. ' + PENALTY_NOTE,
+                'guard': 'If a student says their ID is lost, type the student ID or name here to check the records, tap File incident below to file a Lost ID incident, and send the student to the Cashier to pay the replacement fee. Then the student goes to the Property Management Office. ' + PENALTY_NOTE,
                 'student': 'Go to the Cashier first and pay the replacement fee. Then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to the Property Management Office, or tap “Request help” below to report it. When the office accepts your request, your ID goes back to Pending while the replacement is processed. This chat does not replace the official report until you send the request. ' + PENALTY_NOTE,
             },
             'id_requirements': (
@@ -1412,7 +1498,7 @@ def create_app(database_url=None):
                 'guard': [
                     {'label': '✅ Check in', 'type': 'send', 'text': f'check in {student["student_id"]}'},
                     {'label': '⬅️ Check out', 'type': 'send', 'text': f'check out {student["student_id"]}'},
-                    {'label': '⚠️ File incident', 'type': 'open_incident', 'student_id': student['student_id']},
+                    incident_action(student),
                     {'label': '🪪 Preview ID card', 'type': 'preview_card'},
                 ],
                 'student': [
@@ -1429,10 +1515,11 @@ def create_app(database_url=None):
                 actions = [
                     {'label': '🔎 Verify ID', 'type': 'open_verify'},
                     {'label': '📜 Gate log', 'type': 'send', 'text': 'gate log'},
-                    {'label': '⚠️ File incident', 'type': 'open_incident'},
+                    incident_action(selected),
+                    {'label': '📋 Incidents', 'type': 'send', 'text': 'incidents'},
                 ]
             if intent == 'lost_id_report':
-                actions = [{'label': '⚠️ File incident', 'type': 'open_incident'}]
+                actions = [incident_action(selected, 'Lost ID')]
             if selected and intent in lookups:
                 actions.append({'label': '✅ Check in', 'type': 'send', 'text': f'check in {selected["student_id"]}'})
         elif workspace == 'student':
@@ -1461,6 +1548,7 @@ def create_app(database_url=None):
                     {'label': '📥 Student requests', 'type': 'open_requests'},
                     {'label': '📂 IDs not yet made', 'type': 'send', 'text': 'records'},
                     {'label': '⚠️ Incidents', 'type': 'open_incidents'},
+                    incident_action(selected),
                     {'label': '👍 Chatbot feedback', 'type': 'open_feedback'},
                 ])
             if intent == 'lost_id_report':
@@ -1518,6 +1606,32 @@ def create_app(database_url=None):
                        message_id=message_id, suggestions=[], suggestions_title='', follow_ups=[],
                        selected_missing=False, request={'id': row['id'], 'request_type': row['request_type'],
                                                         'status': row['status']},
+                       student=({'id': found['id'], 'student_id': found['student_id'], 'name': found['name']}
+                                if found else None)), 201
+
+    @app.post('/api/chat/incident')
+    def chat_incident():
+        """The incident form, sent from the pop-up in the guard's (or the coordinator's) chat. The incident is filed
+        exactly like one from /api/incidents, and the confirmation comes back as a chat answer that is kept in the
+        chat history. What was written in "What happened?" is not copied into the history."""
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='Send a JSON object.'), 400
+        workspace = payload.get('workspace_role')
+        if workspace not in ('guard', 'coordinator'):
+            return jsonify(error='Incidents are filed by the guard and the office.'), 403
+        body, status = file_incident(payload, workspace)
+        if status != 201:
+            return jsonify(body), status
+        answer = incident_filed_reply(body, body['next_steps'])
+        found = find_by_student_id(body['student_id']) if body['student_id'] else None
+        now = now_stamp()
+        message_id = save_chat_turn(clean_session_id(payload.get('session_id')), workspace,
+                                    f'⚠️ File incident: {body["category"]}', answer, 'incident_filed', 0,
+                                    found['id'] if found else None, now)
+        return jsonify(intent='incident_filed', reply=answer, confidence=0, timestamp=now, message_id=message_id,
+                       actions=[{'label': '📋 Incidents', 'type': 'send', 'text': 'incidents'}],
+                       suggestions=[], suggestions_title='', follow_ups=[], selected_missing=False, incident=body,
                        student=({'id': found['id'], 'student_id': found['student_id'], 'name': found['name']}
                                 if found else None)), 201
 
