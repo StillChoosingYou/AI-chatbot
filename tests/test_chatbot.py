@@ -16,11 +16,24 @@ class DatasetTests(unittest.TestCase):
             rows = list(csv.DictReader(f))
         with (ROOT/'property_management_intent.csv').open() as f:
             intents = {r['intent'] for r in csv.DictReader(f)}
-        self.assertEqual(len(rows),240)
+        self.assertEqual(len(rows),165)
         self.assertEqual(len({r['id'] for r in rows}),len(rows))
         self.assertEqual(len({r['text'].lower() for r in rows}),len(rows))
-        self.assertEqual({r['intent'] for r in rows},intents)
+        self.assertEqual({r['intent'] for r in rows},intents-{'out_of_scope'})   # the fallback has no examples
+        self.assertEqual({sum(r['intent']==i for r in rows) for i in intents-{'out_of_scope'}},{15})
         ElementTree.parse(ROOT/'chatbot.ows')
+
+    def test_dataset_is_about_school_ids_only(self):
+        not_ids={'greeting','thanks_goodbye','bot_help','talk_to_human','out_of_scope'}
+        with (ROOT/'property_management_dataset.csv').open() as f:
+            rows=list(csv.DictReader(f))
+        with (ROOT/'property_management_intent.csv').open() as f:
+            intents={r['intent'] for r in csv.DictReader(f)}
+        self.assertFalse({r['intent'] for r in rows} & not_ids)
+        self.assertEqual(intents & not_ids,{'out_of_scope'})        # the catalog keeps only the fallback label
+        with (ROOT/'property_management_dataset.tab').open() as f:   # the Orange copy holds the same rows
+            tab=[line.rstrip('\n').split('\t') for line in f][3:]
+        self.assertEqual(tab,[[r[k] for k in ('id','text','intent','language','author')] for r in rows])
 
     def test_intent_boundaries(self):
         matcher=ANNIntentModel()
@@ -34,7 +47,9 @@ class DatasetTests(unittest.TestCase):
             ('What information shows after scanning the QR code?', 'qr_student_details'),
             ('What is my ID processing status?', 'id_processing_status'),
             ('Ipakita ang inventory ng IDs', 'id_inventory'),
-            ('purple asteroid quantum banana', 'out_of_scope')]:
+            ('purple asteroid quantum banana', 'out_of_scope'),
+            ('Where is the canteen?', 'out_of_scope'),
+            ('Tell me a joke', 'out_of_scope')]:
             with self.subTest(text=text):
                 self.assertEqual(matcher.match(text),intent)
 

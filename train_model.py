@@ -27,7 +27,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from threadpoolctl import threadpool_limits
 
-from intent_model import DEFAULT_MODEL, DEFAULT_THRESHOLD, ROOT, classify, file_hash
+from intent_model import DEFAULT_MODEL, DEFAULT_THRESHOLD, FALLBACK, ROOT, classify, file_hash
 
 
 def normalized(text):
@@ -40,7 +40,7 @@ def load_dataset(path, catalog):
         if not reader.fieldnames or 'intent' not in reader.fieldnames:
             raise ValueError('Intent catalog needs an intent column.')
         labels = [(row.get('intent') or '').strip() for row in reader]
-    if not labels or '' in labels or len(labels) != len(set(labels)) or 'out_of_scope' not in labels:
+    if not labels or '' in labels or len(labels) != len(set(labels)) or FALLBACK not in labels:
         raise ValueError('Catalog requires unique nonempty intents, including out_of_scope.')
     with Path(path).open(encoding='utf-8-sig', newline='') as file:
         reader = csv.DictReader(file)
@@ -89,8 +89,12 @@ def train(args):
     catalog = ROOT / 'property_management_intent.csv'
     rows, labels = load_dataset(dataset, catalog)
     counts = Counter(row['intent'] for row in rows)
-    if set(counts) != set(labels):
-        raise ValueError('Training dataset must contain examples for every catalog intent.')
+    # out_of_scope is the fallback: the app gives it to a question with no known topic word or a weak match, so
+    # the dataset holds school ID questions only and the fallback needs no examples. Every other topic does.
+    missing = sorted(set(labels) - set(counts) - {FALLBACK})
+    if missing:
+        raise ValueError('Training dataset must contain examples for every catalog intent except out_of_scope. '
+                         f'Missing: {", ".join(missing)}.')
     if args.test_dataset:
         test_rows, _ = load_dataset(args.test_dataset, catalog)
         if {normalized(row['text']) for row in rows} & {normalized(row['text']) for row in test_rows}:
@@ -99,7 +103,7 @@ def train(args):
         split = 'independent test CSV; all source examples used for training'
     else:
         n_test = math.ceil(len(rows)*args.test_size)
-        if min(counts.values()) < 2 or n_test < len(labels) or len(rows)-n_test < len(labels):
+        if min(counts.values()) < 2 or n_test < len(counts) or len(rows)-n_test < len(counts):
             raise ValueError('Stratified split requires two examples per intent and enough train/test rows for all intents.')
         training_rows, test_rows = train_test_split(rows, test_size=args.test_size,
                                                   stratify=[row['intent'] for row in rows],
@@ -112,6 +116,11 @@ def train(args):
     actual = [row['intent'] for row in test_rows]
     raw = evaluation_model.predict(questions)
     served, scores = classify(evaluation_model, questions, args.threshold)
+    # Scores are averaged over the topics that have questions. The fallback has no examples of its own, and
+    # counting it would hold macro F1 below 1 for a reason that has nothing to do with the network.
+    present = set(counts) | set(actual)
+    scored = [label for label in labels if label in present]
+    turned_away = sum(1 for want, got in zip(actual, served) if got == FALLBACK and want != FALLBACK)
     report = {
         'technique': 'ANN: TF-IDF + MLPClassifier, one ReLU hidden layer, softmax output',
         'dataset_origin': 'Synthetic seed questions; not independently validated student conversations',
@@ -123,10 +132,11 @@ def train(args):
         'parameters': {'hidden_units': args.hidden_units, 'solver':'lbfgs', 'alpha':0.1,
                        'max_iter':args.max_iter, 'ngram_range':[1,2], 'confidence_threshold':args.threshold},
         'accuracy': float(accuracy_score(actual, raw)),
-        'macro_f1': float(f1_score(actual, raw, labels=labels, average='macro', zero_division=0)),
+        'macro_f1': float(f1_score(actual, raw, labels=scored, average='macro', zero_division=0)),
         'accuracy_with_fallback': float(accuracy_score(actual, served)),
-        'macro_f1_with_fallback': float(f1_score(actual, served, labels=labels, average='macro', zero_division=0)),
-        'classification_report': classification_report(actual, served, labels=labels, output_dict=True, zero_division=0),
+        'macro_f1_with_fallback': float(f1_score(actual, served, labels=scored, average='macro', zero_division=0)),
+        'turned_away_by_fallback': turned_away,
+        'classification_report': classification_report(actual, served, labels=scored, output_dict=True, zero_division=0),
         'confusion_matrix_labels': labels,
         'confusion_matrix': confusion_matrix(actual, served, labels=labels).tolist(),
         'evaluation_iterations': int(evaluation_model.named_steps['ann'].n_iter_),
@@ -135,6 +145,9 @@ def train(args):
         'input_hashes': {dataset.name:file_hash(dataset), catalog.name:file_hash(catalog)},
         'test_dataset_hash': file_hash(args.test_dataset) if args.test_dataset else None,
         'limitations': ['Small synthetic dataset; holdout scores do not establish real-world accuracy.',
+                        'The dataset holds school ID questions only. out_of_scope has no examples: a held-out question '
+                        'with no known topic word, or a score under the threshold, is turned away and counts as '
+                        'wrong for its own topic.',
                         'Review/group near-duplicate paraphrases before formal evaluation.',
                         'Softmax confidence is uncalibrated; threshold was fixed before evaluation.',
                         'Held-out results describe the evaluation model, not the refit deployment model.'],
@@ -176,7 +189,8 @@ def train(args):
                f'- Raw intent accuracy: {report["accuracy"]:.1%}\n'
                f'- Raw macro F1: {report["macro_f1"]:.3f}\n'
                f'- Accuracy including fallback: {report["accuracy_with_fallback"]:.1%}\n'
-               f'- Macro F1 including fallback: {report["macro_f1_with_fallback"]:.3f}\n\n'
+               f'- Macro F1 including fallback: {report["macro_f1_with_fallback"]:.3f}\n'
+               f'- Held-out questions turned away by the fallback: {turned_away} of {len(test_rows)}\n\n'
                f'Deployment model fitted on {len(rows)} source examples after evaluation. '
                'Scores above describe the evaluation model.\n\n'
                + '\n'.join('- '+item for item in report['limitations'])+'\n')

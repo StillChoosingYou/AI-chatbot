@@ -24,6 +24,7 @@ from chat_support import (
 from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
 from intent_model import ANNIntentModel, classify, rank_intents
+from small_talk import SMALL_TALK_INTENTS, small_talk_intent
 from student_data import (
     ADDRESS_MAX, CONTACT_HINT, IMPORT_COLUMNS, MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, MAX_YEAR, NAME_MAX,
     NOT_YET_MADE, PENALTY_NOTE, PENALTY_TEXT, RELEASE_HOURS, STATUS_NOTES, STATUSES, STUDENT_ID_EXAMPLE,
@@ -1345,8 +1346,12 @@ def create_app(database_url=None):
                 selected = shape(chosen)
 
         found = resolve_command(user_text, workspace, selected) or resolve_student(user_text)
+        small_talk = None if found else small_talk_intent(user_text)
         if found:
             intent, confidence, ranked = found['intent'], 0.0, []
+        elif small_talk:
+            # hello, thanks, "what can you do?" and "talk to a person" are rules, not topics of the dataset
+            intent, confidence, ranked = small_talk, 0.0, []
         else:
             labels, confidences = classify(matcher.pipeline, [user_text], matcher.threshold)
             intent = str(labels[0])
@@ -1743,8 +1748,10 @@ def create_app(database_url=None):
         summary = {'total': up + down, 'up': up, 'down': down, 'new_down': new_down, 'shared': shared,
                    'helpful_percent': round(100 * up / (up + down)) if up + down else None,
                    'by_intent': by_intent, 'by_reason': by_reason}
-        return jsonify(summary=summary, items=items, intents=matcher.intents,
-                       intent_labels={name: intent_label(name) for name in matcher.intents})
+        # The topics to choose from are the ones the dataset teaches (plus out_of_scope), but every topic a
+        # reply can carry gets its plain name, so a 👎 on a greeting still reads "Greeting".
+        return jsonify(summary=summary, items=items, intents=matcher.topics,
+                       intent_labels={name: intent_label(name) for name in (*matcher.topics, *SMALL_TALK_INTENTS)})
 
     @app.patch('/api/feedback/<rowid:feedback_id>')
     def review_feedback(feedback_id):
@@ -1756,7 +1763,7 @@ def create_app(database_url=None):
             return jsonify(error='Choose New or Reviewed.'), 400
         if 'correct_intent' in payload:
             correct = payload['correct_intent']
-            if not isinstance(correct, str) or (correct and correct not in matcher.intents):
+            if not isinstance(correct, str) or (correct and correct not in matcher.topics):
                 return jsonify(error='Choose one of the assistant’s topics.'), 400
         changes = ', '.join(f'{column}=%s' for column in payload)       # the column names come from `allowed`
         with connect() as db:

@@ -417,10 +417,12 @@ examples, and say that the questions come from this app's own users.
 
 ## Dataset and intents
 
-- `property_management_dataset.csv`: 240 synthetic utterances, 15 per intent, with
-  `id,text,intent,language,author` columns. Generic conversational examples retained
-  from the supplied CSV; school ID examples replace general campus support requests.
-- `property_management_intent.csv`: 16 intent definitions and staff actions.
+- `property_management_dataset.csv`: 165 synthetic utterances, 15 for each of the 11 school ID
+  intents, with `id,text,intent,language,author` columns. Only school ID questions are in it
+  (ids start at `S076`; the removed chit-chat rows `S001`-`S075` are not renumbered).
+- `property_management_intent.csv`: the intent catalog and staff actions: the 11 ID intents,
+  the `out_of_scope` fallback (no training rows), and nothing else. Hello, thanks, "what can you
+  do" and "talk to a person" are answered by the rules in `small_talk.py`, not by the ANN.
 - `property_management_dataset.tab`: Orange version with `intent` as the class,
   `text` as a string meta, and identifiers/language/author as metadata.
 
@@ -428,7 +430,7 @@ examples, and say that the questions come from this app's own users.
 
 The guide allows a locally trained Artificial Neural Network. `train_model.py` builds
 TF-IDF word/bigram features and a scikit-learn `MLPClassifier`: one 32-neuron ReLU
-hidden layer and 16 output intents. It uses L-BFGS, L2 regularization (`alpha=0.1`),
+hidden layer and 11 output intents (the school ID topics). It uses L-BFGS, L2 regularization (`alpha=0.1`),
 seed 42, and at most 600 iterations. No external AI service or pretrained model is used.
 
 ```bash
@@ -436,8 +438,8 @@ seed 42, and at most 600 iterations. No external AI service or pretrained model 
 .venv/bin/python Chatbot.py
 ```
 
-The script evaluates a stratified 80/20 split (192 training, 48 test examples), fitting
-vocabulary and IDF only on the training partition. It then refits on all 240 source
+The script evaluates a stratified 80/20 split (132 training, 33 test examples), fitting
+vocabulary and IDF only on the training partition. It then refits on all 165 source
 examples and saves `data/intent_model.joblib`. `Chatbot.py` loads that model. Train before
 starting the app; retrain and restart after changing either CSV or scikit-learn version.
 Only load model files produced by your own training script: joblib uses Python pickle.
@@ -460,10 +462,22 @@ supply a separate labeled CSV with `id,text,intent` columns:
 This mode trains on all source examples and tests on the separate file. It rejects
 normalized text overlap; report coverage per intent, even if some classes are absent.
 `--hidden-units`, `--max-iter`, `--seed`, and `--threshold` configure the baseline.
-The fixed default fallback threshold is 0.35. Inputs with no known vocabulary or a
-maximum softmax score below that threshold use `out_of_scope`; these scores are not
-calibrated probabilities. The threshold is a starting point, not an assurance that
-unrelated questions will always be rejected.
+The fixed default fallback threshold is 0.35. `out_of_scope` has no training rows: the ANN
+answers it when the input has no known vocabulary, when the maximum softmax score is below the
+threshold, or when no word in it is a known ID word (the *topic-word gate*: words such as
+"where", "the", "please" do not count; the list is `FUNCTION_WORDS` in `intent_model.py`).
+Scores are not calibrated probabilities. On our own probe questions this rejects about 75-80%
+of unseen off-topic questions; near-domain ones ("registrar's office", "what time is it")
+can still leak through, so it is not an assurance.
+
+`small_talk.py` recognises hello, thanks/bye, "what can you do" and "talk to a person" by rules
+(whole-message patterns, so "Hi, why is my ID pending?" still goes to the ANN). It runs after the
+commands and student lookup and before the ANN; these replies carry confidence 0.
+
+Evaluation note: with the chit-chat classes gone, the seed-42 held-out score dropped slightly
+(raw accuracy 69.7%, 63.6% with the fallback). The old figure was padded by chit-chat classes
+that scored a perfect F1. The average over other splits is about 58%, so quote the report
+files, not a single number.
 
 `intent_model.py` shares model loading and fallback logic with the application. Actual
 ID status, dates/times, and student details are retrieved from PostgreSQL after intent

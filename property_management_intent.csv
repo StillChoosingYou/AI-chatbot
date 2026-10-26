@@ -1,8 +1,4 @@
 intent,type,description,route_to,default_priority,bot_action
-greeting,conversation,Opens a school ID assistance conversation,none,none,answer
-thanks_goodbye,conversation,Closes the conversation,none,none,answer
-bot_help,conversation,Explains school ID chatbot features,none,none,answer
-talk_to_human,conversation,Requests Property Management Office staff,Property Management Office,medium,handoff
 out_of_scope,fallback,Requests outside the school ID workflow,none,none,fallback_reply
 id_release_schedule,info,Asks for the date and time an ID can be released,Property Management Office,low,lookup
 id_processing_status,info,Asks for the current processing status of an ID,Property Management Office,low,lookup

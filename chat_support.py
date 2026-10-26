@@ -12,8 +12,8 @@ from student_data import (
 FEEDBACK_REASONS = ('Wrong answer', "Didn't understand me", 'Missing information', 'Other')
 
 # intent -> (short chip label, question sent to the assistant when the chip is clicked).
-# Every question is a training utterance, and a test checks that the ANN maps each one
-# back to its own intent, so a chip never leads somewhere unexpected.
+# A test checks every question: the ANN maps it back to its own intent (or, for Help and
+# Talk to the office, the small-talk rules do), so a chip never leads somewhere unexpected.
 INTENT_PROMPTS = {
     'bot_help': ('Help', 'What can you do?'),
     'talk_to_human': ('Talk to the office', 'I want to talk to a real person'),
@@ -54,7 +54,8 @@ FOLLOW_UPS = {
 # Scores are uncalibrated softmax values, so these cut-offs are tuned by eye against the
 # deployed model (see tests) and are meant to be revisited after retraining.
 SURE_ABOVE = 0.60          # at or above this the answer is shown without second guesses
-UNRELATED_ABOVE = 0.50     # a top "out_of_scope" score at or above this means "clearly unrelated"
+UNRELATED_ABOVE = 0.50     # a top "out_of_scope" score at or above this means "clearly unrelated" (only when
+#                            the ANN has been given out_of_scope examples; by default it has none)
 FALLBACK_TOP_MIN = 0.25    # fallback: the best candidate must reach this to offer anything
 FALLBACK_OTHER_MIN = 0.15  # fallback: further candidates must reach this
 UNSURE_ALT_MIN = 0.10      # unsure answer: a runner-up must reach this to be offered
