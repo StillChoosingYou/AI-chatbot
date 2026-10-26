@@ -479,6 +479,7 @@ function rowHtml(r, today) {
     r.address, r.contact_number, r.request_type].join('|'));          // what the row shows: a change of it makes the row glow
   return `<tr data-id="${r.id}" data-sig="${sig}"${checked ? ' class="checked"' : ''}>
     <td class="check-col"><input type="checkbox" class="bulk-check" data-bulk="${r.id}"${checked ? ' checked' : ''} aria-label="Select ${escapeHtml(r.name)}"></td>
+    <td data-label="QR" class="qr-col"><img class="row-qr" src="/qr/${r.id}.png" width="48" height="48" loading="lazy" alt="QR code of ${escapeHtml(r.name)}"></td>
     <td data-label="Student ID" class="id-cell">${escapeHtml(r.student_id)}</td>
     <td data-label="Full name" class="name-cell"><strong>${escapeHtml(r.name)}</strong>${r.request_type === 'Lost ID' ? ' <span class="tag lost">Lost ID</span>' : ''}</td>
     <td data-label="Year &amp; Section">${escapeHtml(r.year_section)}</td>
@@ -510,7 +511,7 @@ function render() {
   $('count').textContent = `${matching.length} of ${records.length}`;
   $('records').innerHTML = shown.length
     ? shown.map(r => rowHtml(r, today)).join('')
-    : `<tr class="empty-row"><td colspan="8">${emptyState(records.length
+    : `<tr class="empty-row"><td colspan="9">${emptyState(records.length
       ? 'No students match these filters.<br>Try another search or reset the filters.'
       : 'No students yet.<br>Use <b>Add student</b> or <b>Import students</b>.')}</td></tr>`;
   fx.rows($('records'));

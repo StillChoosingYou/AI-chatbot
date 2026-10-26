@@ -221,6 +221,8 @@ table.students tbody tr.checked { background: var(--green-bg); }
 table.students tbody tr.empty-row:hover { background: none; }
 .check-col { width: 40px; padding-right: 0 !important; }
 .actions-col { width: 48px; text-align: right; }
+.qr-col { width: 64px; padding-right: 0 !important; }
+.row-qr { display: block; width: 48px; height: 48px; background: #fff; border: 1px solid var(--line, #d8ddd9); border-radius: 6px; image-rendering: pixelated; }
 .id-cell { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
 .name-cell { min-width: 170px; }
 .addr-cell { min-width: 170px; max-width: 280px; overflow-wrap: anywhere; }
