@@ -39,6 +39,16 @@ class BrandingTests(unittest.TestCase):
             self.assertIn('src="/static/pgpc-logo.png"', (ROOT / 'templates' / f'{page}.html').read_text(encoding='utf-8'))
 
 
+class ThemeTests(unittest.TestCase):
+    def test_the_colours_are_the_pgpc_navy_and_gold_in_both_themes(self):
+        css = (ROOT / 'static' / 'style.css').read_text(encoding='utf-8')
+        light, dark = css.split('[data-theme="dark"] {')[0], css.split('[data-theme="dark"] {')[1].split('/* ========= RESET')[0]
+        for token in ('--green: #14367f;', '--gold: #e6b422;'):
+            self.assertIn(token, light)
+        self.assertIn('--gold:', dark)
+        self.assertNotIn('#176c53', css)                  # the old green is gone
+
+
 class LoginRulesTests(unittest.TestCase):
     def test_off_without_a_password_and_on_with_one_or_on_vercel(self):
         self.assertFalse(CoordinatorLogin({}).enabled)

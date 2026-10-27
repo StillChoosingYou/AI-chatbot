@@ -12,58 +12,63 @@
 
 /* ========= LIGHT THEME ========= */
 :root {
-  --green: #176c53;
-  --green-light: #3dba8a;
-  --green-bg: #eaf3ed;
-  --ink: #20322c;
-  --muted: #78877f;
-  --border: #e3e9e5;
-  --bg: #f6f8f6;
+  /* PGPC colours, taken from the school seal: navy blue and gold. (The names still say "green" from the first design.) */
+  --green: #14367f;
+  --green-light: #3a68c9;
+  --green-bg: #e8eefb;
+  --gold: #e6b422;
+  --gold-bg: #fdf3d0;
+  --ink: #16213d;
+  --muted: #6b7691;
+  --border: #e0e5f0;
+  --bg: #f5f7fc;
   --surface: #fff;
-  --surface-hover: #f0f4ef;
-  --surface-alt: #f8faf8;
+  --surface-hover: #edf1fa;
+  --surface-alt: #f8f9fd;
   --surface-glass: rgba(255,255,255,0.85);
-  --shadow-sm: 0 1px 3px rgba(20,50,30,0.06);
-  --shadow-md: 0 4px 12px rgba(20,50,30,0.08);
-  --shadow-lg: 0 8px 32px rgba(20,50,30,0.12);
+  --shadow-sm: 0 1px 3px rgba(20,40,100,0.06);
+  --shadow-md: 0 4px 12px rgba(20,40,100,0.08);
+  --shadow-lg: 0 8px 32px rgba(20,40,100,0.12);
   --pending-bg: #fff4de; --pending-fg: #ac7b23;
-  --processing-bg: #eef2fb; --processing-fg: #607ac2;
+  --processing-bg: #eef2fb; --processing-fg: #4f6bb8;
   --ready-bg: #e8f5ed; --ready-fg: #287b50;
-  --released-bg: #f0f2ef; --released-fg: #728275;
+  --released-bg: #eef0f6; --released-fg: #6f7a94;
   --danger: #d63f3f; --danger-bg: #fef2f2;
   --toast-bg: var(--green); --toast-fg: #fff;
-  --focus: #7ec5ad;
-  --chat-user-bg: #e6f0ea;
-  --chat-bot-bg: #f2f6f1;
-  --dialog-backdrop: rgba(21,45,36,0.35);
+  --focus: #e6b422;
+  --chat-user-bg: #e3eafa;
+  --chat-bot-bg: #f1f4fb;
+  --dialog-backdrop: rgba(14,28,70,0.35);
   --transition: 0.25s cubic-bezier(0.4,0,0.2,1);
 }
 
 /* ========= DARK THEME ========= */
 [data-theme="dark"] {
-  --green: #3dba8a;
-  --green-light: #5cd4a4;
-  --green-bg: #1a2e25;
-  --ink: #e4ede8;
-  --muted: #8a9b91;
-  --border: #2a3832;
-  --bg: #0f1410;
-  --surface: #1a2420;
-  --surface-hover: #243530;
-  --surface-alt: #1e2a25;
-  --surface-glass: rgba(26,36,32,0.88);
+  --green: #8fb0ff;
+  --green-light: #b4c9ff;
+  --green-bg: #18223f;
+  --gold: #f2c744;
+  --gold-bg: #3a3014;
+  --ink: #e6ecfa;
+  --muted: #94a0bf;
+  --border: #29345a;
+  --bg: #0b1226;
+  --surface: #141c36;
+  --surface-hover: #1d2848;
+  --surface-alt: #18213f;
+  --surface-glass: rgba(20,28,54,0.88);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.25);
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.35);
   --pending-bg: #3a2e14; --pending-fg: #e8b84d;
   --processing-bg: #1e2340; --processing-fg: #8ea0e0;
   --ready-bg: #162e1e; --ready-fg: #4dc07a;
-  --released-bg: #252d26; --released-fg: #9aaa9d;
+  --released-bg: #232a41; --released-fg: #a0abc6;
   --danger: #f06060; --danger-bg: #3a1818;
-  --toast-bg: #2a4a3a; --toast-fg: #e4ede8;
-  --focus: #3dba8a;
-  --chat-user-bg: #1e3028;
-  --chat-bot-bg: #1a2a22;
+  --toast-bg: #1f3a8a; --toast-fg: #e6ecfa;
+  --focus: #f2c744;
+  --chat-user-bg: #1b2850;
+  --chat-bot-bg: #151f3d;
   --dialog-backdrop: rgba(0,0,0,0.6);
 }
 
@@ -95,7 +100,7 @@ code { background: var(--surface-alt); border: 1px solid var(--border); border-r
 .nav-label { font-size: 10px; color: var(--muted); letter-spacing: 1.8px; margin: 40px 12px 14px; opacity: 0.7; }
 .nav { display: block; border-radius: 8px; padding: 12px 15px; color: var(--muted); margin: 4px 0; transition: background var(--transition), color var(--transition); }
 .nav:hover { background: var(--surface-hover); }
-.nav.active { background: var(--green-bg); color: var(--green); font-weight: 700; }
+.nav.active { background: var(--green-bg); color: var(--green); font-weight: 700; box-shadow: inset 3px 0 0 var(--gold); }
 .sidebar-bottom { margin-top: auto; padding-top: 18px; display: flex; align-items: center; gap: 10px; font-size: 11px; }
 .sidebar-bottom small { display: block; font-size: 9px; color: var(--muted); margin-top: 6px; }
 .avatar { border-radius: 50%; background: var(--green-bg); padding: 11px; color: var(--green); font-weight: 700; }
@@ -369,8 +374,8 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 #record-dialog, #import-dialog, #incident-dialog { width: 620px; }
 /* The role chooser is a plain white page with the card in the middle: nothing shows through, light or dark theme. */
 #role-dialog {
-  --surface: #fff; --surface-alt: #f8faf8; --ink: #17251f; --muted: #5d6e64; --border: #e3e9e5;
-  --green-bg: #e8f5ed; --shadow-lg: none;
+  --surface: #fff; --surface-alt: #f8f9fd; --ink: #16213d; --muted: #5f6b88; --border: #e0e5f0;
+  --green: #14367f; --green-bg: #e8eefb; --focus: #e6b422; --shadow-lg: none;
   background: #fff; color: var(--ink); border-color: var(--border);
 }
 #role-dialog::backdrop, html.fx #role-dialog[open]::backdrop { background: #fff; opacity: 1; animation: none; }
@@ -408,7 +413,7 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 .ticker { display: flex; align-items: stretch; margin: 22px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
 .ticker[hidden] { display: none; }
 .ticker-live { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 0 14px; background: var(--green-bg); color: var(--green); font: 700 10px/1 Manrope, system-ui, sans-serif; letter-spacing: 1.4px; }
-.ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green-light); animation: tickerPulse 1.8s ease-in-out infinite; }
+.ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: tickerPulse 1.8s ease-in-out infinite; }
 .ticker-window { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); }
 .ticker-track { display: flex; width: max-content; animation: tickerScroll var(--ticker-seconds, 40s) linear infinite; will-change: transform; }
 .ticker-group { display: flex; flex: none; }
@@ -559,14 +564,17 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
 }
 
 /* Coordinator sign-in: a plain white page, like the role chooser. */
-.login-body { background: #fff; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 16px; color: #17251f; }
-.login-card { margin: 0; width: min(420px, 100%); border: 1px solid #e3e9e5; border-radius: 13px; padding: 28px; background: #fff; box-sizing: border-box; }
+.login-body { background: #fff; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 16px; color: #16213d; }
+.login-card { margin: 0; width: min(420px, 100%); border: 1px solid #e0e5f0; border-radius: 13px; padding: 28px; background: #fff; box-sizing: border-box; }
 .login-card h1 { margin: 4px 0 14px; }
 .login-card form { display: grid; gap: 12px; }
 .login-card label { display: grid; gap: 6px; font-weight: 600; font-size: 13px; }
-.login-card input { padding: 10px 12px; border: 1px solid #cfd8d2; border-radius: 8px; font: inherit; background: #fff; color: #17251f; }
+.login-card input { padding: 10px 12px; border: 1px solid #cdd5e8; border-radius: 8px; font: inherit; background: #fff; color: #16213d; }
 .login-card .subtle { margin-top: 16px; }
 
 /* The PGPC seal replaces the square icon in the brand. */
 .brand-logo { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex: none; background: #fff; }
 .login-card .brand-logo, .profile-card .brand-logo { display: block; }
+
+/* In the dark theme the primary blue is light, so text on it is dark. */
+[data-theme="dark"] .primary, [data-theme="dark"] .action-chip:hover:not(:disabled) { color: #0b1226; }
