@@ -416,6 +416,14 @@ given two different topics, never overwrites a file unless you add `--force`, an
 there are too few questions (under 30) to quote as an accuracy figure. Report counts and
 examples, and say that the questions come from this app's own users.
 
+## The page a QR scan opens
+
+Scanning a student's QR sticker opens `/student/<token>`: the school ID, front and back, in the PGPC colours (seal,
+name, year and section, the back with the reminders, a QR of the same page, contact numbers and the academic year,
+`CARD_ACADEMIC_YEAR` in `Chatbot.py`). Anyone who finds a card can scan it, so the student number, the contact number and
+the address are shown only to a signed-in coordinator. To show them to everyone (a demo, or a school that prints them on the
+card anyway), set `PUBLIC_CARD_DETAILS=1`. There is no photo or signature in the records, so the photo is a placeholder.
+
 ## Dashboard news (PGPC announcements)
 
 The strip under the Dashboard heading scrolls the announcements in `data/pgpc_news.json`: a list of

@@ -117,6 +117,20 @@ class CoordinatorLoginRouteTests(DatabaseTestCase):
                 news = client.get('/api/news').get_json()['news']
                 self.assertEqual(news, [{'icon': '🎓', 'text': 'Real news'}] if 'Real' in content else [])
 
+    def test_the_scan_page_shows_private_details_only_to_a_signed_in_coordinator(self):
+        client = self.start()
+        with self.db() as db:
+            row = db.execute('SELECT token, student_id, address, contact_number FROM inventory ORDER BY id LIMIT 1').fetchone()
+        token, student_id, address, contact = row
+        url = f'/student/{token}'
+        public = client.get(url).get_data(as_text=True)
+        for private in (student_id, address, contact):
+            self.assertNotIn(private, public)
+        client.post('/coordinator/login', data=PAIR)
+        staff = client.get(url).get_data(as_text=True)
+        for private in (student_id, address, contact):
+            self.assertIn(private, staff)
+
     def test_wrong_and_right_sign_in(self):
         client = self.start()
         wrong = client.post('/coordinator/login', data={**PAIR, 'password': 'nope'})

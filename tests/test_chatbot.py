@@ -94,6 +94,23 @@ class SchoolIDTests(DatabaseTestCase):
         self.assertIn('&lt;script&gt;',page)
         self.assertNotIn('<script>student</script>',page)
 
+    def test_scan_page_is_the_id_front_and_back_and_keeps_private_details_off_a_public_scan(self):
+        url = '/student/' + self.row['token']
+        page = self.client.get(url).get_data(as_text=True)
+        for text in ('PADRE GARCIA', 'POLYTECHNIC COLLEGE', 'Front of the school ID', 'Back of the school ID', 'Important reminder',
+                     'CONTACT US', 'A.Y. 2026 - 2027', self.row['name'], self.row['year_section'], url + '/qr.png'):
+            self.assertIn(text, page)
+        for private in (self.row['student_id'], self.row['address'], self.row['contact_number']):
+            self.assertNotIn(private, page)
+        self.assertIn('shown to school staff', page)
+        with patch.dict('os.environ', {'PUBLIC_CARD_DETAILS': '1'}):
+            shown = self.client.get(url).get_data(as_text=True)
+        for private in (self.row['student_id'], self.row['address'], self.row['contact_number']):
+            self.assertIn(private, shown)
+        qr = self.client.get(url + '/qr.png')
+        self.assertEqual((qr.status_code, qr.data[:4]), (200, b'\x89PNG'))
+        self.assertEqual(self.client.get('/student/unknown/qr.png').status_code, 404)
+
     def test_qr_url_and_public_fields(self):
         with patch.dict('os.environ',{'PUBLIC_BASE_URL':'https://school.example'}):
             app=self.make_app()
