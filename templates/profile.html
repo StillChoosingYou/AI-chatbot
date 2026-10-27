@@ -4,17 +4,53 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" type="image/png" href="/static/favicon.png">
-  <title>Student ID details</title>
+  <title>Student ID · {{ student.name }}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="profile-body">
-  <main class="profile-card">
-    <img class="brand-logo" src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="42" height="42">
+  <main class="id-page">
     <p class="eyebrow">SCHOOL ID · STUDENT DETAILS</p>
-    <h1>{{student.name}}</h1>
-    <dl>
-      <dt>Year &amp; Section</dt><dd>{{student.year_section}}</dd>
-    </dl>
+    <div class="id-faces">
+
+      <section class="idcard idcard-front" aria-label="Front of the school ID">
+        <header class="idcard-head">
+          <img src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="54" height="54">
+          <div><strong>PADRE GARCIA<br>POLYTECHNIC COLLEGE</strong><small>Castillo, Padre Garcia, Batangas</small></div>
+        </header>
+        <div class="idcard-wave" aria-hidden="true"></div>
+        <div class="idcard-photo" role="img" aria-label="Photo placeholder">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="38" r="17" fill="#a6b4cf"/><path d="M16 96c0-22 15-34 34-34s34 12 34 34z" fill="#a6b4cf"/></svg>
+        </div>
+        <div class="idcard-name">{{ student.name }}</div>
+        <div class="idcard-line">Year &amp; Section {{ student.year_section }}</div>
+        <div class="idcard-number">
+          {% if private %}STUDENT NO. {{ student.student_id }}{% else %}STUDENT NO. <span>shown to school staff</span>{% endif %}
+        </div>
+      </section>
+
+      <section class="idcard idcard-back" aria-label="Back of the school ID">
+        <h2>Student contact</h2>
+        {% if private %}
+        <p class="idcard-strong">{{ student.contact_number }}</p>
+        <p>{{ student.address }}</p>
+        {% else %}
+        <p class="idcard-muted">Contact number and address are shown to school staff only.</p>
+        {% endif %}
+        <h2>Important reminder</h2>
+        <ul>
+          <li>This card is non-transferrable and valid only during the term immediate.</li>
+          <li>It must be worn conspicuously at all times inside the campus.</li>
+          <li>The student cardholder is duly bound to obey College policies, rules and regulations.</li>
+          <li>In case of loss, the finder is requested to return this to the Registrar’s Office of Padre Garcia Polytechnic College.</li>
+        </ul>
+        <img class="idcard-qr" src="/student/{{ student.token }}/qr.png" alt="QR code of this page" width="110" height="110">
+        <p class="idcard-strong">CONTACT US: (043) 233 · 2025</p>
+        <p>FB PAGE: Padre Garcia Polytechnic College</p>
+        <p class="idcard-sign">Chairperson, PGPC Board of Trustees</p>
+        <p class="idcard-ay">A.Y. {{ academic_year }}</p>
+      </section>
+
+    </div>
     <p class="subtle">School Property Management · Sample record. Guards can use this scan at the gate; it does not replace a physical ID.</p>
   </main>
 </body>

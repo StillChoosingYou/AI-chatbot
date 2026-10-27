@@ -578,3 +578,30 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
 
 /* In the dark theme the primary blue is light, so text on it is dark. */
 [data-theme="dark"] .primary, [data-theme="dark"] .action-chip:hover:not(:disabled) { color: #0b1226; }
+
+/* The page a QR scan opens: the school ID, front and back, in the PGPC colours. */
+.id-page { max-width: 780px; margin: 0 auto; padding: 8px 0 24px; }
+.id-faces { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; margin: 14px 0 18px; }
+.idcard { width: 320px; max-width: 100%; min-height: 500px; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-md); position: relative; box-sizing: border-box; }
+.idcard-front { background: linear-gradient(180deg, #14367f 0%, #0f2c6b 100%); color: #fff; padding: 18px 18px 22px; text-align: center; }
+.idcard-head { display: flex; gap: 10px; align-items: center; text-align: left; }
+.idcard-head img { border-radius: 50%; background: #fff; flex: none; }
+.idcard-head strong { color: #f8c917; font: 800 17px/1.15 Manrope, system-ui, sans-serif; display: block; }
+.idcard-head small { font-size: 10px; font-weight: 600; opacity: 0.95; }
+.idcard-wave { height: 14px; margin: 12px -18px 14px; background: #f8c917; border-radius: 0 0 60% 40% / 0 0 100% 100%; }
+.idcard-photo { width: 150px; height: 170px; margin: 0 auto 14px; background: #dce3ef; border-radius: 12px; display: grid; place-items: end center; overflow: hidden; }
+.idcard-photo svg { width: 100%; height: 100%; }
+.idcard-name { font: 800 20px/1.2 Manrope, system-ui, sans-serif; }
+.idcard-line { margin-top: 6px; font-size: 13px; opacity: 0.95; }
+.idcard-number { margin-top: 18px; padding-top: 12px; border-top: 2px solid #fff; color: #f8c917; font: 800 14px Manrope, system-ui, sans-serif; letter-spacing: 0.5px; }
+.idcard-number span { font-weight: 600; font-size: 12px; letter-spacing: 0; color: #fff; opacity: 0.85; }
+.idcard-back { background: #fff; color: #111; border: 1px solid #d9deea; padding: 18px; text-align: center; font-size: 12px; }
+.idcard-back h2 { font: 800 13px Manrope, system-ui, sans-serif; margin: 10px 0 6px; letter-spacing: 0.6px; text-transform: uppercase; }
+.idcard-back ul { text-align: left; padding-left: 18px; margin: 0 0 8px; line-height: 1.45; }
+.idcard-back p { margin: 4px 0; }
+.idcard-strong { font-weight: 800; }
+.idcard-muted { color: #55607a; }
+.idcard-qr { display: block; margin: 8px auto; }
+.idcard-sign { margin-top: 10px !important; font-size: 11px; border-top: 1px solid #111; padding-top: 4px; }
+.idcard-ay { display: inline-block; border: 2px solid #111; border-radius: 6px; padding: 4px 18px; font-weight: 800; }
+[data-theme="dark"] .idcard-back { background: #fff; color: #111; }

@@ -81,6 +81,7 @@ API_ERRORS = {
     404: 'That record or page was not found.',
     405: 'That method is not allowed here.',
 }
+CARD_ACADEMIC_YEAR = '2026 - 2027'   # printed on the back of the card on the scan page
 MAX_NEWS = 20              # how many announcements the ticker carries
 MAX_LOOKUP_LIST = 5        # a name that matches more students than this is too vague to list
 RECENT_ACTIVITY = 6        # how many of the latest events the dashboard ticker carries
@@ -360,11 +361,34 @@ def create_app(database_url=None):
             abort(404)
         with connect() as db:
             row = db.execute(
-                'SELECT name,section,year_level FROM inventory WHERE token=%s',
+                'SELECT name,section,year_level,student_id,address,contact_number,token FROM inventory WHERE token=%s',
                 (token,)).fetchone()
         if row is None:
             abort(404)
-        return render_template('profile.html', student=shape(row))
+        student = shape(row)
+        signed_in = login.enabled and session.get('coordinator') is True      # not merely "the app is open"
+        private = signed_in or os.environ.get('PUBLIC_CARD_DETAILS', '') == '1'
+        if not private:                          # anyone with the sticker can scan it: the personal details stay off the page
+            for key in ('student_id', 'address', 'contact_number'):
+                student[key] = ''
+        return render_template('profile.html', student=student, private=private, academic_year=CARD_ACADEMIC_YEAR)
+
+    @app.get('/student/<token>/qr.png')
+    def profile_qr(token):
+        """The QR on the back of the card on the scan page; it points at the same page."""
+        if not clean_text(token):
+            abort(404)
+        with connect() as db:
+            found = db.execute('SELECT 1 FROM inventory WHERE token=%s', (token,)).fetchone()
+        if found is None:
+            abort(404)
+        stream = io.BytesIO()
+        code = qrcode.QRCode(box_size=8, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
+        code.add_data(scan_url(token))
+        code.make(fit=True)
+        code.make_image(fill_color='black', back_color='white').save(stream, format='PNG')
+        stream.seek(0)
+        return send_file(stream, mimetype='image/png')
 
     @app.get('/sticker/<rowid:record_id>')
     def sticker(record_id):
