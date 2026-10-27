@@ -2,6 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from Chatbot import ROOT
 from auth import FAILS_ALLOWED, LOCK_SECONDS, CoordinatorLogin
 from pg_support import DatabaseTestCase
 
@@ -9,6 +10,14 @@ PAIR = {'username': 'Coordinator', 'password': 'right-password'}
 PROTECTED = ['/api/inventory', '/api/inventory/export', '/api/stats', '/api/queue', '/api/activity',
              '/api/requests', '/api/feedback', '/api/feedback/export', '/api/incidents', '/stickers?ids=1', '/sticker/1',
              '/card/1', '/qr/1.png']
+
+
+class LoginPageLayoutTests(unittest.TestCase):
+    def test_the_card_ignores_the_sidebar_margin_that_main_has_in_the_app(self):
+        css = (ROOT / 'static' / 'style.css').read_text(encoding='utf-8')
+        self.assertIn('main { margin-left: 235px; }', css)           # the reason the card needs its own margin
+        self.assertRegex(css, r'\.login-card \{ margin: 0;')
+        self.assertRegex(css, r'\.login-body \{[^}]*place-items: center')
 
 
 class LoginRulesTests(unittest.TestCase):
