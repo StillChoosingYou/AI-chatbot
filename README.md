@@ -145,6 +145,7 @@ checked the records in the app. If it is tracked by Git, `git rm --cached data/i
 | Setting | Value |
 |---|---|
 | `DATABASE_URL` (required) | A hosted PostgreSQL connection string. Vercel does not host the database, and the app writes nothing to disk. |
+| `COORDINATOR_PASSWORD` (required on Vercel) | The coordinator's password. Open `/coordinator` and sign in with the username `Coordinator` (or `COORDINATOR_USERNAME`) and this password. Without it nobody can sign in on Vercel. Locally, leave it unset to keep the app open, or set it to try the sign-in. `SECRET_KEY` (optional) signs the sign-in cookie. Choose a password longer than `12345` before the defense. |
 | `DATABASE_POOL_SIZE` (recommended) | `3`. Every running copy of the app opens its own connections, so keep each copy small. |
 | `PUBLIC_BASE_URL` (for the QR stickers) | The site's address, for example `https://your-project.vercel.app` (see [QR printing](#qr-printing-and-phone-scanning)). |
 

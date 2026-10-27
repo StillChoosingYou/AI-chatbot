@@ -10,11 +10,12 @@ from urllib.parse import urlparse
 
 import psycopg
 import qrcode
-from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
 from psycopg import errors as pg_errors
 from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
+from auth import CoordinatorLogin
 from chat_support import (
     FEEDBACK_REASONS, asks_for_gate_log, asks_for_incidents, asks_for_my_requests, asks_for_records,
     asks_to_file_incident, asks_to_request_help, clean_text, csv_safe, gate_verb_is_a_preposition, id_candidates,
@@ -157,6 +158,29 @@ def create_app(database_url=None):
         raise ValueError('PUBLIC_BASE_URL must be an absolute HTTP(S) URL')
     matcher = ANNIntentModel()
     app.url_map.converters['rowid'] = RowIdConverter
+    login = CoordinatorLogin(database_url=database_url)
+    app.secret_key = login.secret
+    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
+                      SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600)
+
+    def coordinator_signed_in():
+        return not login.enabled or session.get('coordinator') is True
+
+    def coordinator_only(path, method):
+        """The pages and API calls only the coordinator's dashboard uses. The guard and student never call these."""
+        if path.startswith(('/api/inventory', '/api/stats', '/api/queue', '/api/activity', '/api/requests',
+                            '/api/feedback', '/stickers', '/sticker/', '/card/', '/qr/')):
+            return True
+        return path == '/api/incidents' or (path.startswith('/api/incidents/') and method == 'PATCH')
+
+    @app.before_request
+    def require_coordinator():
+        if coordinator_only(request.path, request.method) and not coordinator_signed_in():
+            if request.path.startswith('/api/'):
+                response = jsonify(error='Sign in as the coordinator first.', sign_in='/coordinator')
+                response.status_code = 401
+                return response
+            return redirect('/coordinator')
 
     @app.errorhandler(HTTPException)
     def http_error(error):
@@ -286,7 +310,6 @@ def create_app(database_url=None):
 
     # ─── Page routes ───────────────────────────────────────────────
 
-    ROLE_PAGES = ('coordinator', 'guard', 'student')
 
     def workspace(page_role=''):
         """The one-page app. '/' shows only the role chooser; /coordinator, /guard and /student open that role."""
@@ -302,9 +325,32 @@ def create_app(database_url=None):
     def home():
         return workspace()
 
-    for role_page in ROLE_PAGES:
+    for role_page in ('guard', 'student'):
         app.add_url_rule(f'/{role_page}', f'role_{role_page}', lambda role_page=role_page: workspace(role_page),
                          strict_slashes=False)
+
+    @app.get('/coordinator', strict_slashes=False)
+    def coordinator_page():
+        if coordinator_signed_in():
+            return workspace('coordinator')
+        return render_template('login.html', configured=login.configured, error='')
+
+    @app.post('/coordinator/login')
+    def coordinator_login():
+        address = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+        if login.check(request.form.get('username', ''), request.form.get('password', ''), address):
+            session.clear()
+            session['coordinator'] = True
+            session.permanent = True
+            return redirect('/coordinator')
+        error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(address)
+                 else 'Wrong username or password.')
+        return render_template('login.html', configured=login.configured, error=error), 401
+
+    @app.post('/coordinator/logout')
+    def coordinator_logout():
+        session.clear()
+        return redirect('/')
 
     @app.get('/student/<token>')
     def profile(token):
@@ -1342,6 +1388,8 @@ def create_app(database_url=None):
         workspace = payload.get('workspace_role', 'coordinator')
         if workspace not in ROLES:
             workspace = 'coordinator'
+        if workspace == 'coordinator' and not coordinator_signed_in():
+            workspace = 'student'                    # nobody can borrow the coordinator's answers by naming the role
 
         selected = None                    # the student the conversation is about, kept by the browser
         selected_missing = False

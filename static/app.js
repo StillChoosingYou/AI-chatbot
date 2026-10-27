@@ -120,6 +120,7 @@ async function api(url, options = {}) {
   if ((response.headers.get('content-type') || '').includes('application/json')) {
     try { body = await response.json(); } catch { body = {}; }
   }
+  if (response.status === 401 && body.sign_in) { location.assign(body.sign_in); throw new Error(body.error); }
   if (!response.ok) throw new Error(body.error || 'Unable to complete the request.');
   return body;
 }
@@ -2025,7 +2026,11 @@ function openRoleDialog() {
   $('role-dialog').showModal();
   fx.dialog($('role-dialog'));
 }
-$('switch-role').onclick = () => location.assign('/');          // the chooser is the home page
+$('switch-role').onclick = () => {                              // the chooser is the home page; leaving the coordinator signs out
+  const home = () => location.assign('/');
+  if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
+  else home();
+};
 $('role-form').addEventListener('submit', event => {
   event.preventDefault();
   const role = event.submitter && event.submitter.value;
