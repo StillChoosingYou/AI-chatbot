@@ -4,20 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" type="image/png" href="/static/favicon.png">
-  <title>Sample ID card · {{student.student_id}}</title>
+  <title>ID card · {{ student.student_id }}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="profile-body">
-  <main class="card-preview">
-    <p class="eyebrow">SAMPLE ID CARD · NOT OFFICIAL</p>
-    <h1>{{student.name}}</h1>
-    <p class="subtle">{{student.student_id}} · Year &amp; Section {{student.year_section}}</p>
-    <div class="card-faces">
-      <figure><img src="/card/{{student.id}}/front.png" alt="Front of sample ID for {{student.name}}"><figcaption>Front</figcaption></figure>
-      <figure><img src="/card/{{student.id}}/back.png" alt="Back of sample ID for {{student.name}}"><figcaption>Back</figcaption></figure>
-    </div>
-    <p class="subtle">Artwork is a placeholder silhouette. Print the QR sticker separately for scanning.</p>
-    <p><a class="primary" href="/sticker/{{student.id}}">Print QR sticker</a></p>
+  <main class="id-page">
+    <p class="eyebrow">SCHOOL ID · PREVIEW (THE SAME PAGE A QR SCAN OPENS)</p>
+    {% include "_idcard.html" %}
+    <p class="subtle">Sample record. This is what opens when the QR sticker is scanned, with the contact number and address that only signed-in staff see.</p>
+    <p><a class="primary" href="/sticker/{{ student.id }}">Print QR sticker</a></p>
   </main>
 </body>
 </html>

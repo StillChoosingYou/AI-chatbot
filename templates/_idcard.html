@@ -1,0 +1,37 @@
+<div class="id-faces">
+
+      <section class="idcard idcard-front" aria-label="Front of the school ID">
+        <header class="idcard-head">
+          <img src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="54" height="54">
+          <div><strong>PADRE GARCIA<br>POLYTECHNIC COLLEGE</strong><small>Castillo, Padre Garcia, Batangas</small></div>
+        </header>
+        <div class="idcard-wave" aria-hidden="true"></div>
+        <div class="idcard-photo"><img src="/student/{{ student.token }}/photo.svg" alt="Sample photo of {{ student.name }}" width="150" height="170"></div>
+        <div class="idcard-name">{{ student.name }}</div>
+        <div class="idcard-line">Year &amp; Section {{ student.year_section }}</div>
+        <div class="idcard-number">STUDENT NO. {{ student.student_id }}</div>
+      </section>
+
+      <section class="idcard idcard-back" aria-label="Back of the school ID">
+        <h2>Student contact</h2>
+        {% if private %}
+        <p class="idcard-strong">{{ student.contact_number }}</p>
+        <p>{{ student.address }}</p>
+        {% else %}
+        <p class="idcard-muted">Contact number and address are shown to school staff only.</p>
+        {% endif %}
+        <h2>Important reminder</h2>
+        <ul>
+          <li>This card is non-transferrable and valid only during the term immediate.</li>
+          <li>It must be worn conspicuously at all times inside the campus.</li>
+          <li>The student cardholder is duly bound to obey College policies, rules and regulations.</li>
+          <li>In case of loss, the finder is requested to return this to the Registrar’s Office of Padre Garcia Polytechnic College.</li>
+        </ul>
+        <img class="idcard-qr" src="/student/{{ student.token }}/qr.png" alt="QR code of this page" width="110" height="110">
+        <p class="idcard-strong">CONTACT US: (043) 233 · 2025</p>
+        <p>FB PAGE: Padre Garcia Polytechnic College</p>
+        <p class="idcard-sign">Chairperson, PGPC Board of Trustees</p>
+        <p class="idcard-ay">A.Y. {{ academic_year }}</p>
+      </section>
+
+    </div>
