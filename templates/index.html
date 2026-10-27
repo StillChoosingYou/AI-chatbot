@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
   <title>School ID · Property Management</title>
   <meta name="description" content="School ID workspace for coordinators, guards, and students. Type a student ID or name in the chat to see that student's ID status.">
   <link rel="stylesheet" href="/static/style.css">
@@ -14,7 +15,7 @@
 <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
 <div class="nav-backdrop" id="nav-backdrop" hidden></div>
 <aside class="sidebar" id="sidebar">
-  <a class="brand" href="/" aria-label="School ID home"><span class="brand-icon">▦</span><span>School ID<small>PROPERTY MANAGEMENT</small></span></a>
+  <a class="brand" href="/" aria-label="School ID home"><img class="brand-logo" src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="42" height="42"><span>School ID<small>PROPERTY MANAGEMENT</small></span></a>
   <button class="role-switch" id="switch-role" type="button" title="Change workspace role">
     <span id="role-badge">Choose role</span>
     <small>Switch role</small>
@@ -51,7 +52,7 @@
         </div>
       </div>
       <div class="ticker" id="ticker" role="region" aria-label="Live ticker" hidden>
-        <span class="ticker-live" title="Refreshes by itself every 20 seconds"><i class="ticker-dot" aria-hidden="true"></i>LIVE</span>
+        <span class="ticker-live" title="Latest announcements from Padre Garcia Polytechnic College"><i class="ticker-dot" aria-hidden="true"></i>PGPC NEWS</span>
         <div class="ticker-window" id="ticker-window">
           <div class="ticker-track" id="ticker-track" aria-hidden="true"></div>
         </div>

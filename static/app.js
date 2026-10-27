@@ -280,6 +280,7 @@ function setRole(role, { useHash = false } = {}) {
   updateSuggestions();
   loadChatHistory();
   if (role === 'coordinator') {
+    loadNews();
     load();                                    // also loads the numbers behind the sidebar badges
   }
   const items = NAV[role];
@@ -910,21 +911,17 @@ function dashboardIsStale() {
 const TICKER_PX_PER_SECOND = 55;
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* The ticker carries the school's announcements, from data/pgpc_news.json through /api/news. */
+let newsItems = [];
+async function loadNews() {
+  try {
+    newsItems = (await api('/api/news')).news || [];
+  } catch { newsItems = []; }
+  renderTicker();
+}
+
 function tickerItems() {
-  const today = todayString();
-  const items = statuses.map(status => ({ dot: statusClass(status), label: status, value: records.filter(r => r.status === status).length }));
-  const attention = [
-    { icon: '⏰', label: 'Overdue', value: records.filter(r => ATTENTION[0].test(r, today)).length, alert: true },
-    { icon: '📅', label: 'Appointments today', value: records.filter(r => r.schedule_date === today).length },
-    { icon: '📥', label: 'Open requests', value: stats ? stats.open_requests : 0 },
-    { icon: '⚠️', label: 'Open incidents', value: stats ? stats.open_incidents : 0, alert: true },
-    { icon: '👎', label: 'Feedback to review', value: stats ? stats.new_feedback : 0 },
-  ].filter(item => item.value > 0);
-  items.push(...(attention.length ? attention : [{ icon: '✅', text: 'Nothing needs attention right now' }]));
-  for (const event of (stats && stats.recent_activity) || []) {
-    items.push({ icon: '🕓', muted: true, text: `${formatTime(event.timestamp)} · ${event.action}${event.detail ? ` · ${event.detail}` : ''}` });
-  }
-  return items;
+  return newsItems.map(item => ({ icon: item.icon, text: item.text }));
 }
 
 const tickerText = (item) => item.text || `${item.label} ${item.value}`;
@@ -936,7 +933,7 @@ function tickerItemHtml(item) {
 }
 
 function renderTicker() {
-  if (workspaceRole !== 'coordinator' || (!records.length && !stats)) return;
+  if (workspaceRole !== 'coordinator' || !newsItems.length) return;
   const items = tickerItems();
   const key = JSON.stringify(items);
   if (key === tickerKey) return;                       // nothing changed: the scroll carries on
