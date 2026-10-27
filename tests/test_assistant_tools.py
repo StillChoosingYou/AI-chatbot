@@ -12,6 +12,7 @@ from markupsafe import escape
 from Chatbot import MAX_STICKERS, UNSURE_REPLY
 from chat_support import FEEDBACK_REASONS, FOLLOW_UPS, INTENT_PROMPTS, csv_safe, prompt_chips, redact_text, reply_chips
 from intent_model import ANNIntentModel, rank_intents
+from small_talk import SMALL_TALK_INTENTS, small_talk_intent
 from pg_support import NEW, AppTestCase
 
 MODEL = ANNIntentModel()
@@ -124,7 +125,8 @@ class ChatFeedbackTests(AppTestCase):
         self.assertEqual((reviewed.status_code, reviewed.json['status'], reviewed.json['correct_intent']), (200, 'Reviewed', 'id_inventory'))
         self.assertEqual(self.client.get('/api/stats').json['new_feedback'], 1)
         self.assertEqual(len(self.client.get('/api/feedback', query_string={'status': 'New', 'rating': 'down'}).json['items']), 1)
-        for body in ({}, {'status': 'Done'}, {'correct_intent': 'made_up'}, {'correct_intent': 3}, {'other': 1}):
+        self.assertEqual(self.client.patch(f'/api/feedback/{target}', json={'correct_intent': 'out_of_scope'}).status_code, 200)
+        for body in ({}, {'status': 'Done'}, {'correct_intent': 'made_up'}, {'correct_intent': 'greeting'}, {'correct_intent': 3}, {'other': 1}):
             self.assertEqual(self.client.patch(f'/api/feedback/{target}', json=body).status_code, 400)
         self.assertEqual(self.client.patch('/api/feedback/9999', json={'status': 'Reviewed'}).status_code, 404)
         self.assertEqual(self.client.patch(f'/api/feedback/{target}', json={'correct_intent': ''}).json['correct_intent'], '')
@@ -205,7 +207,7 @@ class SuggestionLogicTests(unittest.TestCase):
             self.assertEqual(reply_chips([(intent, .99)], intent, .99, 'coordinator'), ([], '', []))
 
     def test_every_chip_question_leads_back_to_its_own_topic(self):
-        known = set(MODEL.intents)
+        known = set(MODEL.intents) | set(SMALL_TALK_INTENTS)
         self.assertLessEqual(set(INTENT_PROMPTS), known)
         for intent, targets in FOLLOW_UPS.items():
             self.assertIn(intent, known)
@@ -213,7 +215,7 @@ class SuggestionLogicTests(unittest.TestCase):
         for intent, (label, question) in INTENT_PROMPTS.items():
             with self.subTest(intent=intent):
                 self.assertTrue(label)
-                self.assertEqual(MODEL.match(question), intent)
+                self.assertEqual(small_talk_intent(question) if intent in SMALL_TALK_INTENTS else MODEL.match(question), intent)
 
     def test_rank_intents(self):
         self.assertEqual(rank_intents(MODEL.pipeline, 'purple asteroid quantum banana'), [])
@@ -236,6 +238,18 @@ class SuggestionRouteTests(AppTestCase):
         self.assertIn('ask_human', [a['type'] for a in reply['actions']])
         history = self.client.get('/api/chat/history', query_string={'session_id': self.session}).json['messages']
         self.assertEqual(history[-1]['message'], UNSURE_REPLY)
+
+    def test_small_talk_is_answered_by_rules_for_every_role_and_carries_no_score(self):
+        for role in ('student', 'guard', 'coordinator'):
+            for text, intent in (('hello po', 'greeting'), ('salamat po', 'thanks_goodbye'),
+                                 ('What can you do?', 'bot_help'), ('I want to talk to a real person', 'talk_to_human')):
+                with self.subTest(role=role, text=text):
+                    reply = self.ask(text, role=role)
+                    self.assertEqual((reply['intent'], reply['confidence']), (intent, 0.0))
+        self.assertIn('Property Management Office', self.ask('talk to a staff', 'student')['reply'])
+
+    def test_a_question_that_starts_with_hello_is_still_a_question(self):
+        self.assertEqual(self.ask('Hi, why is my ID pending?')['intent'], 'pending_id')
 
     def test_unrelated_or_empty_vocabulary_message_gets_the_plain_redirect(self):
         for text in ('tell me a joke', 'what is the weather today?'):
@@ -280,7 +294,7 @@ class SuggestionRouteTests(AppTestCase):
     def test_unexpected_errors_are_logged_and_never_leak_details(self):
         with patch('Chatbot.classify', side_effect=RuntimeError('secret detail')), \
                 self.assertLogs(self.app.logger, level='ERROR'):
-            response = self.client.post('/api/chat', json={'message': 'hello'})
+            response = self.client.post('/api/chat', json={'message': 'why is my ID pending?'})
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.content_type, 'application/json')
         self.assertNotIn('secret detail', response.get_data(as_text=True))
@@ -289,20 +303,20 @@ class SuggestionRouteTests(AppTestCase):
 class HardeningTests(AppTestCase):
     NEW = NEW
 
-    def test_year_and_section_accept_only_a_year_from_one_to_six_and_a_section(self):
-        for value in ('7A', '0A', 'A', '3', '', '   ', None, 3, ['3E'], True, '9' * 5000, '³A', '②A', '१A', '3E!!', '3 E E'):
+    def test_year_and_section_accept_only_a_year_from_one_to_four_and_a_section(self):
+        for value in ('5A', '6-c', '7A', '0A', 'A', '3', '', '   ', None, 3, ['3E'], True, '9' * 5000, '³A', '②A', '१A', '3E!!', '3 E E'):
             with self.subTest(value=str(value)[:12]):
                 response = self.client.post('/api/inventory', json={**self.NEW, 'year_section': value})
                 self.assertEqual(response.status_code, 400)
                 self.assertIn('Year & Section', response.json['error'])
-        for number, (written, shown) in enumerate((('4B', '4B'), ('6-c', '6C'), (' 3e ', '3E'), ('2 1', '2-1'))):
+        for number, (written, shown) in enumerate((('4B', '4B'), ('4-c', '4C'), (' 3e ', '3E'), ('2 1', '2-1'))):
             student = {**self.NEW, 'student_id': f'P20249{number + 1:04d}', 'year_section': written}
             created = self.client.post('/api/inventory', json=student)
             self.assertEqual((created.status_code, created.json['year_section']), (201, shown), written)
         older = {**self.NEW, 'student_id': 'P202499100', 'section': 'A', 'year_level': 2}      # the older two-field form
         del older['year_section']
         self.assertEqual(self.client.post('/api/inventory', json=older).json['year_section'], '2A')
-        for bad in (7, 0, '2.5', None, True):
+        for bad in (5, 6, 7, 0, '2.5', None, True):
             self.assertEqual(self.client.post('/api/inventory', json={**older, 'student_id': 'P202499101', 'year_level': bad}).status_code, 400)
 
     def test_text_that_cannot_be_stored_is_rejected_not_a_crash(self):
@@ -551,7 +565,7 @@ class PageAndContractTests(AppTestCase):
 
     def test_every_topic_the_model_knows_has_a_display_name(self):
         labels = self.client.get('/api/feedback').json['intent_labels']
-        self.assertEqual(set(labels), set(MODEL.intents))
+        self.assertEqual(set(labels), set(MODEL.topics) | set(SMALL_TALK_INTENTS))
         self.assertTrue(all(isinstance(name, str) and name.strip() for name in labels.values()))
 
     def test_request_inbox_lists_statuses_in_workflow_order_and_only_moves_forward(self):

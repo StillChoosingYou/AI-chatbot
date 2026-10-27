@@ -445,14 +445,16 @@ class GateInChatTests(ChatTestCase):
     def test_the_other_roles_cards_have_their_own_buttons(self):
         self.assertEqual(self.types(self.ask('P202400104', 'coordinator')),
                          ['view_record', 'update_record', 'print_sticker', 'preview_card'])
-        self.assertEqual(self.types(self.ask('P202400104', 'student')),
-                         ['print_sticker', 'preview_card', 'open_student_request'])
+        card = self.ask('P202400104', 'student')
+        self.assertEqual(self.types(card), ['print_sticker', 'preview_card', 'open_student_request'])
+        self.assertEqual({k: v for k, v in card['actions'][2].items() if k != 'label'},
+                         {'type': 'open_student_request', 'student_id': 'P202400104', 'name': 'Taylor A. Cruz'})
 
     def test_the_gate_page_is_gone_from_the_guards_welcome_and_the_log_is_one_tap_away(self):
         reply = self.ask('hello', 'guard')
         self.assertEqual(reply['intent'], 'greeting')
-        self.assertEqual(self.types(reply), ['open_verify', 'send', 'open_incident'])
-        self.assertEqual([a['text'] for a in reply['actions'] if a['type'] == 'send'], ['gate log'])
+        self.assertEqual(self.types(reply), ['open_verify', 'send', 'open_incident', 'send'])
+        self.assertEqual([a['text'] for a in reply['actions'] if a['type'] == 'send'], ['gate log', 'incidents'])
         help_text = self.ask('What can you do?', 'guard')['reply']
         self.assertIn('check in', help_text)
         self.assertIn('gate log', help_text)
@@ -576,7 +578,8 @@ class WelcomeTests(ChatTestCase):
             self.assertIn('Type a student ID or name', reply['reply'], role)
         self.assertEqual(self.types(self.ask('hello', 'student')), ['open_student_request', 'ask_office'])
         coordinator = self.ask('hello', 'coordinator')
-        self.assertEqual(self.types(coordinator), ['open_queue', 'open_requests', 'send', 'open_incidents', 'open_feedback'])
+        self.assertEqual(self.types(coordinator),
+                         ['open_queue', 'open_requests', 'send', 'open_incidents', 'open_incident', 'open_feedback'])
         self.assertEqual([a['text'] for a in coordinator['actions'] if a['type'] == 'send'], ['records'])
 
     def test_the_help_text_of_each_role_mentions_what_that_role_can_do(self):

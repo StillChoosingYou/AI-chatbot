@@ -66,44 +66,59 @@ def read_sqlite(path):
     return tables
 
 
+def rename_statuses(columns, copied, notes):
+    """Give an old inventory status its current name. Changes `copied` in place and says how many rows changed."""
+    position, renamed = columns.index('status'), Counter()
+    for number, values in enumerate(copied):
+        if new := STATUS_RENAMES.get(values[position]):
+            copied[number] = (*values[:position], new, *values[position + 1:])
+            renamed[(values[position], new)] += 1
+    for (old, new), count in renamed.items():
+        notes.append(f'inventory: the status "{old}" is now called "{new}" ({count} rows changed).')
+
+
+def table_columns(pg, table):
+    """(column names, names PostgreSQL requires a value for) of a table in the current schema."""
+    info = pg.execute(
+        'SELECT column_name, is_nullable, column_default, is_identity FROM information_schema.columns '
+        'WHERE table_schema = current_schema() AND table_name = %s ORDER BY ordinal_position',
+        (table,)).fetchall()
+    want = [name for name, *_ in info]
+    required = {name for name, nullable, default, identity in info
+                if nullable == 'NO' and default is None and identity == 'NO'}
+    return want, required
+
+
+def copy_rows(have, rows, columns, invent_token, stats):
+    """The SQLite rows cut down to `columns`, with a new QR token on each when the file has none."""
+    positions = [have.index(name) for name in columns]
+    copied = []
+    for row in rows:
+        values = [clean(row[position], stats) for position in positions]
+        if invent_token:
+            values.append(secrets.token_urlsafe(18))
+        copied.append(tuple(values))
+    return copied
+
+
 def prepare(pg, tables, stats, notes):
     """{table: (columns, rows)} ready to insert: only columns PostgreSQL has, NUL characters removed."""
     plan = {}
     for table, (have, rows) in tables.items():
-        info = pg.execute(
-            'SELECT column_name, is_nullable, column_default, is_identity FROM information_schema.columns '
-            'WHERE table_schema = current_schema() AND table_name = %s ORDER BY ordinal_position',
-            (table,)).fetchall()
-        want = [name for name, *_ in info]
-        required = {name for name, nullable, default, identity in info
-                    if nullable == 'NO' and default is None and identity == 'NO'}
+        want, required = table_columns(pg, table)
         columns = [name for name in want if name in have]
         lacking = sorted(required - set(columns))
         invent_token = table == 'inventory' and lacking == ['token']      # the very first versions had none
         if lacking and not invent_token:
             raise MigrationError(f'The SQLite table {table} has no {", ".join(lacking)} column, which '
                                  f'PostgreSQL needs. The file is older than this script supports.')
-        positions = [have.index(name) for name in columns]
-        copied = []
-        for row in rows:
-            values = [clean(row[position], stats) for position in positions]
-            if invent_token:
-                values.append(secrets.token_urlsafe(18))
-            copied.append(tuple(values))
+        copied = copy_rows(have, rows, columns, invent_token, stats)
         if invent_token:
             columns.append('token')
             notes.append('inventory: the SQLite file has no QR tokens, so new ones were made.')
         if table == 'inventory' and 'status' in columns:        # a status that has since been renamed
-            position, renamed = columns.index('status'), Counter()
-            for number, values in enumerate(copied):
-                new = STATUS_RENAMES.get(values[position])
-                if new:
-                    copied[number] = (*values[:position], new, *values[position + 1:])
-                    renamed[(values[position], new)] += 1
-            for (old, new), count in renamed.items():
-                notes.append(f'inventory: the status "{old}" is now called "{new}" ({count} rows changed).')
-        ignored = [name for name in have if name not in want]
-        if ignored:
+            rename_statuses(columns, copied, notes)
+        if ignored := [name for name in have if name not in want]:
             notes.append(f'{table}: ignored columns that PostgreSQL does not have: {", ".join(ignored)}.')
         plan[table] = (columns, copied)
     return plan
@@ -117,8 +132,7 @@ def check_student_ids(plan):
     position, groups = columns.index('student_id'), {}
     for row in rows:
         groups.setdefault(row[position].lower(), []).append(row[position])
-    clashes = sorted(' = '.join(names) for names in groups.values() if len(names) > 1)
-    if clashes:
+    if clashes := sorted(' = '.join(names) for names in groups.values() if len(names) > 1):
         raise MigrationError(
             'These student IDs are the same once letter case is ignored: ' + '; '.join(clashes)
             + '. Fix or delete the extra records, then run this again. (Nothing in the SQLite file was changed.)')

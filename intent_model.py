@@ -9,34 +9,70 @@ import sklearn
 ROOT = Path(__file__).resolve().parent
 DEFAULT_MODEL = ROOT / 'data' / 'intent_model.joblib'
 DEFAULT_THRESHOLD = 0.35
+FALLBACK = 'out_of_scope'
+
+# Words that say nothing about what a message is about: articles, pronouns, question words, polite words
+# and the "tell me / show me" verbs, in English and Filipino. A message whose only known words are these is not
+# about school IDs, however sure the network sounds, so it gets the fallback. The network still reads every
+# word. School ID words (id, status, pending, release, lost, office, qr, ...) are never on this list.
+FUNCTION_WORDS = frozenset('''
+a an the this that these those each every any some all both few more most much many other another such own same no
+i me my mine myself we us our ours you your yours he him his she her hers it its they them their theirs
+who whom whose which what when where why how
+am is are was were be been being do does did done have has had having can could will would shall should may might must
+of to in on at by for from with about into onto over under up down out off as than then so too very just also only
+again here there but and or if because while until
+not yes please pls plz kindly thanks thank hi hello hey ok okay bot chatbot assistant
+tell show give get want need like know let lets see look find check help ask question questions say
+now today tomorrow tonight yesterday later soon
+ang ng sa na at ay ba po opo ho naman lang pa din rin daw raw nga pala kasi kaya yung yong iyong mga si ni kay kina
+nang pero ngunit o oo ako ko akin ikaw ka mo iyo siya niya kami namin amin tayo natin kayo ninyo sila nila ito iyan
+iyon ayan ayon yan yun nito dito doon diyan niyan ano anong sino saan nasaan kailan paano pano bakit alin gaano
+magkano ilan mayroon meron wala hindi di huwag wag para kung kapag pag sana muna pwede pwedeng puwede maaari gusto
+nais paki pakiusap ngayon bukas kahapon mamaya
+'''.split())
 
 
 def file_hash(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def has_topic_word(pipeline, text):
+    """True when the text holds a word from the training data that is not a function word.
+
+    Words are split and lower-cased exactly as the vectorizer does it, so "known" means the same here and there.
+    """
+    vectorizer = pipeline.named_steps['tfidf']
+    tokens = vectorizer.build_tokenizer()(vectorizer.build_preprocessor()(str(text)))
+    return any(token in vectorizer.vocabulary_ and token not in FUNCTION_WORDS for token in tokens)
+
+
 def classify(pipeline, messages, threshold=DEFAULT_THRESHOLD):
-    """Reject empty-vocabulary or low-confidence input; scores are uncalibrated."""
+    """Give out_of_scope to a message with no known topic word or a score below the threshold.
+
+    The fallback has no training examples of its own: the network only knows school ID topics, and this is what
+    it says for everything else. Scores are uncalibrated.
+    """
     vectors = pipeline.named_steps['tfidf'].transform(messages)
     network = pipeline.named_steps['ann']
     probabilities = network.predict_proba(vectors)
     labels = network.classes_[np.argmax(probabilities, axis=1)].astype(object)
     confidence = np.max(probabilities, axis=1)
-    for index in range(len(labels)):
-        if vectors[index].nnz == 0 or confidence[index] < threshold:
-            labels[index] = 'out_of_scope'
+    for index, message in enumerate(messages):
+        if vectors[index].nnz == 0 or confidence[index] < threshold or not has_topic_word(pipeline, message):
+            labels[index] = FALLBACK
     return labels, confidence
 
 
 def rank_intents(pipeline, message, limit=None):
     """Return [(intent, score)] best first for one message.
 
-    The list is empty when the message holds no word the ANN knows. Scores are
+    The list is empty when the message holds no topic word the ANN knows. Scores are
     the same uncalibrated softmax values that classify() uses, so treat them as
     a ranking, not as probabilities.
     """
     vectors = pipeline.named_steps['tfidf'].transform([message])
-    if vectors[0].nnz == 0:
+    if vectors[0].nnz == 0 or not has_topic_word(pipeline, message):
         return []
     network = pipeline.named_steps['ann']
     probabilities = network.predict_proba(vectors)[0]
@@ -62,8 +98,13 @@ class ANNIntentModel:
 
     @property
     def intents(self):
-        """Every label the ANN was trained on, including out_of_scope."""
+        """Every label the ANN was trained on: the school ID topics."""
         return [str(label) for label in self.pipeline.named_steps['ann'].classes_]
+
+    @property
+    def topics(self):
+        """What a reviewer can name as the right topic: the ANN's topics and out_of_scope, the fallback."""
+        return sorted({*self.intents, FALLBACK})
 
     def match(self, text):
         labels, _ = classify(self.pipeline, [text], self.threshold)

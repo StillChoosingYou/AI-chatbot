@@ -6,13 +6,14 @@ follow-up questions to offer and how to treat text that a user chose to share.
 """
 import re
 
-from student_data import PENALTY_AT, PENALTY_TEXT, STATUS_NOTES, gate_note
+from student_data import (
+    PENALTY_AT, PENALTY_NOTE, PENALTY_TEXT, REQUEST_STATUS_NOTES, STATUS_NOTES, claim_check, gate_note)
 
 FEEDBACK_REASONS = ('Wrong answer', "Didn't understand me", 'Missing information', 'Other')
 
 # intent -> (short chip label, question sent to the assistant when the chip is clicked).
-# Every question is a training utterance, and a test checks that the ANN maps each one
-# back to its own intent, so a chip never leads somewhere unexpected.
+# A test checks every question: the ANN maps it back to its own intent (or, for Help and
+# Talk to the office, the small-talk rules do), so a chip never leads somewhere unexpected.
 INTENT_PROMPTS = {
     'bot_help': ('Help', 'What can you do?'),
     'talk_to_human': ('Talk to the office', 'I want to talk to a real person'),
@@ -53,7 +54,8 @@ FOLLOW_UPS = {
 # Scores are uncalibrated softmax values, so these cut-offs are tuned by eye against the
 # deployed model (see tests) and are meant to be revisited after retraining.
 SURE_ABOVE = 0.60          # at or above this the answer is shown without second guesses
-UNRELATED_ABOVE = 0.50     # a top "out_of_scope" score at or above this means "clearly unrelated"
+UNRELATED_ABOVE = 0.50     # a top "out_of_scope" score at or above this means "clearly unrelated" (only when
+#                            the ANN has been given out_of_scope examples; by default it has none)
 FALLBACK_TOP_MIN = 0.25    # fallback: the best candidate must reach this to offer anything
 FALLBACK_OTHER_MIN = 0.15  # fallback: further candidates must reach this
 UNSURE_ALT_MIN = 0.10      # unsure answer: a runner-up must reach this to be offered
@@ -302,3 +304,164 @@ def asks_for_gate_log(text):
 def asks_for_records(text):
     """True for "records" on its own and for "ID not yet made" in English or Tagalog."""
     return bool(_NOT_YET_MADE.search(text) or _RECORDS_ONLY.match(text))
+
+
+# ─── Request help, inside the student's chat ──────────────────────────────
+# A student does everything in the chat: the Request help button opens a form, and following a request is
+# also a chat message. These are the few phrases that mean exactly that; anything else goes to the network.
+
+_MY_REQUESTS = re.compile(
+    r"\b(?:my\s+requests?|requests?\s+ko|(?:aking|akin)\s+requests?|track(?:\s+(?:my|the))?\s+requests?"
+    r"|requests?\s+(?:status|tracker)|status\s+of\s+(?:my\s+|the\s+)?requests?|where(?:'s|\s+is)\s+my\s+requests?)\b",
+    re.IGNORECASE)
+_REQUEST_HELP = re.compile(
+    r"^\s*(?:(?:please|pls)\s+)?(?:(?:i\s+)?(?:want|need|would\s+like)\s+(?:to\s+)?)?"
+    r"(?:request(?:ing)?\s+help|(?:submit|make|file|send)\s+(?:a\s+|my\s+)?request|help\s+request|request\s+form)"
+    r"(?:\s+(?:please|pls))?\s*[.!]?\s*$", re.IGNORECASE)
+MAX_REQUEST_WORDS = 10      # "my requests P202400230" or "track my request Alex Rivera": a short order, not a story
+
+
+def asks_for_my_requests(text):
+    """True for "my requests", "track my request P202400230", "request ko", "status of my request"."""
+    return len(text.split()) <= MAX_REQUEST_WORDS and bool(_MY_REQUESTS.search(text))
+
+
+def request_subject(text):
+    """What is left of a "my requests" message once that phrase is taken out: the ID or name it is about."""
+    return _MY_REQUESTS.sub(' ', text).strip(' \t\n.,;:!?')
+
+
+def asks_to_request_help(text):
+    """True for "request help", "I need to submit a request", "request form"."""
+    return bool(_REQUEST_HELP.match(text))
+
+
+def request_sent_reply(row, steps):
+    """The chat message that confirms a request: its number, its status and what to do next."""
+    who = f' for {row["name"]}' if row.get('name') else ''
+    lines = [f'✅ Request #{row["id"]} sent: **{row["request_type"]}**{who} ({row["student_id"]}). '
+             f'Status: **{row["status"]}**.']
+    if steps:
+        lines.append('What to do next:')
+        lines.extend(f'{number}. {step}' for number, step in enumerate(steps, 1))
+        lines.append('When the office accepts your request, your ID goes back to Pending while the replacement is processed.')
+    else:
+        lines.append('The office will look at it during office hours.')
+    lines.append('Type “my requests” whenever you want to follow it here in the chat.')
+    return '\n'.join(lines)
+
+
+def my_requests_reply(student_id, name, rows):
+    """One student's requests, newest first: number, type, status and time. What the student wrote is not repeated."""
+    who = f'{name} ({student_id})' if name else student_id
+    if not rows:
+        return (f'📋 No requests have been made with {student_id} yet. '
+                'If you need the office’s help, tap Request help below.')
+    lines = [f'📋 Requests for {who}, newest first:']
+    for row in rows:
+        note = REQUEST_STATUS_NOTES.get(row['status'], '')
+        lines.append(f'• #{row["id"]} · {row["request_type"]} · **{row["status"]}** · {row["timestamp"][:16]}'
+                     + (f' — {note}' if note else ''))
+    return '\n'.join(lines)
+
+
+# ─── Incidents, inside the chat (guard and coordinator) ───────────────────
+# The guard files an incident from a pop-up that a button in the chat opens, follows the list in the chat and
+# resolves from it. Like the Request help phrases, these are the few messages that mean exactly that.
+
+_FILE_INCIDENT = re.compile(
+    r"^\s*(?:(?:please|pls)\s+)?(?:(?:i\s+)?(?:want|need|would\s+like)\s+(?:to\s+)?)?"
+    r"(?:(?:file|report|log|make|create|open|submit|add)\s+(?:an?\s+|the\s+|new\s+)?incident(?:\s+report)?"
+    r"|(?:new\s+)?incident(?:\s+report)?"
+    r"|(?P<no_id>no\s+id(?:\s+incident)?|walang\s+id)"
+    r"|(?P<lost_id>lost\s+id\s+incident|incident\s+(?:for\s+)?lost\s+id))"
+    r"(?:\s+(?:please|pls))?\s*[.!]?\s*$", re.IGNORECASE)
+_LIST_INCIDENTS = re.compile(
+    r"^\s*(?:(?:please|pls)\s+)?(?:(?:show|list|see|view|open|check|display)\s+(?:me\s+)?)?"
+    r"(?:(?:the|all|my|recent|latest|open|today'?s)\s+)*"
+    r"(?:incidents|incident\s+(?:log|list|reports))\s*[.!]?\s*$", re.IGNORECASE)
+_INCIDENT_STATUS = re.compile(
+    r"^\s*(?P<verb>resolve|reopen|re-open)\s+(?:the\s+)?incident\s+#?(?P<number>\d{1,9})\s*[.!]?\s*$", re.IGNORECASE)
+
+
+def asks_to_file_incident(text):
+    """The category a message names ("No ID", "Lost ID", or "" for plain "file incident"), None when the
+    message is not a request to file an incident."""
+    match = _FILE_INCIDENT.match(text)
+    if not match:
+        return None
+    if match.group('no_id'):
+        return 'No ID'
+    if match.group('lost_id'):
+        return 'Lost ID'
+    return ''
+
+
+def asks_for_incidents(text):
+    """True for "incidents", "show incidents", "incident log"."""
+    return bool(_LIST_INCIDENTS.match(text))
+
+
+def incident_status_command(text):
+    """("Resolved" or "Open", number) for "resolve incident 12" and "reopen incident 12", else None."""
+    match = _INCIDENT_STATUS.match(text)
+    if not match:
+        return None
+    return ('Resolved' if match.group('verb').lower() == 'resolve' else 'Open'), int(match.group('number'))
+
+
+def incident_help_reply(selected, category):
+    """What the chat says before the pop-up opens: the records for the student the chat is on, and what the
+    form is for."""
+    parts = []
+    if selected:
+        parts.append(f'Selected: {selected["name"]} ({selected["student_id"]}), status **{selected["status"]}**.')
+        if category:
+            parts.append(claim_check(category, selected['status'])[1])
+    parts.append('Tap File incident below to fill in the report. A lost ID goes to the Cashier first. '
+                 f'{PENALTY_NOTE}')
+    return ' '.join(parts)
+
+
+def incident_filed_reply(incident, steps):
+    """The chat message that confirms an incident: its number, who it is about, what the records say, the
+    false statement and its penalty, and what to do next."""
+    if incident.get('student_name'):
+        who = f' for {incident["student_name"]} ({incident["student_id"]})'
+    elif incident.get('student_id'):
+        who = f' for {incident["student_id"]} (not on the dashboard)'
+    else:
+        who = ''
+    lines = [f'✅ Incident #{incident["id"]} filed: **{incident["category"]}**{who}. Status: **{incident["status"]}**.']
+    claim = incident.get('claim') or {}
+    if claim.get('message'):
+        lines.append(claim['message'])
+    if incident.get('false_statement'):
+        lines.append(f'⚠️ False statement no. {incident.get("false_statements") or 0} for this student'
+                     + (f': penalty ₱{int(incident["penalty"]):,}.' if incident.get('penalty') else '.'))
+    if steps:
+        lines.append('What to do next:')
+        lines.extend(f'{number}. {step}' for number, step in enumerate(steps, 1))
+    lines.append('Type “incidents” to see the list.')
+    return '\n'.join(lines)
+
+
+def incidents_reply(rows, open_count):
+    """The latest incidents, newest first: number, category, status, who, where and when. What the guard wrote
+    in "What happened?" stays on the coordinator's Incidents page."""
+    if not rows:
+        return ('⚠️ No incidents have been filed yet. Tap File incident below when a student has no ID or has '
+                'lost it.')
+    lines = [f'⚠️ Incidents: {open_count} open. The latest {len(rows)}, newest first:']
+    for row in rows:
+        if row.get('student_name'):
+            who = f'{row["student_name"]} ({row["student_id"]})'
+        else:
+            who = row.get('student_id') or 'no student ID'
+        flag = ''
+        if row.get('false_statement'):
+            flag = ' · false statement' + (f' ₱{int(row["penalty"]):,}' if row.get('penalty') else '')
+        where = f' · {row["location"]}' if row.get('location') else ''
+        lines.append(f'• #{row["id"]} · {row["category"]} · **{row["status"]}** · {who}{where} · '
+                     f'{row["timestamp"][:16]}{flag}')
+    return '\n'.join(lines)

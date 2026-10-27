@@ -26,8 +26,9 @@ STATUS_ALIASES = {
 STUDENT_ID_RE = re.compile(r'P[0-9]{9}')          # ASCII digits only; use .fullmatch
 STUDENT_ID_EXAMPLE = 'P202400230'
 STUDENT_ID_HINT = 'Student ID must be the letter P and 9 digits, for example P202400230.'
-YEAR_SECTION_RE = re.compile(r'([1-6])\s*[-/]?\s*([A-Za-z0-9]{1,10})')
-YEAR_SECTION_HINT = 'Year & Section is a year from 1 to 6 followed by the section, for example 3E.'
+MAX_YEAR = 4                                       # four year levels: this one line decides what every form, the import and the chat accept
+YEAR_SECTION_RE = re.compile(rf'([1-{MAX_YEAR}])\s*[-/]?\s*([A-Za-z0-9]{{1,10}})')
+YEAR_SECTION_HINT = f'Year & Section is a year from 1 to {MAX_YEAR} followed by the section, for example 3E.'
 CONTACT_HINT = 'Contact number must be a phone number, for example 09171234567.'
 NAME_MAX = 100
 ADDRESS_MAX = 200
@@ -340,6 +341,13 @@ OFFICE_STEP = ('Then the student goes to the Property Management Office with the
 STUDENT_LOST_STEPS = ('Go to the Cashier first and pay the replacement fee.',
                       'Then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to the Property '
                       'Management Office.')
+# What a student is told about where a request stands. The coordinator's own handling is never shown.
+REQUEST_STATUS_NOTES = {
+    'Submitted': 'waiting for the office to look at it',
+    'In review': 'staff are looking at it',
+    'Accepted': 'accepted, follow the office’s instructions',
+    'Closed': 'finished',
+}
 
 
 def penalty_for(number):

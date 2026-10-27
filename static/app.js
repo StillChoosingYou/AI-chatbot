@@ -3,6 +3,9 @@
    coordinator, the guard and the student; the coordinator also gets the Dashboard of every student. */
 'use strict';
 
+/* Every animation is played by static/fx.js (the Motion library). If that file did not load, each call does nothing. */
+const fx = window.fx || new Proxy({}, { get: () => () => Promise.resolve() });
+
 /* ── Browser storage that never throws (private windows and blocked site data make it fail) ── */
 const store = {
   get(key) { try { return localStorage.getItem(key) || ''; } catch { return ''; } },
@@ -32,10 +35,12 @@ let matching = [];                // the students that match the Dashboard filte
 let statusFilter = '', attentionFilter = '', requestFilter = '', feedbackFilter = 'review';
 let visibleRows = PAGE_SIZE;
 let selected = null;              // {id, student_id, name}: the student the chat is about
-let stats = null, serverToday = '', sending = false, historyLoadId = 0, lookedUpStudent = '';
+let stats = null, serverToday = '', sending = false, historyLoadId = 0;
+let tickerKey = '', tickerUnit = '', tickerFit = '';   // what the Dashboard ticker shows, and how it is laid out
 let intentLabels = {}, knownIntents = [];
 const badgeCounts = { dashboard: 0, requests: 0, feedback: 0, incidents: 0 };
-let workspaceRole = store.get('workspaceRole');
+/* The role comes from the address: /coordinator, /guard or /student. On '/' there is none, and the chooser shows. */
+let workspaceRole = document.body.dataset.pageRole || '';
 let currentView = '';                              // the workspace page on screen, so a change of page starts at the top
 const baseSession = store.get('chatSessionId') || (() => {
   const id = uuid();
@@ -55,12 +60,10 @@ const NAV = {
   ],
   guard: [
     { id: 'assistant', label: '◌  Assistant' },
-    { id: 'verify', label: '🔎  Verify ID' },
-    { id: 'incidents', label: '⚠️  Incidents' },
+    { id: 'verify', label: '🔎  Verify ID' },          // incidents are filed and followed in the chat
   ],
   student: [
-    { id: 'assistant', label: '◌  Assistant' },
-    { id: 'student-request', label: '📝  Request help' },
+    { id: 'assistant', label: '◌  Assistant' },          // everything a student does happens in the chat
   ],
 };
 
@@ -72,13 +75,13 @@ const ROLE_META = {
   },
   guard: {
     title: 'Guard', avatar: 'GD', caption: 'Campus gate', eyebrow: 'GUARD',
-    blurb: 'Type a student ID or name to see whether the ID is released, then check the student in or out.',
-    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show whether that student’s ID is released. To log the gate, type “check in” or “check out” and the student ID or name (for a visitor: “check in visitor Juan Dela Cruz”). Type “records” to list the IDs that are not made yet.',
+    blurb: 'Type a student ID or name to see whether the ID is released, then check the student in or out, or file an incident.',
+    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show whether that student’s ID is released. To log the gate, type “check in” or “check out” and the student ID or name (for a visitor: “check in visitor Juan Dela Cruz”). Type “records” to list the IDs that are not made yet. A student with no ID or a lost one: tap File incident, or type “file incident”.',
   },
   student: {
     title: 'Student', avatar: 'ST', caption: 'Self-service', eyebrow: 'STUDENT',
-    blurb: 'Type a student ID or name and I will show that student’s ID status.',
-    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show that student’s ID status. You can also ask about requirements, office hours or a lost ID.',
+    blurb: 'Type a student ID or name and I will show that student’s ID status. Need the office’s help? Ask me, then tap Request help.',
+    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show that student’s ID status. You can also ask about requirements, office hours or a lost ID. When the office needs to step in, I will show a Request help button right here.',
   },
 };
 
@@ -93,6 +96,13 @@ const plainLabel = (label) => label.replace(/^[^\w]+/, '').trim();
 const money = (amount) => `₱${Number(amount).toLocaleString('en-PH')}`;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const emptyState = (text) => `<div class="empty">${text}</div>`;
+/* An error under a form: it fades in and the form shakes, so it is noticed. */
+function showError(id, message) {
+  const line = $(id);
+  line.textContent = message;
+  fx.reveal(line);
+  fx.shake(line.closest('form'));
+}
 const isMobile = () => window.matchMedia('(max-width: 760px)').matches;
 
 function renderMarkdown(text) {
@@ -110,6 +120,7 @@ async function api(url, options = {}) {
   if ((response.headers.get('content-type') || '').includes('application/json')) {
     try { body = await response.json(); } catch { body = {}; }
   }
+  if (response.status === 401 && body.sign_in) { location.assign(body.sign_in); throw new Error(body.error); }
   if (!response.ok) throw new Error(body.error || 'Unable to complete the request.');
   return body;
 }
@@ -139,23 +150,32 @@ function formatTime(ts) {
 }
 const formatNow = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-/* Sidebar badges: how many things are waiting on each page. */
+/* Sidebar badges: how many things are waiting on each page. A number that changed bounces. */
+const shownBadges = {};
 function renderBadges() {
   document.querySelectorAll('#role-nav .nav').forEach(nav => {
     nav.querySelector('.notification-badge')?.remove();
-    const count = badgeCounts[nav.dataset.view] || 0;
+    const view = nav.dataset.view;
+    const count = badgeCounts[view] || 0;
     if (count > 0) {
-      const pulse = nav.dataset.view === 'dashboard' ? ' pulse' : '';
+      const pulse = view === 'dashboard' ? ' pulse' : '';
       nav.insertAdjacentHTML('beforeend', `<span class="notification-badge${pulse}" title="${count} waiting">${count}</span>`);
+      if (shownBadges[view] !== count) fx.pop(nav.querySelector('.notification-badge'), { scale: 1.5 });
     }
+    shownBadges[view] = count;
   });
 }
 
-let toastTimer = null;
+let toastTimer = null, toastTurn = 0;
 function notify(message, duration = 3500) {
   clearTimeout(toastTimer);
-  $('toast').textContent = message;
-  toastTimer = setTimeout(() => { $('toast').textContent = ''; }, duration);
+  const toast = $('toast');
+  const turn = ++toastTurn;                          // a newer message must not be wiped by the older one's exit
+  toast.textContent = message;
+  fx.toast(toast);
+  toastTimer = setTimeout(() => {
+    fx.hide(toast).then(() => { if (turn === toastTurn) toast.textContent = ''; });
+  }, duration);
 }
 
 /* ── Theme and mobile navigation ── */
@@ -171,6 +191,7 @@ function toggleTheme() {
   document.documentElement.setAttribute('data-theme', next);
   store.set('theme', next);
   updateThemeIcon(next);
+  fx.turn($('theme-toggle'));
 }
 function updateThemeIcon(theme) {
   const button = $('theme-toggle');
@@ -178,12 +199,20 @@ function updateThemeIcon(theme) {
 }
 
 function setMobileNav(open) {
+  const changed = document.body.classList.contains('nav-open') !== open;
   document.body.classList.toggle('nav-open', open);
   const button = $('menu-toggle');
   button.setAttribute('aria-expanded', String(open));
   button.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
   button.textContent = open ? '✕' : '☰';
   $('nav-backdrop').hidden = !open;
+  if (changed) {
+    fx.turn(button, open ? 90 : -90);
+    if (open) {
+      fx.fade($('nav-backdrop'));
+      fx.enter($('role-nav').children, { x: -14, y: 0, delay: 0.1, step: 0.04, duration: 0.3 });
+    }
+  }
 }
 const closeMobileNav = () => setMobileNav(false);
 const toggleMobileNav = () => setMobileNav(!document.body.classList.contains('nav-open'));
@@ -204,10 +233,12 @@ function restoreSelected(role) {
 }
 
 function renderSelected() {
-  $('selected-student').textContent = selected
-    ? `📌 ${selected.name} — ${selected.student_id}`
-    : 'No student selected yet. Type a student ID or name.';
+  const banner = $('selected-student');
+  const text = selected ? `📌 ${selected.name} — ${selected.student_id}` : 'No student selected yet. Type a student ID or name.';
+  const changed = banner.textContent !== text;
+  banner.textContent = text;
   $('clear-selected').hidden = !selected;
+  if (changed) fx.swap(banner);
 }
 
 function setSelected(student) {
@@ -230,11 +261,13 @@ function openInChat(student) {
 /* ── Roles, navigation and views ── */
 function setRole(role, { useHash = false } = {}) {
   if (!ROLE_META[role]) return;
+  fx.reset();                                    // another workspace: the lists draw themselves from the start
   workspaceRole = role;
-  store.set('workspaceRole', role);
   const meta = ROLE_META[role];
   $('role-badge').textContent = meta.title;
   $('role-avatar').textContent = meta.avatar;
+  fx.swap($('role-badge'));
+  fx.pop($('role-avatar'));
   $('role-caption').innerHTML = `${escapeHtml(meta.caption)}<small>Local prototype · sample records</small>`;
   $('assistant-eyebrow').textContent = `${meta.eyebrow} ASSISTANT`;
   $('assistant-blurb').textContent = meta.blurb;
@@ -251,15 +284,19 @@ function setRole(role, { useHash = false } = {}) {
   }
   const items = NAV[role];
   const wanted = useHash ? location.hash.slice(1) : '';
-  showView(items.some(item => item.id === wanted) ? wanted : items[0].id);
+  showView(items.some(item => item.id === wanted) ? wanted : items[0].id, { replay: true });
 }
 
 function renderNav() {
   const items = NAV[workspaceRole] || [];
   $('role-nav').innerHTML = items.map(item =>
     `<a class="nav" href="#${item.id}" data-view="${item.id}">${item.label}</a>`).join('');
+  fx.enter($('role-nav').children, { x: -14, y: 0, step: 0.05, duration: 0.3 });
   $('mobile-dock').innerHTML = items.map(item =>
     `<a href="#${item.id}" data-view="${item.id}">${escapeHtml(plainLabel(item.label))}</a>`).join('');
+  const single = items.length < 2;                 // a role with one page (the student's chat) needs no row of tabs
+  $('mobile-dock').hidden = single;
+  document.body.classList.toggle('single-view', single);
   renderBadges();
 }
 
@@ -268,9 +305,10 @@ function scrollMessages() {
   log.scrollTop = log.scrollHeight;
 }
 
-function showView(viewId) {
+function showView(viewId, { replay = false } = {}) {
   const items = NAV[workspaceRole] || [];
   if (!items.some(item => item.id === viewId)) viewId = items.length ? items[0].id : 'assistant';
+  const opened = replay || viewId !== currentView;           // a real change of page, or a new role: the page animates in
   document.querySelectorAll('.workspace').forEach(el => { el.hidden = el.id !== `view-${viewId}`; });
   if (viewId !== currentView) window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   currentView = viewId;
@@ -288,9 +326,10 @@ function showView(viewId) {
   document.title = `${section} · School ID`;
   history.replaceState(null, '', `#${viewId}`);
   closeMobileNav();
+  if (opened) { fx.view($(`view-${viewId}`)); fx.swap($('topbar-section')); }
 
   if (workspaceRole === 'coordinator') {
-    if (viewId === 'dashboard') loadStats({ quiet: true });
+    if (viewId === 'dashboard') { fitTicker(); loadStats({ quiet: true, resync: true }); }
     if (viewId === 'queue') loadQueue();
     if (viewId === 'requests') loadRequests();
     if (viewId === 'feedback') loadFeedback();
@@ -329,16 +368,26 @@ function replaceRecord(updated) {
   records = records.map(r => (r.id === updated.id ? updated : r));
 }
 
-async function load() {
-  try {
-    const data = await api('/api/inventory');
-    records = data.records.map(indexRecord);
-    if (Array.isArray(data.statuses) && data.statuses.length) statuses = data.statuses;
-    if (Array.isArray(data.not_yet_made)) notYetMade = data.not_yet_made;
-    fillSections();
-    render();
-    loadStats({ quiet: true });
-  } catch (error) { notify(error.message); }
+/* `reuse`: when a load is already on its way, wait for that one instead of asking again (two loads would draw the
+   Dashboard twice, and the second drawing cuts the first one's animations short). Anything that follows a change
+   asks again, so it never gets numbers from before the change. */
+let loading = null;
+function load({ reuse = false } = {}) {
+  if (reuse && loading) return loading;
+  const mine = (async () => {
+    try {
+      const data = await api('/api/inventory');
+      records = data.records.map(indexRecord);
+      if (Array.isArray(data.statuses) && data.statuses.length) statuses = data.statuses;
+      if (Array.isArray(data.not_yet_made)) notYetMade = data.not_yet_made;
+      fillSections();
+      render();
+      loadStats({ quiet: true });
+    } catch (error) { notify(error.message); }
+  })();
+  loading = mine;
+  mine.finally(() => { if (loading === mine) loading = null; });
+  return mine;
 }
 
 function fillSections() {
@@ -399,6 +448,7 @@ function renderTiles(today) {
     { label: 'Appointments today', value: count(r => r.schedule_date === today), detail: 'Release and follow-up visits', attrs: ' data-attention-jump="today"' },
     { label: 'Overdue', value: count(r => ATTENTION[0].test(r, today)), detail: 'Past their date, not released', alert: true, attrs: ' data-attention-jump="overdue"' },
   ].map(tileHtml).join('');
+  fx.tiles($('dashboard-tiles'));
 }
 
 function renderStatusChips(f, today) {
@@ -408,6 +458,7 @@ function renderStatusChips(f, today) {
     const n = value ? base.filter(r => matchesStatus(r, value)).length : base.length;
     return `<button type="button" class="filter-chip ${statusClass(value || 'all')}" data-status-chip="${escapeHtml(value)}" aria-pressed="${statusFilter === value}">${escapeHtml(label)} <b>${n}</b></button>`;
   }).join('');
+  fx.chips($('status-chips'));
 }
 
 function renderAttention(f, today) {
@@ -416,6 +467,7 @@ function renderAttention(f, today) {
     const n = base.filter(r => a.test(r, today)).length;
     return `<button type="button" class="filter-chip${a.alert && n ? ' alert' : ''}" data-attention="${a.id}" aria-pressed="${attentionFilter === a.id}">${escapeHtml(a.label)} <b>${n}</b></button>`;
   }).join('');
+  fx.chips($('attention-chips'));
 }
 
 function rowHtml(r, today) {
@@ -424,8 +476,11 @@ function rowHtml(r, today) {
   const overdue = ATTENTION[0].test(r, today);
   const options = statuses.map(s => `<option${s === r.status ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
   const none = '<span class="none">—</span>';
-  return `<tr data-id="${r.id}"${checked ? ' class="checked"' : ''}>
+  const sig = escapeHtml([r.status, r.schedule_type, r.schedule_date, r.schedule_time, r.pending_reason, r.name, r.year_section,
+    r.address, r.contact_number, r.request_type].join('|'));          // what the row shows: a change of it makes the row glow
+  return `<tr data-id="${r.id}" data-sig="${sig}"${checked ? ' class="checked"' : ''}>
     <td class="check-col"><input type="checkbox" class="bulk-check" data-bulk="${r.id}"${checked ? ' checked' : ''} aria-label="Select ${escapeHtml(r.name)}"></td>
+    <td data-label="QR" class="qr-col"><img class="row-qr" src="/qr/${r.id}.png" width="48" height="48" loading="lazy" alt="QR code of ${escapeHtml(r.name)}"></td>
     <td data-label="Student ID" class="id-cell">${escapeHtml(r.student_id)}</td>
     <td data-label="Full name" class="name-cell"><strong>${escapeHtml(r.name)}</strong>${r.request_type === 'Lost ID' ? ' <span class="tag lost">Lost ID</span>' : ''}</td>
     <td data-label="Year &amp; Section">${escapeHtml(r.year_section)}</td>
@@ -449,6 +504,7 @@ function render() {
   renderTiles(today);
   renderStatusChips(f, today);
   renderAttention(f, today);
+  renderTicker();
   badgeCounts.dashboard = records.filter(r => r.status === 'Pending').length;
   renderBadges();
 
@@ -456,9 +512,10 @@ function render() {
   $('count').textContent = `${matching.length} of ${records.length}`;
   $('records').innerHTML = shown.length
     ? shown.map(r => rowHtml(r, today)).join('')
-    : `<tr class="empty-row"><td colspan="8">${emptyState(records.length
+    : `<tr class="empty-row"><td colspan="9">${emptyState(records.length
       ? 'No students match these filters.<br>Try another search or reset the filters.'
       : 'No students yet.<br>Use <b>Add student</b> or <b>Import students</b>.')}</td></tr>`;
+  fx.rows($('records'));
   const more = matching.length - shown.length;
   $('table-foot').innerHTML = more > 0
     ? `<span>Showing ${shown.length} of ${matching.length}.</span> <button type="button" class="text-button" data-show-more>Show ${Math.min(PAGE_SIZE, more)} more</button>`
@@ -477,8 +534,12 @@ function syncSelectionUi() {
   const button = $('select-all-btn');
   button.disabled = total === 0;
   button.textContent = total > 0 && picked === total ? '☐ Clear selection' : `☑ Select all${total ? ` (${total})` : ''}`;
-  $('bulk-toolbar').classList.toggle('visible', picked > 0);
-  $('bulk-count').textContent = `${picked} selected`;
+  const bar = $('bulk-toolbar'), wasVisible = bar.classList.contains('visible');
+  bar.classList.toggle('visible', picked > 0);
+  if (picked > 0 && !wasVisible) fx.reveal(bar);
+  const label = `${picked} selected`;
+  if (picked > 0 && $('bulk-count').textContent !== label) fx.pop($('bulk-count'), { scale: 1.25 });
+  $('bulk-count').textContent = label;
 }
 
 function paintChecks() {
@@ -627,6 +688,7 @@ async function deleteRecord(row) {
     bulkSelected.delete(row.id);
     if (selected && selected.id === row.id) setSelected(null);
     notify(`Deleted ${row.name}.`);
+    await fx.leave($('records').querySelector(`tr[data-id="${row.id}"]`));
     await load();
   } catch (error) { notify(error.message); }
 }
@@ -663,6 +725,7 @@ function openRowMenu(button) {
   const top = below + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 6) : below;   // flip up near the bottom
   rowMenu.style.left = `${left}px`;
   rowMenu.style.top = `${top}px`;
+  fx.menu(rowMenu, top < below);
   rowMenu.querySelector('button').focus({ preventScroll: true });
 }
 
@@ -718,6 +781,7 @@ function openDialog(row = null) {
     }
   }
   $('record-dialog').showModal();
+  fx.dialog($('record-dialog'));
   (row ? form.elements.name : form.elements.student_id).focus();
 }
 
@@ -749,7 +813,7 @@ async function saveRecord(event) {
     await load();
     refreshActivity();
   } catch (error) {
-    $('form-error').textContent = error.message;
+    showError('form-error', error.message);
   } finally {
     button.disabled = false;
   }
@@ -762,6 +826,7 @@ function openImport() {
   $('import-result').innerHTML = '';
   $('import-submit').disabled = false;
   $('import-dialog').showModal();
+  fx.dialog($('import-dialog'));
 }
 
 function importSummary({ added, skipped, total, problems }) {
@@ -782,9 +847,9 @@ async function importStudents(event) {
   const maxMb = Number(input.dataset.maxMb) || 1;
   $('import-error').textContent = '';
   $('import-result').innerHTML = '';
-  if (!file) { $('import-error').textContent = 'Choose a CSV file first.'; return; }
+  if (!file) { showError('import-error', 'Choose a CSV file first.'); return; }
   if (file.size > maxMb * 1024 * 1024) {
-    $('import-error').textContent = `That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${maxMb} MB.`;
+    showError('import-error', `That file is ${(file.size / 1048576).toFixed(1)} MB. The limit is ${maxMb} MB.`);
     return;
   }
   const body = new FormData();
@@ -793,6 +858,7 @@ async function importStudents(event) {
   try {
     const result = await api('/api/inventory/import', { method: 'POST', body });   // the browser sets the multipart header
     $('import-result').innerHTML = importSummary(result);
+    fx.fill($('import-result'));
     input.value = '';
     if (result.added) {
       notify(`Added ${plural(result.added, 'student')}.`);
@@ -800,7 +866,7 @@ async function importStudents(event) {
       refreshActivity();
     }
   } catch (error) {
-    $('import-error').textContent = error.message;
+    showError('import-error', error.message);
   } finally {
     $('import-submit').disabled = false;
   }
@@ -812,20 +878,105 @@ function exportCSV() {
 }
 
 /* ── Numbers behind the sidebar badges ── */
-async function loadStats({ quiet = false } = {}) {
+/* `resync`: when these numbers say the student list changed (someone else added a student or moved an ID), the
+   Dashboard is loaded again. load() asks for the numbers without `resync`, so the two cannot loop. */
+async function loadStats({ quiet = false, resync = false } = {}) {
   if (workspaceRole !== 'coordinator') return;
   try {
     stats = await api('/api/stats');
-    const dateChanged = serverToday !== stats.today;
+    const dateChanged = todayString() !== stats.today;       // the date the last drawing used is not the server's
     serverToday = stats.today;
     badgeCounts.requests = stats.open_requests;
     badgeCounts.feedback = stats.new_feedback;
     badgeCounts.incidents = stats.open_incidents;
     renderBadges();
+    if (resync && dashboardIsStale()) { await load({ reuse: true }); return; }
     if (dateChanged && records.length) render();   // the attention filters depend on today's date
+    else renderTicker();
   } catch (error) {
     if (!quiet) notify(error.message);
   }
+}
+
+function dashboardIsStale() {
+  if (!stats || (!records.length && !stats.total)) return false;
+  return stats.total !== records.length ||
+    statuses.some(status => (stats.by_status[status] || 0) !== records.filter(r => r.status === status).length);
+}
+
+/* ═══════════════ Ticker (Dashboard) ═══════════════ */
+/* A strip under the heading that scrolls where the IDs are, what needs attention and the latest activity. It is drawn
+   again only when something in it changed, so typing in the search box never restarts the scroll. */
+const TICKER_PX_PER_SECOND = 55;
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function tickerItems() {
+  const today = todayString();
+  const items = statuses.map(status => ({ dot: statusClass(status), label: status, value: records.filter(r => r.status === status).length }));
+  const attention = [
+    { icon: '⏰', label: 'Overdue', value: records.filter(r => ATTENTION[0].test(r, today)).length, alert: true },
+    { icon: '📅', label: 'Appointments today', value: records.filter(r => r.schedule_date === today).length },
+    { icon: '📥', label: 'Open requests', value: stats ? stats.open_requests : 0 },
+    { icon: '⚠️', label: 'Open incidents', value: stats ? stats.open_incidents : 0, alert: true },
+    { icon: '👎', label: 'Feedback to review', value: stats ? stats.new_feedback : 0 },
+  ].filter(item => item.value > 0);
+  items.push(...(attention.length ? attention : [{ icon: '✅', text: 'Nothing needs attention right now' }]));
+  for (const event of (stats && stats.recent_activity) || []) {
+    items.push({ icon: '🕓', muted: true, text: `${formatTime(event.timestamp)} · ${event.action}${event.detail ? ` · ${event.detail}` : ''}` });
+  }
+  return items;
+}
+
+const tickerText = (item) => item.text || `${item.label} ${item.value}`;
+
+function tickerItemHtml(item) {
+  const lead = item.dot ? `<i class="dot ${escapeHtml(item.dot)}" aria-hidden="true"></i>` : `<span aria-hidden="true">${item.icon}</span>`;
+  const body = item.text ? escapeHtml(item.text) : `${escapeHtml(item.label)} <b>${escapeHtml(item.value)}</b>`;
+  return `<span class="ticker-item${item.alert ? ' alert' : ''}${item.muted ? ' muted' : ''}">${lead}${body}</span>`;
+}
+
+function renderTicker() {
+  if (workspaceRole !== 'coordinator' || (!records.length && !stats)) return;
+  const items = tickerItems();
+  const key = JSON.stringify(items);
+  if (key === tickerKey) return;                       // nothing changed: the scroll carries on
+  tickerKey = key;
+  tickerUnit = items.map(tickerItemHtml).join('');
+  $('ticker-summary').textContent = items.map(tickerText).join('. ');
+  const first = $('ticker').hidden;
+  $('ticker').hidden = false;
+  fitTicker();
+  if (first) fx.reveal($('ticker')); else fx.fade($('ticker-window'), { from: 0.3, duration: 0.5 });
+}
+
+/* The loop shows two copies side by side. One copy has to be wider than the strip or the loop would show a gap,
+   so it is repeated to fill it. Called again when the strip changes size or the Dashboard is opened. */
+function fitTicker() {
+  const view = $('ticker-window');
+  if (!tickerUnit || !view || !view.clientWidth) return;     // hidden for now: it is fitted when the Dashboard opens
+  const still = reducedMotion();
+  const probe = Object.assign(document.createElement('div'), { className: 'ticker-group', innerHTML: tickerUnit });
+  probe.style.cssText = 'position:absolute;visibility:hidden;width:max-content';
+  view.appendChild(probe);
+  const unitWidth = probe.scrollWidth;
+  probe.remove();
+  const repeats = still || !unitWidth ? 1 : Math.max(1, Math.ceil(view.clientWidth * 1.15 / unitWidth));
+  const fit = `${tickerKey}|${repeats}|${still}`;
+  if (fit === tickerFit) return;
+  tickerFit = fit;
+  const group = `<div class="ticker-group">${tickerUnit.repeat(repeats)}</div>`;
+  $('ticker-track').innerHTML = still ? group : group + group;
+  $('ticker-track').style.setProperty('--ticker-seconds', `${Math.max(20, Math.round(unitWidth * repeats / TICKER_PX_PER_SECOND))}s`);
+}
+
+function setTickerPaused(paused) {
+  $('ticker').classList.toggle('paused', paused);
+  const button = $('ticker-toggle');
+  button.setAttribute('aria-pressed', String(paused));
+  button.setAttribute('aria-label', paused ? 'Play the ticker' : 'Pause the ticker');
+  button.title = paused ? 'Play the ticker' : 'Pause the ticker';
+  button.textContent = paused ? '▶' : '⏸';
+  if (paused) store.set('tickerPaused', '1'); else store.remove('tickerPaused');
 }
 
 /* ═══════════════ Assistant (everyone): a full-page chat ═══════════════ */
@@ -836,10 +987,14 @@ function showTyping() {
   indicator.id = 'typing';
   indicator.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
   $('messages').appendChild(indicator);
+  fx.typing(indicator);
   scrollMessages();
 }
 function hideTyping() {
-  $('typing')?.remove();
+  const indicator = $('typing');
+  if (!indicator) return;
+  fx.untyping(indicator);
+  indicator.remove();
 }
 
 /* The ANN's score is how closely the words matched a known topic, not a probability that the
@@ -847,8 +1002,11 @@ function hideTyping() {
    commands and the records list come from the database and carry no score at all. */
 const QUIET_INTENTS = new Set(['out_of_scope', 'greeting', 'thanks_goodbye']);
 /* Answers that are a record or a list from the database are drawn as a card. */
+/* Confirmations glow once when they arrive. */
+const GLOW_INTENTS = new Set(['incident_filed', 'request_submitted', 'gate_check_in', 'gate_check_out']);
 const CARD_INTENTS = new Set(['student_lookup', 'student_not_found', 'gate_check_in', 'gate_check_out',
-  'gate_not_logged', 'gate_log', 'records_list']);
+  'gate_not_logged', 'gate_log', 'records_list', 'my_requests', 'request_submitted', 'incidents_list', 'incident_filed',
+  'incident_status']);
 
 function matchLabel(score) {
   if (score >= 0.6) return ['high', 'Strong match'];
@@ -903,6 +1061,7 @@ function addMessage(text, kind, meta = {}) {
   }
   $('messages').appendChild(node);
   scrollMessages();
+  if (meta.fresh !== false) fx.message(node, { kind, glow: kind === 'bot' && GLOW_INTENTS.has(meta.intent) });
   node.querySelectorAll('[data-action-index]').forEach(button => {
     button.onclick = () => handleAction(actions[Number(button.dataset.actionIndex)], { button, student: meta.student });
   });
@@ -926,7 +1085,10 @@ function setRating(node, rating, note = '') {
     button.setAttribute('aria-pressed', String(on));
   });
   const noteEl = node.querySelector('.feedback-note');
-  if (noteEl) noteEl.textContent = note;
+  if (noteEl) {
+    noteEl.textContent = note;
+    if (note) fx.swap(noteEl);
+  }
 }
 
 function feedbackIds(node) {
@@ -937,8 +1099,10 @@ function feedbackIds(node) {
 function togglePanel(node, open) {
   const panel = node && node.querySelector('.feedback-panel');
   if (!panel) return;
+  const opening = open && panel.hidden;
   panel.hidden = !open;
   node.classList.toggle('rating-open', open);
+  if (opening) fx.reveal(panel);
 }
 
 async function rateMessage(node, rating) {
@@ -951,9 +1115,11 @@ async function rateMessage(node, rating) {
       await api(`/api/chat/feedback?message_id=${ids.message_id}&session_id=${encodeURIComponent(ids.session_id)}`, { method: 'DELETE' });
       togglePanel(node, false);
       setRating(node, '', 'Rating removed.');
+      fx.pop(node.querySelector(`[data-rate="${rating}"]`), { scale: 0.8 });
     } else {
       await api('/api/chat/feedback', postJson({ ...ids, rating }));
       setRating(node, rating, rating === 'up' ? 'Thanks for the feedback.' : '');
+      fx.pop(node.querySelector(`[data-rate="${rating}"]`), { scale: 1.5 });
       togglePanel(node, rating === 'down');
       if (rating === 'down') {
         const panel = node.querySelector('.feedback-panel');
@@ -1018,8 +1184,8 @@ function handleAction(action, { button = null, student = null } = {}) {
     open_feedback: () => showView('feedback'),
     open_incidents: () => showView('incidents'),
     open_verify: () => { showView('verify'); $('verify-query').focus(); },
-    open_incident: () => openIncident(action.student_id || ''),
-    open_student_request: () => openStudentRequest(student),
+    open_incident: () => openIncident(action, student),
+    open_student_request: () => openStudentRequest(action, student),
     ask_office: () => send('Where is the Property Management Office and what are the hours?'),
     ask_human: () => send('I need to talk to a person at the office'),
     send: () => {
@@ -1034,6 +1200,22 @@ function handleAction(action, { button = null, student = null } = {}) {
   (handlers[action.type] || (() => notify('That action is not available in this role.')))();
 }
 
+/* What addMessage needs to draw a bot answer, from the server's reply to /api/chat or /api/chat/request. */
+function replyMeta(response, session) {
+  return {
+    confidence: response.confidence,
+    intent: response.intent,
+    actions: response.actions,
+    timestamp: response.timestamp,
+    messageId: response.message_id,
+    sessionId: session,
+    suggestions: response.suggestions,
+    suggestionsTitle: response.suggestions_title,
+    followUps: response.follow_ups,
+    student: response.student || selected,
+  };
+}
+
 async function send(text, { retry = false } = {}) {
   if (sending) { notify('One moment, I am still answering.'); return; }
   sending = true;
@@ -1041,6 +1223,7 @@ async function send(text, { retry = false } = {}) {
   const button = $('chat-form').querySelector('button');
   if (!retry) addMessage(text, 'user');
   button.disabled = true;
+  fx.nudge(button);
   showTyping();
   try {
     await new Promise(resolve => setTimeout(resolve, 200));
@@ -1057,18 +1240,7 @@ async function send(text, { retry = false } = {}) {
       notify('The selected student is no longer on the list.');
     }
     if (response.student) setSelected(response.student);
-    addMessage(response.reply, 'bot', {
-      confidence: response.confidence,
-      intent: response.intent,
-      actions: response.actions,
-      timestamp: response.timestamp,
-      messageId: response.message_id,
-      sessionId: session,
-      suggestions: response.suggestions,
-      suggestionsTitle: response.suggestions_title,
-      followUps: response.follow_ups,
-      student: response.student || selected,
-    });
+    addMessage(response.reply, 'bot', replyMeta(response, session));
   } catch (error) {
     hideTyping();
     if (session === sessionId()) addMessage(error.message, 'bot', { retryText: text });
@@ -1089,9 +1261,12 @@ function suggestionList() {
       ask(`check in ${selected.student_id}`, '✅ Check in'),
       ask(`check out ${selected.student_id}`, '⬅️ Check out'),
       act('⚠️ File incident', { type: 'open_incident', student_id: selected.student_id }),
+      ask('incidents', '📋 Incidents'),
       ask('gate log', '📜 Gate log'),
       ask('records', '📂 IDs not yet made'),
     ] : [
+      act('⚠️ File incident', { type: 'open_incident' }),
+      ask('incidents', '📋 Incidents'),
       ask('records', '📂 IDs not yet made'),
       ask('gate log', '📜 Gate log'),
       ask('I lost my school ID', 'A student lost the ID'),
@@ -1099,15 +1274,19 @@ function suggestionList() {
     ];
   }
   if (workspaceRole === 'student') {
+    const help = act('📝 Request help', { type: 'open_student_request' });
     return selected ? [
       ask('What is the status of my student ID?', 'Status'),
       ask('When can I collect my school ID?', 'Release date'),
       ask('Why is my student ID pending?', 'Pending reason'),
+      help,
+      ask(`my requests ${selected.student_id}`, '📋 My requests'),
       ask('What documents are needed for a new student ID?', 'Requirements'),
     ] : [
       ask('What documents are needed for a new student ID?', 'Requirements'),
       ...common,
       ask('I lost my school ID', 'Lost ID'),
+      help,
       ask('What can you do?', 'Help'),
     ];
   }
@@ -1137,6 +1316,7 @@ function updateSuggestions() {
   const items = suggestionList();
   container.innerHTML = items.map((item, i) =>
     `<button type="button" data-suggestion="${i}">${escapeHtml(item.label)}</button>`).join('');
+  fx.refill(container);
   container.querySelectorAll('[data-suggestion]').forEach(button => {
     const item = items[Number(button.dataset.suggestion)];
     button.onclick = () => (item.q ? send(item.q) : handleAction(item.action, { student: selected }));
@@ -1166,7 +1346,9 @@ async function loadChatHistory() {
         messageId: m.role === 'bot' ? m.id : undefined,
         rating: m.rating,
         sessionId: session,
+        fresh: false,                               // an old conversation does not fly in message by message
       }));
+      fx.enter($('messages').querySelectorAll('.message:nth-last-child(-n+6)'), { y: 10, step: 0.05, duration: 0.3 });
     }
   } catch { /* the welcome message stays */ }
 }
@@ -1177,15 +1359,21 @@ async function newChat() {
     await api(`/api/chat/history?session_id=${encodeURIComponent(sessionId())}`, { method: 'DELETE' });
   } catch { /* the chat is cleared on screen either way */ }
   setSelected(null);
-  $('messages').innerHTML = '';
+  const old = Array.from($('messages').children);           // only what was on screen is swept away
+  await Promise.all(old.slice(-8).map(node => fx.leave(node)));
+  old.forEach(node => node.remove());
   welcomeMessage();
 }
 
 function updateChatCount() {
   const length = $('chat-input').value.length;
-  $('chat-count').hidden = length < 800;
-  $('chat-count').textContent = `${length} / ${$('chat-input').maxLength}`;
-  $('chat-count').classList.toggle('near', length >= 950);
+  const counter = $('chat-count');
+  const wasHidden = counter.hidden, wasNear = counter.classList.contains('near');
+  counter.hidden = length < 800;
+  counter.textContent = `${length} / ${$('chat-input').maxLength}`;
+  counter.classList.toggle('near', length >= 950);
+  if (wasHidden && !counter.hidden) fx.reveal(counter);
+  if (!wasNear && counter.classList.contains('near')) fx.shake(counter);
 }
 
 /* ═══════════════ Appointments (coordinator) ═══════════════ */
@@ -1197,6 +1385,7 @@ async function loadQueue() {
     lastQueue = data.appointments;
     if (!lastQueue.length) {
       $('queue-list').innerHTML = emptyState('No appointments yet.<br>Open a student on the Dashboard and choose Edit / schedule.');
+      fx.sync($('queue-list'));
       return;
     }
     const overdue = row => row.schedule_date < data.today && row.status !== 'Released';
@@ -1208,7 +1397,7 @@ async function loadQueue() {
     $('queue-list').innerHTML =
       `<div class="pill-row"><span class="${counts.overdue ? 'alert' : ''}"><strong>${counts.overdue}</strong>overdue</span><span><strong>${counts.today}</strong>today</span><span><strong>${counts.upcoming}</strong>upcoming</span></div>` +
       lastQueue.map(row => `
-      <article class="tool-row">
+      <article class="tool-row" data-key="q${row.id}">
         <div>
           <h3>${escapeHtml(row.name)}</h3>
           <p>${escapeHtml(row.student_id)} · ${escapeHtml(row.year_section)} · <span class="status ${statusClass(row.status)}">${escapeHtml(row.status)}</span></p>
@@ -1220,6 +1409,7 @@ async function loadQueue() {
           <button type="button" class="text-button" data-queue-chat="${row.id}">Ask about ID</button>
         </div>
       </article>`).join('');
+    fx.sync($('queue-list'));
   } catch (error) { notify(error.message); }
 }
 
@@ -1238,12 +1428,14 @@ async function loadRequests() {
       data.statuses.map(status =>
         `<button type="button" class="filter-chip" data-request-filter="${escapeHtml(status)}" aria-pressed="${requestFilter === status}">${escapeHtml(status)} <b>${data.counts[status]}</b></button>`
       ).join('');
+    fx.chips($('request-chips'));
     if (!data.requests.length) {
       $('request-inbox').innerHTML = emptyState(requestFilter ? `No requests are ${escapeHtml(requestFilter.toLowerCase())} right now.` : 'No student requests yet.');
+      fx.sync($('request-inbox'));
       return;
     }
     $('request-inbox').innerHTML = data.requests.map(row => `
-      <article class="tool-row">
+      <article class="tool-row" data-key="r${row.id}">
         <div>
           <h3>${escapeHtml(row.request_type)} · ${escapeHtml(row.student_id)}</h3>
           <p>${escapeHtml(row.name || 'Unnamed')} · <span class="status ${statusClass(row.status)}">${escapeHtml(row.status)}</span> · ${escapeHtml(row.timestamp)}</p>
@@ -1254,6 +1446,7 @@ async function loadRequests() {
           ${(data.flow[row.status] || []).map(next => `<button type="button" class="${next === 'Accepted' ? 'primary' : 'text-button'}" data-request-status="${row.id}" data-status="${escapeHtml(next)}"${next === 'Accepted' && row.request_type === 'Lost ID' ? ' title="Sets this student’s ID back to Pending (Lost ID) so a replacement can be made"' : ''}>${escapeHtml(REQUEST_BUTTONS[next] || next)}</button>`).join('')}
         </div>
       </article>`).join('');
+    fx.sync($('request-inbox'));
   } catch (error) { notify(error.message); }
 }
 
@@ -1297,25 +1490,30 @@ function renderFeedback({ summary, items }) {
     { label: 'Questions shared', value: summary.shared, detail: 'People who ticked “share”' },
     { label: 'Total ratings', value: summary.total, detail: 'All time' },
   ].map(tileHtml).join('');
+  fx.tiles($('feedback-tiles'));
   const struggled = summary.by_intent.filter(row => row.down > 0);
   $('feedback-topics').innerHTML = struggled.length
     ? struggled.map(row => `<div class="bar-row"><span>${escapeHtml(topicName(row.intent))}</span><span class="bar-track" aria-hidden="true"><span class="bar-fill down" style="width:${Math.round(100 * row.down / Math.max(1, struggled[0].down))}%"></span></span><b>👎 ${row.down} · 👍 ${row.up}</b></div>`).join('')
     : '<p class="subtle">No 👎 ratings yet.</p>';
   $('feedback-reasons').innerHTML = barsHtml(Object.entries(summary.by_reason), 'down');
+  fx.bars($('feedback-topics'));
+  fx.bars($('feedback-reasons'));
   $('feedback-chips').innerHTML = FEEDBACK_FILTERS.map(([id, label, , count]) =>
     `<button type="button" class="filter-chip" data-feedback-filter="${id}" aria-pressed="${feedbackFilter === id}">${escapeHtml(label)} <b>${count(summary)}</b></button>`
   ).join('');
+  fx.chips($('feedback-chips'));
   if (!items.length) {
     $('feedback-list').innerHTML = emptyState(feedbackFilter === 'review'
       ? 'Nothing waiting for review. When someone rates an answer 👎 it shows up here.'
       : 'No feedback in this view yet.');
+    fx.sync($('feedback-list'));
     return;
   }
   const options = (current) => '<option value="">Not set</option>' + knownIntents.map(intent =>
     `<option value="${escapeHtml(intent)}"${intent === current ? ' selected' : ''}>${escapeHtml(topicName(intent))}</option>`).join('');
   $('feedback-list').innerHTML = items.map(item => {
     const down = item.rating === 'down';
-    return `<article class="tool-row feedback-item">
+    return `<article class="tool-row feedback-item" data-key="f${item.id}">
       <div>
         <h3>${down ? '👎' : '👍'} ${escapeHtml(down ? (item.reason || 'No reason given') : 'Found helpful')}</h3>
         <p>Answered as <strong>${escapeHtml(topicName(item.intent))}</strong> · match ${Number(item.confidence).toFixed(2)} · ${escapeHtml(item.workspace_role || 'unknown role')} · ${escapeHtml(item.timestamp)}</p>
@@ -1329,6 +1527,7 @@ function renderFeedback({ summary, items }) {
       </div>` : ''}
     </article>`;
   }).join('');
+  fx.sync($('feedback-list'));
 }
 
 async function reviewFeedback(id, changes) {
@@ -1341,13 +1540,14 @@ async function loadActivity() {
     const data = await api('/api/activity');
     $('activity-list').innerHTML = data.events.length
       ? data.events.map(row => `
-        <article class="tool-row">
+        <article class="tool-row" data-key="${escapeHtml(`${row.timestamp}|${row.action}|${row.detail}`)}">
           <div>
             <h3>${escapeHtml(row.action)}</h3>
             <p>${escapeHtml(row.actor_role)} · ${escapeHtml(row.detail)} · ${escapeHtml(row.timestamp)}</p>
           </div>
         </article>`).join('')
       : emptyState('No activity yet. Changes will appear here.');
+    fx.sync($('activity-list'));
   } catch (error) { notify(error.message); }
 }
 
@@ -1386,15 +1586,17 @@ async function runVerify(query, { fromScan = false } = {}) {
       : emptyState(fromScan
         ? 'That QR code does not match any student. The record may have been deleted. File an incident if they have no ID.'
         : 'No matching student. File an incident if they have no ID.');
+    fx.fill($('verify-result'));
   } catch (error) {
     $('verify-result').innerHTML = emptyState(escapeHtml(error.message));
+    fx.fill($('verify-result'));
   }
 }
 
 /* ── QR scanner (camera) ──
    The decoder (jsQR, vendored in static/vendor) is loaded only when the scanner opens, so it works in
    any browser with camera access. getUserMedia needs a secure page: https:// or localhost. */
-let scanStream = null, scanTimer = 0, jsQrLoading = null;
+let scanStream = null, scanTimer = 0, jsQrLoading = null, stopScanLine = () => {};
 const scanCanvas = document.createElement('canvas');
 
 function loadJsQr() {
@@ -1414,6 +1616,9 @@ function stopScanner() {
   scanStream?.getTracks().forEach(track => track.stop());
   scanStream = null;
   $('scan-video').srcObject = null;
+  stopScanLine();
+  stopScanLine = () => {};
+  $('scan-frame').classList.remove('scanning');
 }
 
 /* Only QR codes made by this app (a /student/<token> link) are accepted. */
@@ -1463,6 +1668,7 @@ async function openScanner() {
   video.hidden = true;
   status.textContent = 'Starting the camera…';
   dialog.showModal();
+  fx.dialog(dialog);
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     status.textContent = 'The camera only works on https:// pages or on localhost. Open this app that way, or type the student ID instead.';
     return;
@@ -1477,6 +1683,8 @@ async function openScanner() {
     await video.play();
     if (!dialog.open) { stopScanner(); return; }
     status.textContent = 'Point the camera at the QR code on the sticker or card.';
+    $('scan-frame').classList.add('scanning');
+    stopScanLine = fx.scanner($('scan-line'), $('scan-frame'));
     scanLoop();
   } catch (error) {
     stopScanner();
@@ -1517,6 +1725,7 @@ async function runIncidentCheck({ force = false } = {}) {
   if (!studentId || (!force && ID_STILL_TYPING.test(studentId))) {
     panel.hidden = true;
     panel.innerHTML = '';
+    fx.forget(panel);
     return;
   }
   try {
@@ -1528,6 +1737,10 @@ async function runIncidentCheck({ force = false } = {}) {
     panel.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
   }
   panel.hidden = false;
+  fx.update(panel).then(moved => {                    // a student whose answer disagrees with the records gets a nudge
+    const warning = moved && panel.querySelector('.claim.warn');
+    if (warning) fx.shake(warning);
+  });
 }
 
 function scheduleIncidentCheck() {
@@ -1535,30 +1748,27 @@ function scheduleIncidentCheck() {
   incidentCheckTimer = setTimeout(() => runIncidentCheck(), 350);
 }
 
-function openIncident(studentId = '') {
-  showView('incidents');
-  const form = $('incident-form');
-  if (studentId) {
-    form.elements.student_id.value = studentId;
-    runIncidentCheck({ force: true });
-  }
-  form.elements.detail.focus();
-}
+const incidentCategories = () => [...$('incident-form').elements.category.options].map(o => o.value);
 
-function incidentResultHtml(incident) {
-  const steps = (incident.next_steps || []).map(step => `<li>${escapeHtml(step)}</li>`).join('');
-  const who = incident.student_name
-    ? `<p><b>${escapeHtml(incident.student_name)}</b> · ${escapeHtml(incident.student_id)}</p>`
-    : (incident.student_id ? `<p>${escapeHtml(incident.student_id)} <span class="subtle">(not on the dashboard)</span></p>` : '');
-  const claim = incident.claim && incident.claim.message
-    ? `<p class="claim ${incident.claim.agrees === true ? 'ok' : incident.claim.agrees === false ? 'warn' : ''}">${escapeHtml(incident.claim.message)}</p>` : '';
-  const lie = incident.false_statement
-    ? `<p class="reason">⚠ False statement no. ${Number(incident.false_statements)} for this student${incident.penalty ? `: penalty ${money(incident.penalty)}` : ''}.</p>` : '';
-  return `<article class="tool-card result-card">
-    <h3>✅ Incident #${Number(incident.id)} filed · ${escapeHtml(incident.category)}</h3>
-    ${who}${claim}${lie}
-    ${steps ? `<p><b>Next steps</b></p><ol>${steps}</ol>` : ''}
-  </article>`;
+/* The File incident button opens the form over the chat, whichever page it was pressed on. `action` may name the
+   student and the category the answer was about; `student` is the one the chat is on. */
+function openIncident(action = {}, student = null) {
+  if (workspaceRole === 'student') return;
+  if (currentView !== 'assistant') showView('assistant');
+  const form = $('incident-form');
+  const who = action.student_id || (student && student.student_id) || (selected && selected.student_id) || '';
+  form.reset();
+  $('incident-error').textContent = '';
+  $('incident-check').hidden = true;
+  $('incident-check').innerHTML = '';
+  fx.forget($('incident-check'));
+  incidentCheckTicket++;                            // a check still on its way is no longer wanted
+  form.elements.student_id.value = who;
+  if (incidentCategories().includes(action.category)) form.elements.category.value = action.category;
+  $('incident-dialog').showModal();
+  fx.dialog($('incident-dialog'));
+  if (who) runIncidentCheck({ force: true });
+  form.elements[who ? 'detail' : 'student_id'].focus();
 }
 
 function incidentRow(row) {
@@ -1569,7 +1779,7 @@ function incidentRow(row) {
       ? `<button type="button" class="text-button danger-text" data-incident-flag="${row.id}" data-flag="false" title="Not a false statement after all">Withdraw false statement</button>`
       : `<button type="button" class="text-button" data-incident-flag="${row.id}" data-flag="true">Mark as false statement</button>`)
     : '';
-  return `<article class="tool-row">
+  return `<article class="tool-row" data-key="i${row.id}">
     <div>
       <h3>${escapeHtml(row.category)} · ${escapeHtml(row.status)} ${tag}</h3>
       <p>${escapeHtml(who)} · ${escapeHtml(row.location || 'Unspecified')} · ${escapeHtml(row.timestamp)}</p>
@@ -1590,115 +1800,94 @@ async function loadIncidents() {
     $('incident-list').innerHTML = data.incidents.length
       ? '<h3 class="list-title">Latest incidents</h3>' + data.incidents.map(incidentRow).join('')
       : emptyState('No incidents filed.');
+    fx.sync($('incident-list'));
   } catch (error) { notify(error.message); }
 }
 
+/* Sending the form puts the confirmation in the chat: the guard never leaves the conversation. */
 async function fileIncident(event) {
   event.preventDefault();
   const form = event.target;
-  const button = form.querySelector('[type="submit"]');
+  const button = $('incident-submit');
+  const session = sessionId();
   const body = {
     category: form.elements.category.value,
     student_id: form.elements.student_id.value.trim(),
     location: form.elements.location.value.trim(),
     detail: form.elements.detail.value.trim(),
     false_statement: form.elements.false_statement.checked,
+    session_id: session,
+    workspace_role: workspaceRole,
   };
   button.disabled = true;
+  $('incident-error').textContent = '';
   try {
-    const created = await api('/api/incidents', postJson(body));
-    $('incident-result').innerHTML = incidentResultHtml(created);
-    form.elements.student_id.value = '';
-    form.elements.detail.value = '';
-    form.elements.false_statement.checked = false;
-    $('incident-check').hidden = true;
-    $('incident-check').innerHTML = '';
-    incidentCheckTicket++;                          // a check still on its way is no longer wanted
-    notify('Incident filed.');
-    loadIncidents();
+    const response = await api('/api/chat/incident', postJson(body));
+    incidentCheckTicket++;
+    $('incident-dialog').close();
+    if (session !== sessionId()) return;            // the role was switched meanwhile: that chat is not on screen
+    if (response.student) setSelected(response.student);
+    addMessage(`⚠️ File incident: ${response.incident.category}`, 'user');
+    addMessage(response.reply, 'bot', replyMeta(response, session));
+    notify(`Incident #${response.incident.id} filed.`, 6000);
     loadStats({ quiet: true });
   } catch (error) {
-    notify(error.message);
+    showError('incident-error', error.message);          // the form stays open, with what was typed
   } finally {
     button.disabled = false;
   }
 }
 
-/* ═══════════════ Request help (student) ═══════════════ */
-/* A student sees only the type, status and time of their own requests, not the staff's handling. */
-const REQUEST_HELP = {
-  Submitted: 'Waiting for the office to look at it.',
-  'In review': 'Staff are looking at it.',
-  Accepted: 'Accepted. Follow the office’s instructions.',
-  Closed: 'Finished.',
-};
+/* ═══════════════ Request help (student): a pop-up opened from the chat ═══════════════ */
+/* The “Request help” button under an answer opens this form. Sending it puts the confirmation in the chat, and
+   “my requests” in the chat follows the request, so a student never leaves the conversation. */
 
-async function loadMyRequests(studentId = lookedUpStudent) {
-  if (!studentId) return;
-  let html = '';
-  try {
-    const data = await api('/api/student/requests', postJson({ student_id: studentId }));
-    html = data.requests.length
-      ? '<h3 class="list-title">Your requests</h3>' + data.requests.map(row => `
-        <article class="tool-row">
-          <div>
-            <h3>${escapeHtml(row.request_type)} <span class="subtle">#${Number(row.id)}</span></h3>
-            <p>${escapeHtml(row.timestamp)} · ${escapeHtml(REQUEST_HELP[row.status] || '')}</p>
-          </div>
-          <div class="row-actions"><span class="status ${statusClass(row.status)}">${escapeHtml(row.status)}</span></div>
-        </article>`).join('')
-      : emptyState('No requests were made with that student ID yet.');
-  } catch (error) {
-    html = emptyState(escapeHtml(error.message));
-  }
-  $('request-tracker').innerHTML = html;
+const requestTypes = () => [...$('student-request-form').elements.request_type.options].map(o => o.value).filter(Boolean);
+
+function syncRequestNotice() {
+  const notice = $('request-notice');
+  const show = $('student-request-form').elements.request_type.value === 'Lost ID';
+  const opening = show && notice.hidden;
+  notice.hidden = !show;
+  if (opening) fx.reveal(notice);
 }
 
-function requestResultHtml(created) {
-  const steps = (created.next_steps || []).map(step => `<li>${escapeHtml(step)}</li>`).join('');
-  return `<article class="tool-card result-card">
-    <h3>✅ Request #${Number(created.id)} submitted</h3>
-    <p>${escapeHtml(created.request_type)} · ${escapeHtml(created.student_id)} · <span class="status ${statusClass(created.status)}">${escapeHtml(created.status)}</span></p>
-    ${steps ? `<p><b>What to do next</b></p><ol>${steps}</ol>` : '<p class="subtle">The office will look at it. You can follow it below.</p>'}
-  </article>`;
-}
-
-/* Opens the form for one student, from the “Request help” button on that student’s own answer. */
-function openStudentRequest(student = null) {
-  showView('student-request');
+/* `action` may name the student and the kind of help the answer was about; `student` is the one the chat is on. */
+function openStudentRequest(action = {}, student = null) {
+  if (workspaceRole !== 'student') return;
   const form = $('student-request-form');
-  if (student) {
-    form.elements.student_id.value = student.student_id;
-    form.elements.name.value = student.name;
-  }
-  form.elements.detail.focus();
+  const who = action.student_id ? { student_id: action.student_id, name: action.name || '' } : (student || selected);
+  form.reset();
+  $('request-error').textContent = '';
+  form.elements.student_id.value = who ? who.student_id : '';
+  form.elements.name.value = who ? who.name : '';
+  form.elements.request_type.value = requestTypes().includes(action.request_type) ? action.request_type : '';
+  syncRequestNotice();
+  $('request-dialog').showModal();
+  fx.dialog($('request-dialog'));
+  form.elements[['student_id', 'request_type'].find(name => !form.elements[name].value) || 'detail'].focus();
 }
 
 async function submitStudentRequest(event) {
   event.preventDefault();
-  const form = event.target;
-  const body = Object.fromEntries(new FormData(form));
-  const button = form.querySelector('[type="submit"]');
+  const body = Object.fromEntries([...new FormData(event.target)].map(([key, value]) => [key, String(value).trim()]));
+  const button = $('request-submit');
+  const session = sessionId();
   button.disabled = true;
+  $('request-error').textContent = '';
   try {
-    const created = await api('/api/requests', postJson(body));
-    lookedUpStudent = created.student_id;
-    $('request-result').innerHTML = requestResultHtml(created);
-    form.elements.detail.value = '';
-    notify(`Request #${created.id} submitted. It is now “${created.status}”.`, 6000);
-    loadMyRequests(created.student_id);
+    const response = await api('/api/chat/request', postJson({ ...body, session_id: session, workspace_role: workspaceRole }));
+    $('request-dialog').close();
+    if (session !== sessionId()) return;               // the role was switched meanwhile: that chat is not on screen
+    if (response.student) setSelected(response.student);
+    addMessage(`📝 Request help: ${response.request.request_type}`, 'user');
+    addMessage(response.reply, 'bot', replyMeta(response, session));
+    notify(`Request #${response.request.id} sent. It is now “${response.request.status}”.`, 6000);
   } catch (error) {
-    notify(error.message);
+    showError('request-error', error.message);          // the form stays open, with what was typed
   } finally {
     button.disabled = false;
   }
-}
-
-function trackMyRequests() {
-  const studentId = $('student-request-form').elements.student_id.value.trim();
-  if (!studentId) { notify('Type your student ID first.'); return; }
-  lookedUpStudent = studentId;
-  loadMyRequests(studentId);
 }
 
 /* ═══════════════ Event wiring ═══════════════ */
@@ -1749,12 +1938,13 @@ $('records').addEventListener('change', event => {
     if (box.checked) bulkSelected.add(id); else bulkSelected.delete(id);
     box.closest('tr').classList.toggle('checked', box.checked);
     syncSelectionUi();
+    fx.pop(box, { scale: 1.3 });
     return;
   }
   const select = event.target.closest('[data-status-select]');
   if (select) changeStatus(select);
 });
-$('select-all').addEventListener('change', event => selectAllMatching(event.target.checked));
+$('select-all').addEventListener('change', event => { selectAllMatching(event.target.checked); fx.pop(event.target, { scale: 1.3 }); });
 $('select-all-btn').onclick = () => selectAllMatching();
 $('bulk-clear').onclick = () => selectAllMatching(false);
 $('bulk-apply').onclick = bulkUpdateStatus;
@@ -1832,10 +2022,19 @@ $('feedback-export').onclick = () => {
 $('theme-toggle').onclick = toggleTheme;
 $('menu-toggle').onclick = toggleMobileNav;
 $('nav-backdrop').onclick = closeMobileNav;
-$('switch-role').onclick = () => $('role-dialog').showModal();
+function openRoleDialog() {
+  $('role-dialog').showModal();
+  fx.dialog($('role-dialog'));
+}
+$('switch-role').onclick = () => {                              // the chooser is the home page; leaving the coordinator signs out
+  const home = () => location.assign('/');
+  if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
+  else home();
+};
 $('role-form').addEventListener('submit', event => {
+  event.preventDefault();
   const role = event.submitter && event.submitter.value;
-  if (role) setRole(role);
+  if (ROLE_META[role]) location.assign(`/${role}`);
 });
 $('role-dialog').addEventListener('cancel', event => {
   if (!workspaceRole) event.preventDefault();       // the first visit needs a role
@@ -1865,7 +2064,8 @@ document.addEventListener('click', event => {
   if (requestButton) {
     requestButton.disabled = true;
     api(`/api/requests/${requestButton.dataset.requestStatus}`, postJson({ status: requestButton.dataset.status }, 'PATCH'))
-      .then(() => {
+      .then(async () => {
+        if (requestFilter && requestFilter !== requestButton.dataset.status) await fx.leave(requestButton.closest('.tool-row'));
         notify(`Request marked ${requestButton.dataset.status}.`);
         loadRequests();
         load();                                  // accepting a lost ID changes that student's status
@@ -1882,7 +2082,8 @@ document.addEventListener('click', event => {
   if (feedbackStatus) {
     feedbackStatus.disabled = true;
     reviewFeedback(feedbackStatus.dataset.feedbackStatus, { status: feedbackStatus.dataset.status })
-      .then(() => {
+      .then(async () => {
+        if (feedbackFilter === 'review' && feedbackStatus.dataset.status === 'Reviewed') await fx.leave(feedbackStatus.closest('.tool-row'));
         notify(feedbackStatus.dataset.status === 'Reviewed' ? 'Marked as reviewed.' : 'Moved back to needs review.');
         loadFeedback();
         loadStats({ quiet: true });
@@ -1896,7 +2097,7 @@ document.addEventListener('click', event => {
     if (row) openInChat(row);
   }
   const verifyIncident = event.target.closest('[data-verify-incident]');
-  if (verifyIncident) openIncident(verifyIncident.dataset.verifyIncident);
+  if (verifyIncident) openIncident({ student_id: verifyIncident.dataset.verifyIncident });
 
   const incidentButton = event.target.closest('[data-incident]');
   if (incidentButton) {
@@ -1943,8 +2144,12 @@ $('incident-form').onsubmit = fileIncident;
 $('incident-form').elements.student_id.addEventListener('input', scheduleIncidentCheck);
 $('incident-form').elements.student_id.addEventListener('change', () => runIncidentCheck({ force: true }));
 $('incident-form').elements.category.addEventListener('change', () => runIncidentCheck());
+$('incident-close').onclick = $('incident-cancel').onclick = () => $('incident-dialog').close();
+$('incident-open').onclick = () => openIncident();
 $('student-request-form').onsubmit = submitStudentRequest;
-$('track-btn').onclick = trackMyRequests;
+$('student-request-form').elements.request_type.addEventListener('change', syncRequestNotice);
+$('request-close').onclick = $('request-cancel').onclick = () => $('request-dialog').close();
+$('ticker-toggle').onclick = () => { setTickerPaused(!$('ticker').classList.contains('paused')); fx.turn($('ticker-toggle'), 180); };
 
 /* ── Keyboard shortcuts ── */
 document.addEventListener('keydown', event => {
@@ -1958,7 +2163,7 @@ document.addEventListener('keydown', event => {
   if (ctrl && key === 'n') {
     event.preventDefault();
     if (workspaceRole === 'coordinator') { showView('dashboard'); openDialog(); }
-    else if (workspaceRole === 'student') showView('student-request');
+    else if (workspaceRole === 'student') openStudentRequest();
     else openIncident();
   }
   if (ctrl && key === 'e' && workspaceRole === 'coordinator') {
@@ -1971,10 +2176,14 @@ document.addEventListener('keydown', event => {
   }
 });
 
-/* New requests and feedback arrive from other people's browsers, so the coordinator's badges refresh
-   every minute and whenever the tab becomes visible again. */
-setInterval(() => { if (!document.hidden) loadStats({ quiet: true }); }, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) loadStats({ quiet: true }); });
+/* New requests, incidents, feedback and activity arrive from other people's browsers, so the coordinator's badges and
+   the ticker refresh every 20 seconds and whenever the tab becomes visible again. When the numbers show that the
+   student list changed as well, the Dashboard is loaded again. */
+function refreshLive() {
+  if (workspaceRole === 'coordinator' && !document.hidden) loadStats({ quiet: true, resync: currentView === 'dashboard' });
+}
+setInterval(refreshLive, 20000);
+document.addEventListener('visibilitychange', refreshLive);
 
 window.addEventListener('hashchange', () => {
   const view = location.hash.replace('#', '');
@@ -1983,6 +2192,10 @@ window.addEventListener('hashchange', () => {
 
 /* ── Start ── */
 initTheme();
+setTickerPaused(!!store.get('tickerPaused'));
+let tickerResize = 0;
+window.addEventListener('resize', () => { clearTimeout(tickerResize); tickerResize = setTimeout(fitTicker, 200); });
+if (document.fonts) document.fonts.ready.then(fitTicker);        // the strip is measured again once the fonts are in
 if (workspaceRole && ROLE_META[workspaceRole]) {
   setRole(workspaceRole, { useHash: true });
 } else {
@@ -1992,5 +2205,5 @@ if (workspaceRole && ROLE_META[workspaceRole]) {
   updateSuggestions();
   showView('assistant');
   loadChatHistory();
-  $('role-dialog').showModal();
+  openRoleDialog();
 }
