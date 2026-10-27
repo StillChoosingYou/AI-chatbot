@@ -367,6 +367,13 @@ table.students tbody tr.empty-row:hover { background: none; }
 dialog { border: 1px solid var(--border); border-radius: 13px; padding: 28px; width: 540px; max-width: 94vw; max-height: 94vh; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-lg); }
 dialog::backdrop { background: var(--dialog-backdrop); }
 #record-dialog, #import-dialog, #incident-dialog { width: 620px; }
+/* The role chooser is a plain white page with the card in the middle: nothing shows through, light or dark theme. */
+#role-dialog {
+  --surface: #fff; --surface-alt: #f8faf8; --ink: #17251f; --muted: #5d6e64; --border: #e3e9e5;
+  --green-bg: #e8f5ed; --shadow-lg: none;
+  background: #fff; color: var(--ink); border-color: var(--border);
+}
+#role-dialog::backdrop, html.fx #role-dialog[open]::backdrop { background: #fff; opacity: 1; animation: none; }
 .dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; gap: 12px; }
 #processing-fields { margin-top: 17px; }
 #schedule-hint { margin: 12px 0; line-height: 1.6; }

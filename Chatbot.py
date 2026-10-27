@@ -286,15 +286,25 @@ def create_app(database_url=None):
 
     # ─── Page routes ───────────────────────────────────────────────
 
-    @app.get('/')
-    def home():
+    ROLE_PAGES = ('coordinator', 'guard', 'student')
+
+    def workspace(page_role=''):
+        """The one-page app. '/' shows only the role chooser; /coordinator, /guard and /student open that role."""
         return render_template(
-            'index.html', statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
+            'index.html', page_role=page_role, statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
             request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
             student_id_example=STUDENT_ID_EXAMPLE, id_hint=STUDENT_ID_HINT, release_hours=RELEASE_HOURS,
             penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT, build=BUILD)
+
+    @app.get('/')
+    def home():
+        return workspace()
+
+    for role_page in ROLE_PAGES:
+        app.add_url_rule(f'/{role_page}', f'role_{role_page}', lambda role_page=role_page: workspace(role_page),
+                         strict_slashes=False)
 
     @app.get('/student/<token>')
     def profile(token):

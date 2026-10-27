@@ -39,7 +39,8 @@ let stats = null, serverToday = '', sending = false, historyLoadId = 0;
 let tickerKey = '', tickerUnit = '', tickerFit = '';   // what the Dashboard ticker shows, and how it is laid out
 let intentLabels = {}, knownIntents = [];
 const badgeCounts = { dashboard: 0, requests: 0, feedback: 0, incidents: 0 };
-let workspaceRole = store.get('workspaceRole');
+/* The role comes from the address: /coordinator, /guard or /student. On '/' there is none, and the chooser shows. */
+let workspaceRole = document.body.dataset.pageRole || '';
 let currentView = '';                              // the workspace page on screen, so a change of page starts at the top
 const baseSession = store.get('chatSessionId') || (() => {
   const id = uuid();
@@ -261,7 +262,6 @@ function setRole(role, { useHash = false } = {}) {
   if (!ROLE_META[role]) return;
   fx.reset();                                    // another workspace: the lists draw themselves from the start
   workspaceRole = role;
-  store.set('workspaceRole', role);
   const meta = ROLE_META[role];
   $('role-badge').textContent = meta.title;
   $('role-avatar').textContent = meta.avatar;
@@ -2025,10 +2025,11 @@ function openRoleDialog() {
   $('role-dialog').showModal();
   fx.dialog($('role-dialog'));
 }
-$('switch-role').onclick = openRoleDialog;
+$('switch-role').onclick = () => location.assign('/');          // the chooser is the home page
 $('role-form').addEventListener('submit', event => {
+  event.preventDefault();
   const role = event.submitter && event.submitter.value;
-  if (role) setRole(role);
+  if (ROLE_META[role]) location.assign(`/${role}`);
 });
 $('role-dialog').addEventListener('cancel', event => {
   if (!workspaceRole) event.preventDefault();       // the first visit needs a role

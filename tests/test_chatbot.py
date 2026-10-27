@@ -1,4 +1,5 @@
 import csv
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 from xml.etree import ElementTree
@@ -113,6 +114,23 @@ class SchoolIDTests(DatabaseTestCase):
         self.assertEqual(profile.headers['Cache-Control'],'no-store')
         self.assertEqual(self.client.get('/student/unknown').status_code,404)
         self.assertIn('30 × 30 mm',self.client.get(f'/sticker/{self.row["id"]}').get_data(as_text=True))
+
+    def test_each_role_has_its_own_address_and_the_home_page_is_the_chooser(self):
+        self.assertIn('data-page-role=""', self.client.get('/').get_data(as_text=True))
+        for role in ('coordinator', 'guard', 'student'):
+            for path in (f'/{role}', f'/{role}/'):
+                with self.subTest(path=path):
+                    response = self.client.get(path)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn(f'data-page-role="{role}"', response.get_data(as_text=True))
+        self.assertEqual(self.client.get('/admin').status_code, 404)
+        self.assertEqual(self.client.get('/student/unknown').status_code, 404)    # a sticker token still works as before
+
+    def test_role_chooser_is_opaque_white_and_goes_to_the_role_address(self):
+        css = Path(ROOT / 'static' / 'style.css').read_text(encoding='utf-8')
+        self.assertRegex(css, r'#role-dialog::backdrop[^{]*\{ background: #fff; opacity: 1;')
+        script = Path(ROOT / 'static' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn("location.assign(`/${role}`)", script)
 
     def test_role_tools_and_student_request(self):
         home = self.client.get('/').get_data(as_text=True)
