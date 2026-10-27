@@ -20,6 +20,25 @@ class LoginPageLayoutTests(unittest.TestCase):
         self.assertRegex(css, r'\.login-body \{[^}]*place-items: center')
 
 
+class BrandingTests(unittest.TestCase):
+    def test_the_pgpc_seal_is_the_logo_and_the_tab_icon(self):
+        try:
+            from PIL import Image                                          # not a requirement of the app, only of this check
+        except ImportError:
+            Image = None
+        for name, size in (('pgpc-logo.png', 128), ('favicon.png', 64)):
+            self.assertTrue((ROOT / 'static' / name).read_bytes().startswith(b'\x89PNG'))
+            if Image:
+                with Image.open(ROOT / 'static' / name) as image:
+                    self.assertEqual((image.size, image.mode), ((size, size), 'RGBA'))
+                    self.assertEqual(image.getpixel((0, 0))[3], 0)         # the corners are transparent: a round seal
+        for page in ('index', 'login', 'profile', 'card'):
+            html = (ROOT / 'templates' / f'{page}.html').read_text(encoding='utf-8')
+            self.assertIn('href="/static/favicon.png"', html)
+        for page in ('index', 'login', 'profile'):
+            self.assertIn('src="/static/pgpc-logo.png"', (ROOT / 'templates' / f'{page}.html').read_text(encoding='utf-8'))
+
+
 class LoginRulesTests(unittest.TestCase):
     def test_off_without_a_password_and_on_with_one_or_on_vercel(self):
         self.assertFalse(CoordinatorLogin({}).enabled)
@@ -74,6 +93,19 @@ class CoordinatorLoginRouteTests(DatabaseTestCase):
         for path in ('/', '/guard', '/student', '/api/office', '/api/verify?q=P202400101'):
             with self.subTest(path=path):
                 self.assertNotIn(client.get(path).status_code, (401, 302))
+
+    def test_the_ticker_news_comes_from_the_json_file_and_skips_bad_entries(self):
+        client = self.start()
+        items = client.get('/api/news').get_json()['news']
+        self.assertGreaterEqual(len(items), 2)
+        self.assertTrue(all(set(item) == {'icon', 'text'} and item['text'] for item in items))
+        self.assertIn('Padre Garcia Polytechnic College', items[0]['text'])
+        import Chatbot
+        broken = ('not json', '{"a": 1}', '[1, "x", {"text": ""}, {"text": 5}, {"icon": "🎓", "text": "  Real news  "}]')
+        for content in broken:
+            with self.subTest(content=content[:12]), patch.object(Chatbot.Path, 'read_text', return_value=content):
+                news = client.get('/api/news').get_json()['news']
+                self.assertEqual(news, [{'icon': '🎓', 'text': 'Real news'}] if 'Real' in content else [])
 
     def test_wrong_and_right_sign_in(self):
         client = self.start()

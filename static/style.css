@@ -566,3 +566,7 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
 .login-card label { display: grid; gap: 6px; font-weight: 600; font-size: 13px; }
 .login-card input { padding: 10px 12px; border: 1px solid #cfd8d2; border-radius: 8px; font: inherit; background: #fff; color: #17251f; }
 .login-card .subtle { margin-top: 16px; }
+
+/* The PGPC seal replaces the square icon in the brand. */
+.brand-logo { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex: none; background: #fff; }
+.login-card .brand-logo, .profile-card .brand-logo { display: block; }

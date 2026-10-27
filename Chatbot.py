@@ -1,6 +1,7 @@
 """School ID management prototype. Needs PostgreSQL: set DATABASE_URL, then run .venv/bin/python Chatbot.py."""
 import csv
 import io
+import json
 import os
 import re
 import secrets
@@ -80,6 +81,7 @@ API_ERRORS = {
     404: 'That record or page was not found.',
     405: 'That method is not allowed here.',
 }
+MAX_NEWS = 20              # how many announcements the ticker carries
 MAX_LOOKUP_LIST = 5        # a name that matches more students than this is too vague to list
 RECENT_ACTIVITY = 6        # how many of the latest events the dashboard ticker carries
 MAX_INCIDENTS_LIST = 8     # how many incidents "incidents" lists in the chat
@@ -411,6 +413,21 @@ def create_app(database_url=None):
         if not students:
             abort(404)
         return render_template('stickers.html', students=students, skipped=len(ids) - len(students))
+
+    @app.get('/api/news')
+    def news():
+        """The announcements on the dashboard ticker: data/pgpc_news.json, a list of {"icon", "text"}. Bad entries are skipped."""
+        try:
+            entries = json.loads((ROOT / 'data' / 'pgpc_news.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            entries = []
+        items = []
+        for entry in entries if isinstance(entries, list) else []:
+            text = entry.get('text') if isinstance(entry, dict) else None
+            if isinstance(text, str) and text.strip():
+                icon = entry.get('icon') if isinstance(entry.get('icon'), str) else ''
+                items.append({'icon': icon.strip()[:4] or '📣', 'text': text.strip()[:200]})
+        return jsonify(news=items[:MAX_NEWS])
 
     @app.get('/api/office')
     def office_info():

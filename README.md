@@ -416,6 +416,13 @@ given two different topics, never overwrites a file unless you add `--force`, an
 there are too few questions (under 30) to quote as an accuracy figure. Report counts and
 examples, and say that the questions come from this app's own users.
 
+## Dashboard news (PGPC announcements)
+
+The strip under the Dashboard heading scrolls the announcements in `data/pgpc_news.json`: a list of
+`{"icon": "📣", "text": "..."}` (text up to 200 characters, 20 items). Edit the file, commit and redeploy to change it.
+The three items in it now are placeholders: replace them with PGPC's real news. Nothing is fetched from the internet,
+because the chatbot has to work offline. The PGPC seal is `static/pgpc-logo.png` (brand) and `static/favicon.png` (tab icon).
+
 ## Dataset and intents
 
 - `property_management_dataset.csv`: 165 synthetic utterances, 15 for each of the 11 school ID
