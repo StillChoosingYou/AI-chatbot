@@ -17,6 +17,7 @@ from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
 from auth import CoordinatorLogin
+from avatars import avatar_svg
 from chat_support import (
     FEEDBACK_REASONS, asks_for_gate_log, asks_for_incidents, asks_for_my_requests, asks_for_records,
     asks_to_file_incident, asks_to_request_help, clean_text, csv_safe, gate_verb_is_a_preposition, id_candidates,
@@ -368,10 +369,21 @@ def create_app(database_url=None):
         student = shape(row)
         signed_in = login.enabled and session.get('coordinator') is True      # not merely "the app is open"
         private = signed_in or os.environ.get('PUBLIC_CARD_DETAILS', '') == '1'
-        if not private:                          # anyone with the sticker can scan it: the personal details stay off the page
-            for key in ('student_id', 'address', 'contact_number'):
+        if not private:                          # anyone with the sticker can scan it: the contact details stay off the page
+            for key in ('address', 'contact_number'):    # (the student number is printed on the card, so it stays)
                 student[key] = ''
         return render_template('profile.html', student=student, private=private, academic_year=CARD_ACADEMIC_YEAR)
+
+    @app.get('/student/<token>/photo.svg')
+    def profile_photo(token):
+        """A sample portrait for the card (a drawing, the same every time for this student)."""
+        if not clean_text(token):
+            abort(404)
+        with connect() as db:
+            found = db.execute('SELECT 1 FROM inventory WHERE token=%s', (token,)).fetchone()
+        if found is None:
+            abort(404)
+        return app.response_class(avatar_svg(token), mimetype='image/svg+xml')
 
     @app.get('/student/<token>/qr.png')
     def profile_qr(token):
@@ -398,7 +410,7 @@ def create_app(database_url=None):
     @app.get('/card/<rowid:record_id>')
     def card_preview(record_id):
         row = record(record_id)
-        return render_template('card.html', student=row)
+        return render_template('card.html', student=row, private=True, academic_year=CARD_ACADEMIC_YEAR)
 
     @app.get('/qr/<rowid:record_id>.png')
     def qr_image(record_id):

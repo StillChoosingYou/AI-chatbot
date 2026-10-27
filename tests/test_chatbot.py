@@ -100,16 +100,37 @@ class SchoolIDTests(DatabaseTestCase):
         for text in ('PADRE GARCIA', 'POLYTECHNIC COLLEGE', 'Front of the school ID', 'Back of the school ID', 'Important reminder',
                      'CONTACT US', 'A.Y. 2026 - 2027', self.row['name'], self.row['year_section'], url + '/qr.png'):
             self.assertIn(text, page)
-        for private in (self.row['student_id'], self.row['address'], self.row['contact_number']):
+        self.assertIn(self.row['student_id'], page)             # printed on the card, so the scan shows it
+        for private in (self.row['address'], self.row['contact_number']):
             self.assertNotIn(private, page)
         self.assertIn('shown to school staff', page)
         with patch.dict('os.environ', {'PUBLIC_CARD_DETAILS': '1'}):
             shown = self.client.get(url).get_data(as_text=True)
         for private in (self.row['student_id'], self.row['address'], self.row['contact_number']):
             self.assertIn(private, shown)
+        preview = self.client.get(f'/card/{self.row["id"]}').get_data(as_text=True)      # the preview is the same card
+        for text in ('PADRE GARCIA', 'Important reminder', f'STUDENT NO. {self.row["student_id"]}', self.row['name'],
+                     f'/student/{self.row["token"]}/photo.svg'):
+            self.assertIn(text, preview)
+        self.assertIn(f'STUDENT NO. {self.row["student_id"]}', page)
         qr = self.client.get(url + '/qr.png')
         self.assertEqual((qr.status_code, qr.data[:4]), (200, b'\x89PNG'))
         self.assertEqual(self.client.get('/student/unknown/qr.png').status_code, 404)
+
+    def test_sample_photos_are_drawings_that_stay_the_same_for_a_student(self):
+        from avatars import avatar_svg
+        with self.db() as db:
+            tokens = [token for (token,) in db.execute('SELECT token FROM inventory ORDER BY id').fetchall()]
+        svgs = [avatar_svg(t) for t in tokens]
+        self.assertEqual(svgs, [avatar_svg(t) for t in tokens])
+        self.assertGreater(len(set(svgs)), 1)                               # not the same face for everyone
+        for svg in svgs:
+            ElementTree.fromstring(svg)
+        photo = self.client.get(f'/student/{tokens[0]}/photo.svg')
+        self.assertEqual((photo.status_code, photo.mimetype), (200, 'image/svg+xml'))
+        self.assertEqual(photo.get_data(as_text=True), svgs[0])
+        self.assertIn(f'/student/{tokens[0]}/photo.svg', self.client.get(f'/student/{tokens[0]}').get_data(as_text=True))
+        self.assertEqual(self.client.get('/student/unknown/photo.svg').status_code, 404)
 
     def test_qr_url_and_public_fields(self):
         with patch.dict('os.environ',{'PUBLIC_BASE_URL':'https://school.example'}):
@@ -125,7 +146,6 @@ class SchoolIDTests(DatabaseTestCase):
             self.assertIn(str(self.row[field]),page)
         self.assertNotIn(self.row['address'],page)
         self.assertNotIn(self.row['contact_number'],page)
-        self.assertNotIn(self.row['student_id'],page)
         if self.row['pending_reason']:
             self.assertNotIn(self.row['pending_reason'],page)
         self.assertEqual(profile.headers['Cache-Control'],'no-store')

@@ -35,7 +35,7 @@ class BrandingTests(unittest.TestCase):
         for page in ('index', 'login', 'profile', 'card'):
             html = (ROOT / 'templates' / f'{page}.html').read_text(encoding='utf-8')
             self.assertIn('href="/static/favicon.png"', html)
-        for page in ('index', 'login', 'profile'):
+        for page in ('index', 'login', '_idcard'):
             self.assertIn('src="/static/pgpc-logo.png"', (ROOT / 'templates' / f'{page}.html').read_text(encoding='utf-8'))
 
 
@@ -124,7 +124,8 @@ class CoordinatorLoginRouteTests(DatabaseTestCase):
         token, student_id, address, contact = row
         url = f'/student/{token}'
         public = client.get(url).get_data(as_text=True)
-        for private in (student_id, address, contact):
+        self.assertIn(student_id, public)
+        for private in (address, contact):
             self.assertNotIn(private, public)
         client.post('/coordinator/login', data=PAIR)
         staff = client.get(url).get_data(as_text=True)

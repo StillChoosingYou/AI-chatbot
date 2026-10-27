@@ -1654,8 +1654,21 @@ function scanLoop() {
   tick();
 }
 
+let scanForDashboard = false;            // the camera was opened from the Students list, not from Verify ID
+
+async function findOnDashboardByScan(token) {
+  try {
+    const data = await api(`/api/verify?q=${encodeURIComponent(token)}`);
+    const match = data.matches.length === 1 ? data.matches[0] : null;
+    if (!match) { notify('That QR code does not match any student on the list.'); return; }
+    showOnDashboard(match.student_id);
+    notify(`Scanned ${match.name}.`);
+  } catch (error) { notify(error.message); }
+}
+
 function finishScan(token) {
   $('scan-dialog').close();
+  if (scanForDashboard) { findOnDashboardByScan(token); return; }
   $('verify-query').value = token;
   runVerify(token, { fromScan: true });
 }
@@ -1985,7 +1998,8 @@ $('close-dialog').onclick = () => $('record-dialog').close();
 $('import-form').onsubmit = importStudents;
 $('import-close').onclick = () => $('import-dialog').close();
 $('import-done').onclick = () => $('import-dialog').close();
-$('scan-btn').onclick = openScanner;
+$('scan-btn').onclick = () => { scanForDashboard = false; openScanner(); };
+$('dash-scan-btn').onclick = () => { scanForDashboard = true; openScanner(); };
 $('scan-close').onclick = () => $('scan-dialog').close();
 $('scan-dialog').addEventListener('close', stopScanner);
 
