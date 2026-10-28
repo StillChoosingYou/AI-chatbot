@@ -137,8 +137,6 @@ footer { display: flex; justify-content: space-between; font-size: 9px; color: v
 .export-btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 7px; padding: 8px 14px; font-size: 11px; font-weight: 600; transition: all var(--transition); }
 .export-btn:hover:not(:disabled) { background: var(--green-bg); color: var(--green); border-color: var(--green); }
 .danger-text { color: var(--danger) !important; }
-.gate-btn { border: 1px solid var(--green); background: var(--green-bg); color: var(--green); border-radius: 7px; padding: 8px 12px; font-size: 11px; font-weight: 700; transition: all var(--transition); }
-.gate-btn:hover:not(:disabled) { background: var(--green); color: var(--surface); }
 .form-buttons { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 /* ========= FORMS ========= */
@@ -388,6 +386,9 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 #request-dialog .notice { margin-top: 16px; }
 #request-dialog textarea, #incident-dialog textarea { min-height: 96px; }
 #request-dialog .form-buttons, #incident-dialog .form-buttons { margin-top: 16px; }
+.role-brand { display: grid; justify-items: center; gap: 8px; margin: 0 0 14px; text-align: center; }
+.role-brand .brand-logo { width: 56px; height: 56px; }
+.role-brand .eyebrow { margin: 0; letter-spacing: 1.4px; }
 .role-choices { display: grid; gap: 10px; margin-top: 16px; }
 .role-card { border: 1px solid var(--border); background: var(--surface-alt); border-radius: 10px; padding: 16px; text-align: left; color: var(--ink); }
 .role-card span { display: block; color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.5; }
@@ -413,6 +414,8 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 .ticker { display: flex; align-items: stretch; margin: 22px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
 .ticker[hidden] { display: none; }
 .assistant-page .ticker { margin: 4px 0 16px; }
+/* the news strip takes room above the chat, so the chat gives that room back: the message box stays on screen */
+.assistant-page .ticker:not([hidden]) ~ .chat-card { height: clamp(380px, calc(100vh - 375px), 860px); height: clamp(380px, calc(100dvh - 375px), 860px); }
 .ticker-live { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 0 14px; background: var(--green-bg); color: var(--green); font: 700 10px/1 Manrope, system-ui, sans-serif; letter-spacing: 1.4px; }
 .ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: tickerPulse 1.8s ease-in-out infinite; }
 .ticker-window { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); }
@@ -557,6 +560,8 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
   .message { max-width: 94%; }
   .suggestions { padding: 6px 12px 10px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .suggestions::-webkit-scrollbar { display: none; }
+  .suggestions { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }   /* the fade says there are more buttons to the right */
+  .assistant-page .ticker:not([hidden]) ~ .chat-card { height: clamp(420px, calc(100vh - 330px), 780px); height: clamp(420px, calc(100dvh - 330px), 780px); }
   .suggestions button { flex: 0 0 auto; white-space: nowrap; }
   .note-full { display: none; }
   .note-short { display: inline; }
@@ -611,3 +616,4 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
 
 /* The Students heading: Select all, and the QR scan button under it on the right. */
 .panel-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }

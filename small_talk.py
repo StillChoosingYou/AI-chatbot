@@ -52,7 +52,7 @@ GREETINGS = phrases(
     'mabuhay', 'kumusta', 'kamusta', 'musta', 'mustah')
 GREETING_FILLERS = frozenset('''
 po opo ho bot chatbot assistant there everyone everybody all guys sir madam ma am maam miss kuya ate boss admin
-coordinator guard staff office pmo team ka kayo na naman ba ulit again please pls
+coordinator staff office pmo team ka kayo na naman ba ulit again please pls
 '''.split())
 
 # ─── thanks and goodbye ──────────────────────────────────────────────────

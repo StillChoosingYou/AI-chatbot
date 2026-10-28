@@ -1,4 +1,4 @@
-"""Incidents at the gate: "No ID" and "Lost ID" only, the Cashier first for a lost ID, and the ₱1,500 penalty for
+"""Incidents: "No ID" and "Lost ID" only, the Cashier first for a lost ID, and the ₱1,500 penalty for
 a student's second false statement."""
 import unittest
 
@@ -268,26 +268,26 @@ class PenaltyTests(IncidentTestCase):
             self.assertIn('no student on the dashboard', response.json['error'])
             self.assertEqual(self.client.patch(f'/api/incidents/{incident["id"]}', json={'false_statement': False}).status_code, 200)
 
-    def test_what_the_guard_and_the_coordinator_see_in_the_chat_grows_with_the_record(self):
+    def test_what_the_coordinator_sees_in_the_chat_grows_with_the_record(self):
         def staff(role):
             return self.ask(JAMIE, role)['reply']
-        clean = staff('guard')
+        clean = staff('coordinator')
         self.assertNotIn('False statements', clean)
         self.assertNotIn('Penalty', clean)
         self.file(false=True)
-        for role in ('guard', 'coordinator'):
+        for role in ('coordinator',):
             text = staff(role)
             self.assertIn('False statements on record: 1', text, role)
             self.assertIn(f'A second false statement carries a {PENALTY_TEXT} penalty.', text, role)
         second = self.file(false=True).json
-        for role in ('guard', 'coordinator'):
+        for role in ('coordinator',):
             text = staff(role)
             self.assertIn('False statements on record: 2', text, role)
             self.assertIn(f'⚠️ Penalty due: {PENALTY_TEXT}. Send the student to the Cashier, then mark the incident '
                           'Resolved once it is paid.', text, role)
             self.assertNotIn('A second false statement carries', text, role)
         self.client.patch(f'/api/incidents/{second["id"]}', json={'status': 'Resolved'})
-        text = staff('guard')
+        text = staff('coordinator')
         self.assertIn('False statements on record: 2', text)
         self.assertNotIn('Penalty due', text)
         self.file(false=True)
@@ -302,19 +302,17 @@ class PenaltyTests(IncidentTestCase):
             for word in ('False statement', 'Penalty', 'penalty', '1,500'):
                 self.assertNotIn(word, dump, (message, word))
 
-    def test_the_guards_verify_screen_carries_the_same_facts(self):
+    def test_the_scan_lookup_carries_the_same_facts(self):
         self.file(false=True)
         self.file(false=True)
         match = self.client.get('/api/verify', query_string={'q': 'Jamie Santos'}).json['matches'][0]
         self.assertEqual((match['false_statements'], match['penalty_due']), (2, PENALTY_AMOUNT))
         self.assertEqual(match['status_note'], 'ID not yet made')
-        self.assertIn('not yet made', match['gate_note'])
         clean = self.client.get('/api/verify', query_string={'q': TAYLOR}).json['matches'][0]
         self.assertEqual((clean['false_statements'], clean['penalty_due']), (0, 0))
-        self.assertIn('released', clean['gate_note'])
 
     def test_every_role_is_told_about_the_cashier_and_the_penalty_when_an_id_is_lost(self):
-        for role in ('student', 'guard', 'coordinator'):
+        for role in ('student', 'coordinator'):
             reply = self.ask('I lost my school ID', role)
             self.assertEqual(reply['intent'], 'lost_id_report', role)
             self.assertIn('Cashier', reply['reply'], role)
@@ -324,7 +322,7 @@ class PenaltyTests(IncidentTestCase):
 
 
 class ConcurrencyTests(IncidentTestCase):
-    def test_guards_filing_false_statements_at_the_same_moment_are_counted_one_after_another(self):
+    def test_false_statements_filed_at_the_same_moment_are_counted_one_after_another(self):
         def job():
             return self.app.test_client().post('/api/incidents', json={
                 'category': 'Lost ID', 'detail': 'Said it was lost', 'student_id': JAMIE, 'false_statement': True})

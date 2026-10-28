@@ -5,7 +5,7 @@ from datetime import datetime
 from student_data import (
     IMPORT_COLUMNS, MAX_IMPORT_ROWS, MAX_YEAR, PENALTY_AMOUNT, PENALTY_TEXT, STATUSES, YEAR_SECTION_HINT,
     ImportFileError, claim_check,
-    clean_contact, clean_status, clean_student_id, find_by_name, format_year_section, gate_note, incident_steps,
+    clean_contact, clean_status, clean_student_id, find_by_name, format_year_section, incident_steps,
     looks_like_a_name, name_query, office_hours_error, parse_year_section, penalty_for, read_student_csv)
 
 MONDAY = datetime(2030, 1, 7)          # a Monday, so the day of the week is not a surprise
@@ -249,13 +249,6 @@ class RecordsAtTheGateTests(unittest.TestCase):
         self.assertIsNone(agrees)                                   # the card may simply be at home
         self.assertIn('Lost ID incident', message)
         self.assertEqual(claim_check('Visitor', 'Pending'), (None, ''))
-
-    def test_the_gate_note_says_whether_the_card_can_exist(self):
-        self.assertIn('should have the card', gate_note('Released'))
-        self.assertIn('not claimed yet', gate_note('For release'))
-        for status in ('Pending', 'Processing'):
-            self.assertIn(f'records show {status}', gate_note(status))
-            self.assertIn('not yet made', gate_note(status))
 
     def test_a_lost_id_goes_to_the_cashier_first_and_a_penalty_goes_to_the_cashier_too(self):
         steps = incident_steps('Lost ID')

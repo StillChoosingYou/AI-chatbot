@@ -161,7 +161,8 @@ class CopyTests(MigrationTestCase):
         self.assertTrue(any('"Ready for release" is now called "For release" (1 rows changed)' in m for m in self.messages))
         incident = client.get('/api/incidents').json['incidents'][0]
         self.assertEqual((incident['false_statement'], incident['penalty'], incident['student_name']), (False, 0, None))
-        self.assertEqual(len(client.get('/api/gate').json['logs']), 2)
+        with self.db() as db:                                              # the gate log is no longer shown, but its rows are kept
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM gate_logs').fetchone()[0], 2)
         self.assertEqual(len(client.get('/api/activity').json['events']), 3)
         self.assertEqual(client.get('/api/requests').json['counts']['Accepted'], 1)
         feedback = client.get('/api/feedback').json
@@ -177,7 +178,10 @@ class CopyTests(MigrationTestCase):
         rated = client.post('/api/chat/feedback', json={
             'message_id': reply['message_id'], 'session_id': 's1', 'rating': 'down', 'reason': 'Wrong answer'})
         self.assertEqual(rated.json['id'], 4)
-        self.assertEqual(client.post('/api/gate', json={'name': 'Visitor', 'direction': 'in'}).json['id'], 3)
+        with self.db() as db:
+            new_gate = db.execute("INSERT INTO gate_logs (student_id,name,direction,note,timestamp) "
+                                  "VALUES ('','Visitor','in','','2026-10-02 08:00:00') RETURNING id").fetchone()[0]
+        self.assertEqual(new_gate, 3)
         self.assertEqual(client.post('/api/incidents', json={'category': 'No ID', 'detail': 'x'}).json['id'], 2)
         self.assertEqual(client.post('/api/requests', json={'student_id': 'P202499042', 'request_type': 'Other'}).json['id'], 3)
 

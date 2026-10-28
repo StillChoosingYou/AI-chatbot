@@ -7,7 +7,7 @@ from auth import FAILS_ALLOWED, LOCK_SECONDS, CoordinatorLogin
 from pg_support import DatabaseTestCase
 
 PAIR = {'username': 'Coordinator', 'password': 'right-password'}
-PROTECTED = ['/api/inventory', '/api/inventory/export', '/api/stats', '/api/queue', '/api/activity',
+PROTECTED = ['/api/verify?q=x', '/api/inventory', '/api/inventory/export', '/api/stats', '/api/queue', '/api/activity',
              '/api/requests', '/api/feedback', '/api/feedback/export', '/api/incidents', '/stickers?ids=1', '/sticker/1',
              '/card/1', '/qr/1.png']
 
@@ -98,9 +98,11 @@ class CoordinatorLoginRouteTests(DatabaseTestCase):
         self.assertIn('Sign in', page)
         self.assertNotIn('data-page-role="coordinator"', page)
 
-    def test_guard_student_and_the_chooser_stay_open(self):
+    def test_the_student_page_and_the_chooser_stay_open_and_the_old_guard_link_goes_to_the_chooser(self):
         client = self.start()
-        for path in ('/', '/guard', '/student', '/api/office', '/api/verify?q=P202400101'):
+        self.assertEqual(client.get('/guard').status_code, 302)
+        self.assertEqual(client.get('/guard').headers['Location'], '/')
+        for path in ('/', '/student', '/api/office'):
             with self.subTest(path=path):
                 self.assertNotIn(client.get(path).status_code, (401, 302))
 
@@ -167,48 +169,3 @@ class CoordinatorLoginRouteTests(DatabaseTestCase):
 if __name__ == '__main__':
     unittest.main()
 
-
-class GuardLoginTests(DatabaseTestCase):
-    def start(self, **environment):
-        with patch.dict(os.environ, environment):
-            return self.make_app().test_client()
-
-    def token(self, client):
-        client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'c-pass'})
-        with self.db() as db:
-            return db.execute('SELECT token FROM inventory ORDER BY id LIMIT 1').fetchone()[0]
-
-    def test_rules(self):
-        from auth import GuardLogin
-        self.assertFalse(GuardLogin({}).enabled)
-        self.assertFalse(GuardLogin({'VERCEL': '1'}).enabled)                  # optional: it never locks the guard out
-        guard = GuardLogin({'GUARD_PASSWORD': 'g-pass'})
-        self.assertTrue(guard.check(' guard ', 'g-pass', 'a'))
-        self.assertFalse(guard.check('Guard', 'c-pass', 'a'))
-        self.assertEqual(GuardLogin({'GUARD_PASSWORD': 'x', 'GUARD_USERNAME': 'Gate'}).username, 'Gate')
-
-    def test_without_a_guard_password_the_guard_page_stays_open(self):
-        client = self.start(COORDINATOR_PASSWORD='c-pass')
-        self.assertIn('data-page-role="guard"', client.get('/guard').get_data(as_text=True))
-
-    def test_with_a_guard_password_the_page_asks_for_it(self):
-        client = self.start(COORDINATOR_PASSWORD='c-pass', GUARD_PASSWORD='g-pass')
-        page = client.get('/guard').get_data(as_text=True)
-        self.assertIn('Sign in', page)
-        self.assertNotIn('data-page-role="guard"', page)
-        self.assertEqual(client.post('/guard/login', data={'username': 'Guard', 'password': 'nope'}).status_code, 401)
-        ok = client.post('/guard/login', data={'username': 'Guard', 'password': 'g-pass'})
-        self.assertEqual(ok.status_code, 302)
-        self.assertIn('data-page-role="guard"', client.get('/guard').get_data(as_text=True))
-        client.post('/guard/logout')
-        self.assertNotIn('data-page-role="guard"', client.get('/guard').get_data(as_text=True))
-
-    def test_a_signed_in_guard_sees_the_contact_details_on_a_scan_but_not_the_coordinator_pages(self):
-        client = self.start(COORDINATOR_PASSWORD='c-pass', GUARD_PASSWORD='g-pass')
-        token = self.token(self.start(COORDINATOR_PASSWORD='c-pass', GUARD_PASSWORD='g-pass'))
-        public = client.get(f'/student/{token}').get_data(as_text=True)
-        self.assertIn('shown to school staff only', public)
-        client.post('/guard/login', data={'username': 'Guard', 'password': 'g-pass'})
-        private = client.get(f'/student/{token}').get_data(as_text=True)
-        self.assertNotIn('shown to school staff only', private)
-        self.assertEqual(client.get('/api/inventory').status_code, 401)           # still the coordinator's alone

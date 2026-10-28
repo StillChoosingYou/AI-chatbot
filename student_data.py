@@ -321,7 +321,7 @@ def find_by_name(text, people):
     return []
 
 
-# ─── What the records mean at the gate, and the penalty for false statements ──
+# ─── What the records mean for an incident, and the penalty for false statements ──
 
 NOT_YET_MADE = ('Pending', 'Processing')       # "hindi pa nagagawang ID": the card does not exist yet
 STATUS_NOTES = {
@@ -359,16 +359,6 @@ def penalty_for(number):
     return PENALTY_AMOUNT if number == PENALTY_AT else 0
 
 
-def gate_note(status):
-    """What the records mean for a guard who is standing at the gate with this student."""
-    if status == 'Released':
-        return 'Gate: the ID was released, so the student should have the card.'
-    if status == 'For release':
-        return ('Gate: the ID is made but not claimed yet. Send the student to the Property Management '
-                'Office to claim it.')
-    return f'Gate: the ID is not yet made (records show {status}), so the student cannot have the card yet.'
-
-
 def claim_check(category, status):
     """Does what a student says at the gate agree with the records? Returns (agrees, message).
 
@@ -392,7 +382,7 @@ def claim_check(category, status):
 
 
 def incident_steps(category, penalty=0):
-    """What the guard should do next after filing an incident."""
+    """What to do next after filing an incident."""
     steps = [CASHIER_STEP, OFFICE_STEP] if category == 'Lost ID' else []
     if penalty:
         steps.append(f'This is the second false statement, so the {PENALTY_TEXT} penalty applies. '

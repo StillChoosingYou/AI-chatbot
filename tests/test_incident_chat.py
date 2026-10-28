@@ -1,9 +1,8 @@
-"""The guard files incidents in the chat.
+"""The coordinator files incidents in the chat.
 
 "File incident" is a small button under an answer that opens a pop-up form; sending the form puts the
-confirmation in the chat; "incidents" lists the latest ones with a Resolve button for the open ones. The guard's
-sidebar has no Incidents page any more. The coordinator uses the same chat, and keeps the Incidents page as the
-list where a false statement is marked or withdrawn.
+confirmation in the chat; "incidents" lists the latest ones with a Resolve button for the open ones. The
+Incidents page is the list where a false statement is marked or withdrawn.
 """
 import unittest
 
@@ -15,7 +14,7 @@ from pg_support import AppTestCase
 
 TAYLOR = 'P202400104'                      # demo student whose ID is Released
 JAMIE = 'P202400102'                       # demo student whose ID is Pending
-SESSION = 'test-session:guard'
+SESSION = 'test-session:coordinator'
 NOTE = 'Says it is in the locker. PRIVATE-GATE-NOTE-123'
 INCIDENT_INTENTS = {'incident_help', 'incidents_list', 'incident_status', 'incident_filed', 'incident_not_for_students'}
 
@@ -26,7 +25,7 @@ class IncidentChatCase(AppTestCase):
 
     def file(self, **change):
         body = {'category': 'No ID', 'student_id': JAMIE, 'location': 'Main gate', 'detail': NOTE,
-                'false_statement': False, 'session_id': SESSION, 'workspace_role': 'guard', **change}
+                'false_statement': False, 'session_id': SESSION, 'workspace_role': 'coordinator', **change}
         return self.client.post('/api/chat/incident', json=body)
 
     def activity(self):
@@ -78,8 +77,8 @@ class PhraseTests(unittest.TestCase):
 
 
 class IncidentButtonTests(IncidentChatCase):
-    def test_the_typed_phrases_open_the_form_for_the_guard_and_the_coordinator(self):
-        for role in ('guard', 'coordinator'):
+    def test_the_typed_phrases_open_the_form_for_the_coordinator(self):
+        for role in ('coordinator',):
             for text in ('file incident', 'Report an incident', 'incident report', 'I need to file an incident please'):
                 reply = self.ask(text, role)
                 self.assertEqual((reply['intent'], self.types(reply), reply['confidence']),
@@ -90,26 +89,26 @@ class IncidentButtonTests(IncidentChatCase):
                 self.assertEqual(reply['actions'][1]['text'], 'incidents')
 
     def test_no_id_and_lost_id_phrases_set_the_category(self):
-        self.assertEqual(self.ask('no id', 'guard')['actions'][0]['category'], 'No ID')
-        self.assertEqual(self.ask('walang id', 'guard')['actions'][0]['category'], 'No ID')
-        self.assertEqual(self.ask('lost id incident', 'guard')['actions'][0]['category'], 'Lost ID')
+        self.assertEqual(self.ask('no id', 'coordinator')['actions'][0]['category'], 'No ID')
+        self.assertEqual(self.ask('walang id', 'coordinator')['actions'][0]['category'], 'No ID')
+        self.assertEqual(self.ask('lost id incident', 'coordinator')['actions'][0]['category'], 'Lost ID')
 
     def test_with_a_student_in_the_chat_the_answer_gives_the_records_and_the_button_brings_the_student(self):
         taylor, jamie = self.student(TAYLOR)['id'], self.student(JAMIE)['id']
-        reply = self.ask('lost id incident', 'guard', record_id=taylor)
+        reply = self.ask('lost id incident', 'coordinator', record_id=taylor)
         for part in ('Taylor A. Cruz', TAYLOR, 'Released', 'Records agree: this ID was released'):
             self.assertIn(part, reply['reply'])
         self.assertEqual({k: v for k, v in reply['actions'][0].items() if k != 'label'},
                          {'type': 'open_incident', 'student_id': TAYLOR, 'category': 'Lost ID'})
-        self.assertIn('Records do not agree', self.ask('lost id incident', 'guard', record_id=jamie)['reply'])
-        self.assertIn('Ask the student where the card is', self.ask('no id', 'guard', record_id=taylor)['reply'])
-        plain = self.ask('file incident', 'guard', record_id=taylor)
+        self.assertIn('Records do not agree', self.ask('lost id incident', 'coordinator', record_id=jamie)['reply'])
+        self.assertIn('Ask the student where the card is', self.ask('no id', 'coordinator', record_id=taylor)['reply'])
+        plain = self.ask('file incident', 'coordinator', record_id=taylor)
         self.assertNotIn('category', plain['actions'][0])
         self.assertEqual(plain['actions'][0]['student_id'], TAYLOR)
 
     def test_ordinary_sentences_still_go_to_the_assistant(self):
         for text in ('There was an incident at the gate yesterday', 'what is an incident report?', 'no id? what do I do'):
-            self.assertNotIn(self.ask(text, 'guard')['intent'], INCIDENT_INTENTS, text)
+            self.assertNotIn(self.ask(text, 'coordinator')['intent'], INCIDENT_INTENTS, text)
 
     def test_a_student_is_pointed_to_request_help_instead(self):
         for text in ('file incident', 'incidents', 'resolve incident 1', 'incident report'):
@@ -119,22 +118,16 @@ class IncidentButtonTests(IncidentChatCase):
             self.assertIn('Request help', reply['reply'])
         self.assertNotEqual(self.ask('no id', 'student')['intent'], 'incident_not_for_students')   # an ordinary sentence for them
 
-    def test_a_lost_id_answer_gives_the_guard_the_button_with_the_category_set(self):
-        reply = self.ask('I lost my school ID', 'guard')
-        self.assertEqual((reply['intent'], self.types(reply)), ('lost_id_report', ['open_incident']))
-        self.assertEqual(reply['actions'][0]['category'], 'Lost ID')
-        self.assertIn('File incident below', reply['reply'])
-        with_student = self.ask('I lost my school ID', 'guard', record_id=self.student(TAYLOR)['id'])
-        self.assertEqual(with_student['actions'][0]['student_id'], TAYLOR)
+    def test_a_lost_id_answer_points_the_coordinator_to_the_dashboard_and_the_requests(self):
+        reply = self.ask('I lost my school ID', 'coordinator')
+        self.assertEqual((reply['intent'], self.types(reply)), ('lost_id_report', ['open_dashboard', 'open_requests']))
+        self.assertIn('Cashier', reply['reply'])
 
     def test_the_welcome_and_the_help_point_to_the_chat_forms(self):
-        guard = self.ask('hello', 'guard')
-        self.assertEqual(self.types(guard), ['open_verify', 'send', 'open_incident', 'send'])
-        self.assertEqual([a['text'] for a in guard['actions'] if a['type'] == 'send'], ['gate log', 'incidents'])
         coordinator = self.ask('hello', 'coordinator')
         self.assertIn('open_incident', self.types(coordinator))
         self.assertIn('open_incidents', self.types(coordinator))               # the page is still there for the coordinator
-        for role in ('guard', 'coordinator'):
+        for role in ('coordinator',):
             text = self.ask('What can you do?', role)['reply']
             self.assertIn('file incident', text, role)
             self.assertIn('“incidents”', text, role)
@@ -175,7 +168,7 @@ class FilingFromTheChatTests(IncidentChatCase):
         self.assertIn('False statement no. 3', third['reply'])
         self.assertNotIn('₱1,500', third['reply'])
 
-    def test_the_chat_history_keeps_the_confirmation_but_not_what_the_guard_wrote(self):
+    def test_the_chat_history_keeps_the_confirmation_but_not_what_the_coordinator_wrote(self):
         self.file()
         history = self.client.get('/api/chat/history', query_string={'session_id': SESSION}).json['messages']
         self.assertEqual([(m['role'], m['intent']) for m in history], [('user', ''), ('bot', 'incident_filed')])
@@ -188,14 +181,13 @@ class FilingFromTheChatTests(IncidentChatCase):
         self.file(student_id=TAYLOR, false_statement=True)
         events = self.activity()
         self.assertIn(('coordinator', 'Logged incident', f'No ID · {TAYLOR}'), events)
-        self.assertIn(('guard', 'Logged incident', f'No ID · {TAYLOR}'), events)
-        self.assertIn(('guard', 'False statement', f'{TAYLOR}: number 2, penalty ₱1,500'), events)
+        self.assertIn(('coordinator', 'False statement', f'{TAYLOR}: number 2, penalty ₱1,500'), events)
 
-    def test_only_the_guard_and_the_office_can_use_the_form(self):
+    def test_only_the_office_can_use_the_form(self):
         for role in ('student', '', None, 'visitor'):
             response = self.file(workspace_role=role)
             self.assertEqual(response.status_code, 403, role)
-            self.assertIn('guard and the office', response.json['error'])
+            self.assertIn('filed by the office', response.json['error'])
         self.assertEqual(self.raw_post('/api/chat/incident', '[]').status_code, 400)
         self.assertEqual(self.stored(), {})                                    # nothing was filed
 
@@ -226,25 +218,24 @@ class FilingFromTheChatTests(IncidentChatCase):
         self.assertEqual(self.rate(data, 'up', session=SESSION).status_code, 200)
         self.assertEqual(self.rate(data, 'up', session='another-session').status_code, 404)
 
-    def test_the_older_incident_api_still_works_and_still_logs_the_guard(self):
+    def test_the_older_incident_api_still_works_and_still_logs_the_coordinator(self):
         response = self.client.post('/api/incidents', json={'category': 'Lost ID', 'student_id': TAYLOR, 'detail': NOTE})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json['next_steps'][0], 'Send the student to the Cashier to pay the replacement fee.')
-        self.assertIn(('guard', 'Logged incident', f'Lost ID · {TAYLOR}'), self.activity())
+        self.assertIn(('coordinator', 'Logged incident', f'Lost ID · {TAYLOR}'), self.activity())
 
 
 class IncidentListTests(IncidentChatCase):
     def test_an_empty_list_says_so_and_offers_the_form(self):
-        reply = self.ask('incidents', 'guard')
-        self.assertEqual((reply['intent'], self.types(reply)), ('incidents_list', ['open_incident']))
+        reply = self.ask('incidents', 'coordinator')
+        self.assertEqual((reply['intent'], self.types(reply)), ('incidents_list', ['open_incident', 'open_incidents']))
         self.assertIn('No incidents have been filed', reply['reply'])
-        self.assertEqual(self.types(self.ask('incidents', 'coordinator')), ['open_incident', 'open_incidents'])
 
     def test_the_list_is_newest_first_with_a_resolve_button_for_the_open_ones(self):
         for _ in range(5):
             self.file()
-        self.assertEqual(self.ask('resolve incident 4', 'guard')['reply'], '✅ Incident #4 marked **Resolved**.')
-        reply = self.ask('show incidents', 'guard')
+        self.assertEqual(self.ask('resolve incident 4', 'coordinator')['reply'], '✅ Incident #4 marked **Resolved**.')
+        reply = self.ask('show incidents', 'coordinator')
         lines = [line for line in reply['reply'].splitlines() if line.startswith('• ')]
         self.assertEqual([line.split(' · ')[0] for line in lines], ['• #5', '• #4', '• #3', '• #2', '• #1'])
         self.assertIn('4 open', reply['reply'])
@@ -252,19 +243,18 @@ class IncidentListTests(IncidentChatCase):
         self.assertIn('**Open**', lines[0])
         resolve = [a for a in reply['actions'] if a['type'] == 'send']
         self.assertEqual([a['text'] for a in resolve], ['resolve incident 5', 'resolve incident 3', 'resolve incident 2'])
-        self.assertEqual(reply['actions'][-1]['type'], 'open_incident')
-        self.assertEqual(self.types(self.ask('incidents', 'coordinator'))[-2:], ['open_incident', 'open_incidents'])
+        self.assertEqual(self.types(reply)[-2:], ['open_incident', 'open_incidents'])
 
     def test_only_the_latest_eight_are_listed(self):
         for _ in range(10):
             self.file()
-        reply = self.ask('incidents', 'guard')
+        reply = self.ask('incidents', 'coordinator')
         self.assertEqual(len([line for line in reply['reply'].splitlines() if line.startswith('• ')]), 8)
         self.assertIn('10 open', reply['reply'])
 
-    def test_the_list_leaves_out_what_the_guard_wrote(self):
+    def test_the_list_leaves_out_what_the_coordinator_wrote(self):
         self.file()
-        reply = self.ask('incidents', 'guard')['reply']
+        reply = self.ask('incidents', 'coordinator')['reply']
         self.assertNotIn('PRIVATE-GATE-NOTE-123', reply)
         for part in ('No ID', 'Jamie L. Santos', JAMIE, 'Main gate'):
             self.assertIn(part, reply)
@@ -272,27 +262,27 @@ class IncidentListTests(IncidentChatCase):
     def test_the_list_tags_a_false_statement_and_its_penalty(self):
         self.file(student_id=TAYLOR, false_statement=True)
         self.file(student_id=TAYLOR, false_statement=True)
-        lines = [line for line in self.ask('incidents', 'guard')['reply'].splitlines() if line.startswith('• ')]
+        lines = [line for line in self.ask('incidents', 'coordinator')['reply'].splitlines() if line.startswith('• ')]
         self.assertIn('false statement ₱1,500', lines[0])
         self.assertTrue(lines[1].endswith('false statement'), lines[1])
 
     def test_resolving_and_reopening_from_the_chat(self):
         self.file()
-        reply = self.ask('resolve incident 1', 'guard')
+        reply = self.ask('resolve incident 1', 'coordinator')
         self.assertEqual((reply['intent'], reply['reply']), ('incident_status', '✅ Incident #1 marked **Resolved**.'))
         self.assertEqual(reply['actions'], [{'label': '📋 Incidents', 'type': 'send', 'text': 'incidents'}])
         self.assertEqual(self.stored()[1]['status'], 'Resolved')
-        self.assertIn(('guard', 'Updated incident', 'Resolved'), self.activity())
-        self.assertIn('already Resolved', self.ask('resolve incident 1', 'guard')['reply'])
+        self.assertIn(('coordinator', 'Updated incident', 'Resolved'), self.activity())
+        self.assertIn('already Resolved', self.ask('resolve incident 1', 'coordinator')['reply'])
         self.assertEqual(self.ask('reopen incident 1', 'coordinator')['reply'], '✅ Incident #1 marked **Open**.')
         self.assertEqual(self.stored()[1]['status'], 'Open')
         self.assertIn(('coordinator', 'Updated incident', 'Open'), self.activity())
-        self.assertIn('There is no incident #99', self.ask('resolve incident 99', 'guard')['reply'])
+        self.assertIn('There is no incident #99', self.ask('resolve incident 99', 'coordinator')['reply'])
 
     def test_resolving_leaves_false_statements_and_penalties_alone(self):
         self.file(student_id=TAYLOR, false_statement=True)
         self.file(student_id=TAYLOR, false_statement=True)
-        self.ask('resolve incident 2', 'guard')
+        self.ask('resolve incident 2', 'coordinator')
         second = self.stored()[2]
         self.assertEqual((second['status'], second['false_statement'], second['penalty']), ('Resolved', True, 1500))
 
@@ -303,7 +293,7 @@ class IncidentListTests(IncidentChatCase):
 
     def test_the_other_ways_to_ask_for_the_list(self):
         for text in ('Incidents', 'incident log', 'open incidents', 'list the latest incidents', 'recent incident reports'):
-            self.assertEqual(self.ask(text, 'guard')['intent'], 'incidents_list', text)
+            self.assertEqual(self.ask(text, 'coordinator')['intent'], 'incidents_list', text)
 
 
 class PageTests(AppTestCase):
@@ -312,7 +302,6 @@ class PageTests(AppTestCase):
         self.assertIn('<dialog id="incident-dialog"', html)
         self.assertEqual(html.count('id="incident-form"'), 1)                   # one form, not one on the page and one in the pop-up
         self.assertIn('data-workspace="coordinator" id="view-incidents"', html)
-        self.assertNotIn('data-workspace="guard coordinator" id="view-incidents"', html)
         self.assertNotIn('id="incident-result"', html)
 
     def test_the_footer_says_which_build_this_is(self):

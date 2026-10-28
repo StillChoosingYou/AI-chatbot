@@ -7,7 +7,7 @@ follow-up questions to offer and how to treat text that a user chose to share.
 import re
 
 from student_data import (
-    PENALTY_AT, PENALTY_NOTE, PENALTY_TEXT, REQUEST_STATUS_NOTES, STATUS_NOTES, claim_check, gate_note)
+    PENALTY_AT, PENALTY_NOTE, PENALTY_TEXT, REQUEST_STATUS_NOTES, STATUS_NOTES, claim_check)
 
 FEEDBACK_REASONS = ('Wrong answer', "Didn't understand me", 'Missing information', 'Other')
 
@@ -203,7 +203,7 @@ def student_reply(row, role, release_hours):
 
     row is a record with 'year_section' already worked out. Everyone sees the ID, name, year and section,
     status and appointment. The address and contact number are for the coordinator; the other roles are
-    told they exist but are not shown them. The guard and the coordinator also see false statements and
+    told they exist but are not shown them. The coordinator also sees false statements and
     any penalty (row['false_statements'], row['penalty_due']). Staff notes and the QR token are never
     part of a chat answer.
     """
@@ -224,17 +224,15 @@ def student_reply(row, role, release_hours):
     if role == 'coordinator':
         lines.append(f'Address: {row.get("address") or "not recorded"}')
         lines.append(f'Contact number: {row.get("contact_number") or "not recorded"}')
-    if role in ('coordinator', 'guard'):
+    if role == 'coordinator':
         lines.extend(staff_lines(row))
-    if role == 'guard':
-        lines.append(gate_note(row['status']))
     if role != 'coordinator':
         lines.append(PRIVATE_NOTE)
     return '\n'.join(lines)
 
 
 def staff_lines(row):
-    """False statements and the penalty, for the guard and the coordinator only."""
+    """False statements and the penalty, for the coordinator only."""
     lines = []
     count = row.get('false_statements', 0)
     if count:
@@ -251,56 +249,15 @@ def staff_lines(row):
 
 
 # ─── Commands typed into the chat ─────────────────────────────────────────
-# The network only labels what a message is about. A few things are not questions but orders (log a
-# student in or out, show the gate log, list the IDs that are not made yet), so plain patterns catch them
-# first. Every pattern needs the whole intent to be spelled out; anything else goes on to the network.
+# The network only labels what a message is about. A few things are not questions but orders (list the IDs
+# that are not made yet), so plain patterns catch them first. Every pattern needs the whole intent to be spelled out; anything else goes on to the network.
 
-_GATE_COMMAND = re.compile(
-    r'^\s*(?:please\s+|pls\s+)?(check[\s-]*in|check[\s-]*out|log[\s-]*in|log[\s-]*out|time[\s-]*in|time[\s-]*out'
-    r'|in|out|pasok|labas)\s*[:\-]?\s+(.+?)\s*$', re.IGNORECASE)
-_GATE_BARE = re.compile(
-    r'^\s*(?:please\s+|pls\s+)?(?:check[\s-]*in|check[\s-]*out|log[\s-]*in|log[\s-]*out|time[\s-]*in|time[\s-]*out'
-    r'|pasok|labas)\s*[.!]?\s*$', re.IGNORECASE)
-_GATE_IN_WORDS = {'checkin', 'login', 'timein', 'in', 'pasok'}
-_GATE_LOG = re.compile(
-    r"\bgate[\s-]*(?:logs?|entries|records?|history|list)\b"
-    r"|\b(?:logs?|entries|records?) (?:at|of|sa) (?:the )?gate\b"
-    r"|\bwho(?:'s| is| are)? (?:inside|in the campus|in school)\b", re.IGNORECASE)
 _NOT_YET_MADE = re.compile(
     r'\bnot[\s-]+yet[\s-]+made\b|\bnot[\s-]+made[\s-]+yet\b|\bunmade\b'
     r'|\b(?:hindi|di)[\s-]+pa[\s-]+(?:nagagawa|nagawa|gawa)(?:ng)?\b', re.IGNORECASE)
 _RECORDS_ONLY = re.compile(
     r'^\s*(?:show |list |view |open |see |display )?(?:me )?(?:the |all )?(?:student )?records?\s*[.!]?\s*$',
     re.IGNORECASE)
-
-
-def parse_gate_command(text):
-    """('in' or 'out', who) for "check in P202400230", "out Alex Rivera"; None for any other message."""
-    if '?' in text:
-        return None
-    match = _GATE_COMMAND.match(text)
-    if not match:
-        return None
-    verb = re.sub(r'[\s-]+', '', match.group(1).lower())
-    return ('in' if verb in _GATE_IN_WORDS else 'out'), match.group(2)
-
-
-_GATE_PREPOSITION = re.compile(r'^\s*(?:please\s+|pls\s+)?(?:in|out)\b', re.IGNORECASE)
-
-
-def gate_verb_is_a_preposition(text):
-    """True when a gate command begins with just "in" or "out". Those are also everyday words that start a
-    sentence ("in case I lost my ID, what should I do"), so such a message is a command only when a student follows."""
-    return bool(_GATE_PREPOSITION.match(text))
-
-
-def is_bare_gate_verb(text):
-    """True for "check in" or "check out" typed alone, with no student after it."""
-    return bool(_GATE_BARE.match(text))
-
-
-def asks_for_gate_log(text):
-    return bool(_GATE_LOG.search(text))
 
 
 def asks_for_records(text):
@@ -367,8 +324,8 @@ def my_requests_reply(student_id, name, rows):
     return '\n'.join(lines)
 
 
-# ─── Incidents, inside the chat (guard and coordinator) ───────────────────
-# The guard files an incident from a pop-up that a button in the chat opens, follows the list in the chat and
+# ─── Incidents, inside the chat (coordinator) ───────────────────
+# The coordinator files an incident from a pop-up that a button in the chat opens, follows the list in the chat and
 # resolves from it. Like the Request help phrases, these are the few messages that mean exactly that.
 
 _FILE_INCIDENT = re.compile(
@@ -449,7 +406,7 @@ def incident_filed_reply(incident, steps):
 
 
 def incidents_reply(rows, open_count):
-    """The latest incidents, newest first: number, category, status, who, where and when. What the guard wrote
+    """The latest incidents, newest first: number, category, status, who, where and when. What the coordinator wrote
     in "What happened?" stays on the coordinator's Incidents page."""
     if not rows:
         return ('⚠️ No incidents have been filed yet. Tap File incident below when a student has no ID or has '

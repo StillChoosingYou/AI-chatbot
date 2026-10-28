@@ -1,7 +1,7 @@
 # School ID property management chatbot
 
 A local prototype for school ID records: who has an ID, where it is (Pending → Processing → For release →
-Released), release appointments, lost IDs, the gate log and small QR stickers. Everyone works through one
+Released), release appointments, lost IDs and small QR stickers. Everyone works through one
 **chat assistant**: type a student ID or a name and it shows that student. The proposal was not included
 with the request; features follow the described workflow.
 
@@ -45,12 +45,12 @@ empty database. Records and appointment changes persist in PostgreSQL.
 (see [`static/vendor/README.md`](static/vendor/README.md) for the list, versions and licenses).
 
 Choose a role on the first screen. The **coordinator** starts on the **Dashboard**, a PGPC NEWS ticker above a table of
-every student with a status filter, **Select all** and CSV **Import**. The **guard** starts on the **Assistant**, a
+every student with a status filter, **Select all** and CSV **Import**. The **student** starts on the **Assistant**, a
 full-page chat: type a student ID such as `P202400230`, or a name, and the assistant answers with that student.
-The **student** has nothing but that chat: lookups, the **Request help** button and the follow-up of a request all
-happen inside it. Apart from the guard's check-in and check-out commands, the incident pop-up with its Resolve
-buttons, and a student's own Request help form, chat messages never change anything; staff save changes on the
-Dashboard.
+The student has nothing but that chat: lookups, the **Request help** button and the follow-up of a request all
+happen inside it. Apart from the incident pop-up with its Resolve buttons, and a student's own Request help form,
+chat messages never change anything; staff save changes on the Dashboard. There is no guard role any more:
+`/guard` leads to the role chooser.
 
 ### QR printing and phone scanning
 
@@ -70,7 +70,7 @@ Long URLs increase density; test with the final hostname and physical sticker.
 **Print stickers** in the inventory toolbar opens one sheet with a 30 × 30 mm QR code for
 every selected student (up to 60 per sheet; print at 100%).
 
-**Scan QR** (guard role, Verify ID) reads a sticker with the camera and looks the student up.
+**Scan QR sticker** (the coordinator's Students panel) reads a sticker with the camera and finds the student in the list.
 Browsers only allow camera access on `https://` pages and on `localhost`, so the page opened
 from a phone as `http://192.168.x.x:5000` cannot scan. Use an HTTPS address (your deployed
 host, or a tunnel such as ngrok or Cloudflare Tunnel) or type the student ID instead; the page
@@ -146,7 +146,6 @@ checked the records in the app. If it is tracked by Git, `git rm --cached data/i
 |---|---|
 | `DATABASE_URL` (required) | A hosted PostgreSQL connection string. Vercel does not host the database, and the app writes nothing to disk. |
 | `COORDINATOR_PASSWORD` (required on Vercel) | The coordinator's password. Open `/coordinator` and sign in with the username `Coordinator` (or `COORDINATOR_USERNAME`) and this password. Without it nobody can sign in on Vercel. Locally, leave it unset to keep the app open, or set it to try the sign-in. `SECRET_KEY` (optional) signs the sign-in cookie. Choose a password longer than `12345` before the defense. |
-| `GUARD_PASSWORD` (optional) | Makes `/guard` ask for a sign-in (username `Guard`, or `GUARD_USERNAME`). A signed-in guard also sees the student's contact number and address on a QR scan page; the public never does. Unset, the guard page stays open as before and shows no private details. The guard sign-in does not protect the guard's check-in and verify calls. |
 | `DATABASE_POOL_SIZE` (recommended) | `3`. Every running copy of the app opens its own connections, so keep each copy small. |
 | `PUBLIC_BASE_URL` (for the QR stickers) | The site's address, for example `https://your-project.vercel.app` (see [QR printing](#qr-printing-and-phone-scanning)). |
 
@@ -177,8 +176,7 @@ control (see [Privacy and access](#privacy-and-access)).
 
 | Role | Pages | What it does |
 |---|---|---|
-| Coordinator | Dashboard, Assistant, Appointments, Requests, Incidents, Feedback, Activity | **Dashboard**: every student with Student ID, Full name, Year & Section, Status, Address and Contact number. Filter by status, **Select all**, change the status of many students at once, print sticker sheets, **Import students** (CSV), **Add student**, export CSV. A **PGPC NEWS ticker** scrolls above the table; see [The PGPC NEWS ticker](#the-pgpc-news-ticker). Tiles and shortcuts (Not yet made, Overdue, Today, For release without a date, Pending without a reason) sit under it; the old Overview page is now part of it. **Requests** is an inbox: Submitted → In review → Accepted → Closed. **Incidents** is the review list of what the guard filed: Resolve or Reopen, and mark or withdraw a false statement. A coordinator files an incident the same way the guard does, in the Assistant (its **File incident** button switches there and opens the pop-up). |
-| Guard | Assistant, Verify ID | **Assistant**: type a student ID or name to see whether the ID is released, then check the student in or out. The gate log and the list of IDs not yet made are typed there too, and so are the **incidents**: a small **⚠️ File incident** button opens the report as a pop-up (like Request help), and `incidents` lists them with a Resolve button each. **Verify ID** finds a student by ID, name or QR scan. There is no Incidents page in the guard's sidebar. |
+| Coordinator | Dashboard, Assistant, Appointments, Requests, Incidents, Feedback, Activity | **Dashboard**: every student with Student ID, Full name, Year & Section, Status, Address and Contact number. Filter by status, **Select all**, change the status of many students at once, print sticker sheets, **Import students** (CSV), **Add student**, export CSV. A **PGPC NEWS ticker** scrolls above the table; see [The PGPC NEWS ticker](#the-pgpc-news-ticker). Tiles and shortcuts (Not yet made, Overdue, Today, For release without a date, Pending without a reason) sit under it; the old Overview page is now part of it. **Requests** is an inbox: Submitted → In review → Accepted → Closed. **Incidents** is the review list: Resolve or Reopen, and mark or withdraw a false statement. The coordinator files an incident in the Assistant (its **File incident** button switches there and opens the pop-up). |
 | Student | Assistant (the only page) | **Everything is in the chat.** Type a student ID or name to see that student's ID status (never the address, contact number, staff notes or QR token). When the answer is about a lost, missing or unreleased ID, a small **📝 Request help** button appears under it and opens the request form as a pop-up; type `my requests` to follow what was sent. There is no sidebar page for any of this and no Search ID form. |
 
 ### Students on the dashboard
@@ -226,12 +224,12 @@ the office confirms them.
 
 ### The Assistant is a real chat
 
-It is the same page for the three roles; only what it may show differs.
+It is the same page for both roles; only what it may show differs.
 
 - Type a **student ID** (`P202400230`) or a **name** (`Reynald Malabanan`, `malabanan`, `Reynald Jake`) and the
   answer is *that student*: Student ID, name, Year & Section, status and what it means, the appointment and
-  why a pending ID is pending. The coordinator also gets the address and contact number; guards and
-  students are told those are shown to the coordinator only.
+  why a pending ID is pending. The coordinator also gets the address and contact number; students
+  are told those are shown to the coordinator only.
 - Lookups come straight from the records. A name or ID that is not on the Dashboard is reported as not found.
   The ANN only recognises ordinary questions ("Where is the office?", "I lost my ID").
 - The student found stays selected above the message box, so "what is the status?" needs no ID. **✕ Clear**
@@ -259,7 +257,7 @@ The same chat answers the staff roles as before; the button and `my requests` ar
 ### The PGPC NEWS ticker
 
 A scrolling strip of Padre Garcia Polytechnic College announcements. The **coordinator** sees it under the Dashboard
-heading; **students and guards** see it under the Assistant heading. The text comes from `data/pgpc_news.json` (a list
+heading; **students** see it under the Assistant heading. The text comes from `data/pgpc_news.json` (a list
 of `{"icon", "text"}`; edit it to change the news, no code needed) through the public `GET /api/news`.
 
 It scrolls on its own and **holds still while the pointer is on the text or the keyboard focus is in it**. **⏸ / ▶**
@@ -295,7 +293,6 @@ rest of the app only says what happened ("a message arrived", "a row changed").
 |---|---|
 | Every role | the role chooser and every dialog (spring up, fields follow), the toast, the sidebar and the phone drawer, the theme button, hover and press on every button, chip and card, the page you open |
 | Coordinator | Dashboard tiles slide in and count up, filter chips pop, only the **new** rows slide in and a **changed** row glows, deleted rows slide out, the ⋯ menu grows out of its button, the bulk bar rises, the import result, the ticker, Appointments / Requests / Incidents / Activity cards (a changed card glows, a card that leaves its filter slides out), Feedback tiles and bars grow |
-| Guard | the incident pop-up, its claim check (a disagreeing claim nudges), the confirmation card (it glows once), Verify ID results, the QR scan line |
 | Student | the Request help pop-up and its Lost ID notice, the confirmation card, student cards, the three typing dots |
 
 How it behaves:
@@ -307,29 +304,18 @@ How it behaves:
   `localStorage.setItem('motion', 'off')` in the browser console and reload (`localStorage.removeItem('motion')`
   switches it on again). With it off, or if `motion.js` or `fx.js` did not load, the page works the same, just still.
 
-### Gate log, in the chat (guard)
+### IDs not yet made, in the chat (coordinator)
 
-There is no Gate page. The guard types, or taps the button under a student's card:
-
-| Type | Result |
-|---|---|
-| `check in P202400230`, `in Reynald Malabanan`, `time in …`, `pasok …` | logs the student in |
-| `check out P202400230`, `out …`, `time out …`, `labas …` | logs the student out |
-| `check in visitor Juan Dela Cruz`, `pasok bisita Juan Dela Cruz` | logs a visitor by name |
-| `gate log` (guard and coordinator) | today's entries, newest first, with the in and out counts |
-| `records`, `hindi pa nagagawang ID` (guard and coordinator) | the IDs that are not made yet (Pending and Processing) |
-
-The same student logged the same way again within 20 seconds counts as one tap, not two. A message with a `?`
-is treated as a question, not a command. Students cannot log the gate or see the gate log or the records list.
-The old `/api/gate` endpoints and the `gate_logs` table are unchanged, so earlier entries are kept.
+Type `records` or `hindi pa nagagawang ID` to list the IDs that are not made yet (Pending and Processing). Students
+cannot see this list. The gate log and the guard's check-in and check-out commands were removed together with the
+guard role; the `gate_logs` table is kept in the database so earlier entries are not lost.
 
 **IDs not yet made** ("hindi pa nagagawang ID") are the Pending and Processing students. The Dashboard has a
-**Not yet made** filter and tile, a student's card says what the status means, and the guard's check-in answer
-says the student cannot have the card yet.
+**Not yet made** filter and tile, and a student's card says what the status means.
 
 ### Incidents, Cashier and the penalty
 
-At the gate there are two incidents, and only these two: **No ID** (the student has no ID with them) and
+There are two incidents, and only these two: **No ID** (the student has no ID with them) and
 **Lost ID**. Older incidents with other categories are kept as they were. When a student ID is typed, the form
 compares the claim with the records:
 
@@ -342,8 +328,8 @@ A **Lost ID** incident sends the student to the Cashier first, then to the Prope
 
 **Filing and following up happen in the chat**, the same way a student's Request help does:
 
-1. The guard (or coordinator) taps **⚠️ File incident**: under a student's card, in the quick buttons above the message
-   box, on a **Verify ID** result, or after typing `file incident`, `no id`, `walang id` or `lost id incident`. The
+1. The coordinator taps **⚠️ File incident**: under a student's card, in the quick buttons above the message
+   box, or after typing `file incident`, `no id`, `walang id` or `lost id incident`. The
    button opens the report as a pop-up over the chat, already set to the student the chat is on and, when the answer
    shows it, to the category. As soon as a student ID is in it, the pop-up checks the claim against the records.
 2. **File incident** in the pop-up saves it and the chat shows the confirmation: the incident number, what the records
@@ -356,10 +342,10 @@ A **Lost ID** incident sends the student to the Cashier first, then to the Prope
 | `incidents`, `show incidents`, `incident log` | the latest incidents, newest first, with a **✔ Resolve #N** button for each open one |
 | `resolve incident 12`, `reopen incident 12` | changes that incident's status and says so |
 
-Only the guard and the coordinator can file or resolve; the server answers a student's attempt with 403. The
+Only the coordinator can file or resolve; the server answers a student's attempt with 403. The
 coordinator's **Incidents** page stays as the review list (Resolve and Reopen, mark or withdraw a false statement).
 
-**Giving false information twice costs ₱1,500.** The guard ticks *False statement* in the pop-up, or the coordinator
+**Giving false information twice costs ₱1,500.** The coordinator ticks *False statement* in the pop-up, or
 marks or withdraws it on the Incidents page. The count is per student ID, in the order the incidents were filed:
 the **second** false statement carries the ₱1,500 penalty (once per student); the first has none. A third and
 later one is recorded without an automatic amount, because the rule you gave covers only "twice"; the coordinator
@@ -369,19 +355,17 @@ The app assumes the penalty is paid at the Cashier and does not record payment.
 
 ### Privacy and access
 
-- There is **no sign-in**. The role is a button the browser remembers, and the chat sends it to the server as
-  `workspace_role`. Anyone who can reach the server can call `/api/inventory` (which includes the address and
-  contact number), the CSV export, `/api/verify` (which returns a QR token), `/api/stats` (whose latest-activity list
-  names student IDs) and the other endpoints directly. Hiding the address and contact number from the guard and the
-  student in the chat is a courtesy of the interface, not a protection.
-- Typing someone's name in the student's chat shows that student's name, ID, Year & Section and status. That is how
-  the chat was asked to work, and it is why a sign-in matters before real records are used. For the same reason
-  `my requests` lists the requests of whichever student ID or name is typed, and the Request help form can be filed
-  for any student ID: nothing proves who is typing. Both need the sign-in too.
-- Filing and resolving incidents from the chat trusts the same client-supplied role: `/api/chat/incident` and the
-  `incidents` / `resolve incident N` commands refuse `student`, but anyone who can reach the server can send
-  `guard` or `coordinator`. The coordinator-only controls (marking a false statement) use the `/api/incidents` API and
-  are just as open. Until there is a sign-in, treat incident records as unauthenticated.
+- The **coordinator** signs in (see `COORDINATOR_PASSWORD`). The dashboard pages and their API calls (`/api/inventory`,
+  `/api/stats`, `/api/verify`, `/api/incidents`, `/card/…`, stickers and so on) refuse a visitor who is not signed in.
+  A role named in a chat message is not trusted: `workspace_role: coordinator` is answered as a student unless the
+  coordinator is signed in.
+- The **student** does not sign in. Typing someone's name or student ID in the student's chat shows that student's name,
+  ID, Year & Section, status and pending reason (never the address or contact number). That is how the chat was asked
+  to work, and it is why a student sign-in matters before real records are used. For the same reason `my requests` lists
+  the requests of whichever student ID or name is typed, and the Request help form can be filed for any student ID:
+  nothing proves who is typing.
+- A QR scan page shows name, year, section and student number to anyone; the address and contact number only to a
+  signed-in coordinator (or when `PUBLIC_CARD_DETAILS=1`).
 
 ## Chatbot answers and feedback
 
@@ -390,7 +374,7 @@ IDs show how closely your words matched a topic (Strong / Possible / Weak; the n
 tooltip). Greetings and thanks do not.
 
 - **Not sure what you meant?** When the best match is weak, the chatbot offers up to three
-  "did you mean" questions you can tap. Staff-only topics are never offered to guards or students.
+  "did you mean" questions you can tap. Staff-only topics are never offered to students.
 - **Sure?** The answer is followed by a few likely next questions.
 - **👍 / 👎 under each answer.** A thumb is saved immediately and can be taken back by tapping
   it again. 👎 opens an optional form: what went wrong (Wrong answer, Didn't understand me,
@@ -551,7 +535,7 @@ a run that skipped them has not tested the app.
 `tests/test_student_data.py` covers the ID, name, section, contact and status formats, the CSV reader, the release
 hours and the name matching. `tests/test_records.py` covers the Dashboard API: add, edit, import, bulk change, the
 Lost ID rule and the release hours. `tests/test_chat_lookup.py` covers the chat: lookups by ID and name, what each role
-may see, the gate commands, visitors, the records list and the typed-command edge cases. `tests/test_student_chat.py`
+may see, the records list and the typed-command edge cases. `tests/test_student_chat.py`
 covers the student's chat-only flow: which answers carry the Request help button, sending the form from the chat,
 `my requests` (and its 10-word limit, so a long story is never mistaken for the command), Years 1 to 4 and the data behind the ticker. `tests/test_incidents.py`
 covers the two incident types, the claim check and the ₱1,500 rule, and `tests/test_incident_chat.py` covers filing and
@@ -573,13 +557,11 @@ browser or a camera, so check these by hand on the final machine:
       lists the line numbers; filter by status; **Select all** → set a status → **Apply**.
 - [ ] Coordinator: set a release appointment on a Saturday and at 12:30; both are refused with the reason.
 - [ ] Coordinator: release a student, then accept that student's Lost ID request; the status is Pending again.
-- [ ] Guard: type an ID, tap **Check in**, then type `gate log`; also `check in visitor Juan Dela Cruz`.
-- [ ] Guard: tap **⚠️ File incident** (under a card, or the button above the message box): a pop-up opens over the chat
-      and there is no Incidents page in the sidebar. File **No ID** twice for the same student with *False statement*
+- [ ] Coordinator: tap **⚠️ File incident** (under a card, or the button above the message box): a pop-up opens over the chat. File **No ID** twice for the same student with *False statement*
       ticked; the confirmation appears in the chat and the second shows ₱1,500. Type `incidents`, tap **✔ Resolve**.
-- [ ] Coordinator: the Incidents page lists what the guard filed; **Mark as false statement** and **Withdraw** work, and
+- [ ] Coordinator: the Incidents page lists what was filed; **Mark as false statement** and **Withdraw** work, and
       **⚠️ File incident** there opens the same pop-up over the Assistant.
-- [ ] Animations (all three roles): dialogs spring up, chat messages fly in, the Dashboard numbers count up once when it
+- [ ] Animations (both roles): dialogs spring up, chat messages fly in, the Dashboard numbers count up once when it
       opens, a status change makes its row glow, and nothing keeps moving afterwards. With the system's **reduce
       motion** on, or after `localStorage.setItem('motion', 'off')`, nothing moves and everything still works.
 - [ ] Offline: turn the Wi-Fi off and reload. The page looks the same (the fonts are local) and the chat answers.
@@ -589,7 +571,7 @@ browser or a camera, so check these by hand on the final machine:
 - [ ] Coordinator: the ticker scrolls, stops under the pointer, **⏸** keeps it stopped after a reload, and the
       numbers match the tiles. Add a request as a student in another window: within 20 seconds the ticker shows it.
 - [ ] Coordinator: **Add student** with Year & Section `5A` is refused; `4A` is accepted.
-- [ ] Guard on a phone over **https**: Verify ID → **Scan QR** reads a printed 30 mm sticker in
+- [ ] Coordinator on a phone over **https**: **Scan QR sticker** reads a printed 30 mm sticker in
       your real lighting.
 - [ ] Print one sticker sheet at 100% and scan every sticker with a phone.
 
@@ -609,7 +591,7 @@ browser or a camera, so check these by hand on the final machine:
 5. Add approved appointment availability and reminders once the office workflow is agreed.
 6. Use the Feedback page regularly: set the correct topic on shared questions, export, run
    `feedback_to_dataset.py`, evaluate, then add the useful paraphrases to the dataset and retrain.
-7. Decide who may read feedback and how long it is kept. The Feedback, request and gate
+7. Decide who may read feedback and how long it is kept. The Feedback and request
    endpoints are as open as the rest of the API, and there is no delete button for staff yet.
 8. Before changing a table in a database that holds real data, add a migration tool such as Alembic.
    The app only creates tables that are missing; it never alters existing ones.
