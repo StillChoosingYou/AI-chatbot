@@ -48,18 +48,29 @@ const baseSession = store.get('chatSessionId') || (() => {
   return id;
 })();
 
+// Line icons (24x24, stroke = currentColor) so every nav item looks like it belongs to one set
+const NAV_ICONS = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  assistant: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.5-4.6A8 8 0 1 1 21 12z"/><path d="M9 11h6M9 14.5h4"/>',
+  queue: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  requests: '<path d="M4 13l2.5-7.5A2 2 0 0 1 8.4 4h7.2a2 2 0 0 1 1.9 1.5L20 13"/><path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5h-5l-1.5 2.5h-5L9 13z"/>',
+  incidents: '<path d="M12 3l10 17H2L12 3z"/><path d="M12 10v4.5M12 17.5v.01"/>',
+  feedback: '<path d="M7 11v9H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3zM7 11l4-8a2.5 2.5 0 0 1 2.5 2.5V9H19a2 2 0 0 1 2 2.3l-1.2 6.6A2 2 0 0 1 17.8 19.5H7"/>',
+  activity: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+};
+const navIcon = (id) => NAV_ICONS[id] ? `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">${NAV_ICONS[id]}</svg>` : '';
 const NAV = {
   coordinator: [
-    { id: 'dashboard', label: '▤  Dashboard' },
-    { id: 'assistant', label: '◌  Assistant' },
-    { id: 'queue', label: '📅  Appointments' },
-    { id: 'requests', label: '📥  Requests' },
-    { id: 'incidents', label: '⚠️  Incidents' },
-    { id: 'feedback', label: '👍  Feedback' },
-    { id: 'activity', label: '🕓  Activity' },
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'assistant', label: 'Assistant' },
+    { id: 'queue', label: 'Appointments' },
+    { id: 'requests', label: 'Requests' },
+    { id: 'incidents', label: 'Incidents' },
+    { id: 'feedback', label: 'Feedback' },
+    { id: 'activity', label: 'Activity' },
   ],
   student: [
-    { id: 'assistant', label: '◌  Assistant' },          // everything a student does happens in the chat
+    { id: 'assistant', label: 'Assistant' },          // everything a student does happens in the chat
   ],
 };
 
@@ -283,10 +294,10 @@ function setRole(role, { useHash = false } = {}) {
 function renderNav() {
   const items = NAV[workspaceRole] || [];
   $('role-nav').innerHTML = items.map(item =>
-    `<a class="nav" href="#${item.id}" data-view="${item.id}">${item.label}</a>`).join('');
+    `<a class="nav" href="#${item.id}" data-view="${item.id}">${navIcon(item.id)}<span>${escapeHtml(item.label)}</span></a>`).join('');
   fx.enter($('role-nav').children, { x: -14, y: 0, step: 0.05, duration: 0.3 });
   $('mobile-dock').innerHTML = items.map(item =>
-    `<a href="#${item.id}" data-view="${item.id}">${escapeHtml(plainLabel(item.label))}</a>`).join('');
+    `<a href="#${item.id}" data-view="${item.id}">${navIcon(item.id)}<span>${escapeHtml(plainLabel(item.label))}</span></a>`).join('');
   const single = items.length < 2;                 // a role with one page (the student's chat) needs no row of tabs
   $('mobile-dock').hidden = single;
   document.body.classList.toggle('single-view', single);
