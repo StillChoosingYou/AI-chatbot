@@ -16,7 +16,7 @@ from psycopg import errors as pg_errors
 from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
-from auth import CoordinatorLogin
+from auth import CoordinatorLogin, GuardLogin
 from avatars import avatar_svg
 from chat_support import (
     FEEDBACK_REASONS, asks_for_gate_log, asks_for_incidents, asks_for_my_requests, asks_for_records,
@@ -83,7 +83,10 @@ API_ERRORS = {
     404: 'That record or page was not found.',
     405: 'That method is not allowed here.',
 }
-CARD_ACADEMIC_YEAR = '2026 - 2027'   # printed on the back of the card on the scan page
+CARD_ACADEMIC_YEAR = '2026 - 2027'
+COORDINATOR_LOGIN_TEXT = {'role': 'Coordinator', 'eyebrow': 'SCHOOL ID · PROPERTY COORDINATOR', 'action': '/coordinator/login',
+                          'variable': 'COORDINATOR_PASSWORD'}
+GUARD_LOGIN_TEXT = {'role': 'Guard', 'eyebrow': 'SCHOOL ID · GATE GUARD', 'action': '/guard/login', 'variable': 'GUARD_PASSWORD'}   # printed on the back of the card on the scan page
 MAX_NEWS = 20              # how many announcements the ticker carries
 MAX_LOOKUP_LIST = 5        # a name that matches more students than this is too vague to list
 RECENT_ACTIVITY = 6        # how many of the latest events the dashboard ticker carries
@@ -164,12 +167,16 @@ def create_app(database_url=None):
     matcher = ANNIntentModel()
     app.url_map.converters['rowid'] = RowIdConverter
     login = CoordinatorLogin(database_url=database_url)
+    guard_login = GuardLogin(database_url=database_url)
     app.secret_key = login.secret
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                       SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600)
 
     def coordinator_signed_in():
         return not login.enabled or session.get('coordinator') is True
+
+    def guard_signed_in():
+        return not guard_login.enabled or session.get('guard') is True
 
     def coordinator_only(path, method):
         """The pages and API calls only the coordinator's dashboard uses. The guard and student never call these."""
@@ -330,15 +337,36 @@ def create_app(database_url=None):
     def home():
         return workspace()
 
-    for role_page in ('guard', 'student'):
-        app.add_url_rule(f'/{role_page}', f'role_{role_page}', lambda role_page=role_page: workspace(role_page),
-                         strict_slashes=False)
+    app.add_url_rule('/student', 'role_student', lambda: workspace('student'), strict_slashes=False)
+
+    @app.get('/guard', strict_slashes=False)
+    def guard_page():
+        if guard_signed_in():
+            return workspace('guard')
+        return render_template('login.html', who=GUARD_LOGIN_TEXT, configured=True, error='')
+
+    @app.post('/guard/login')
+    def guard_login_route():
+        address = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+        if guard_login.check(request.form.get('username', ''), request.form.get('password', ''), address):
+            session.clear()
+            session['guard'] = True
+            session.permanent = True
+            return redirect('/guard')
+        error = ('Too many wrong tries. Wait a minute and try again.' if guard_login.locked(address)
+                 else 'Wrong username or password.')
+        return render_template('login.html', who=GUARD_LOGIN_TEXT, configured=True, error=error), 401
+
+    @app.post('/guard/logout')
+    def guard_logout():
+        session.clear()
+        return redirect('/')
 
     @app.get('/coordinator', strict_slashes=False)
     def coordinator_page():
         if coordinator_signed_in():
             return workspace('coordinator')
-        return render_template('login.html', configured=login.configured, error='')
+        return render_template('login.html', who=COORDINATOR_LOGIN_TEXT, configured=login.configured, error='')
 
     @app.post('/coordinator/login')
     def coordinator_login():
@@ -350,7 +378,7 @@ def create_app(database_url=None):
             return redirect('/coordinator')
         error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(address)
                  else 'Wrong username or password.')
-        return render_template('login.html', configured=login.configured, error=error), 401
+        return render_template('login.html', who=COORDINATOR_LOGIN_TEXT, configured=login.configured, error=error), 401
 
     @app.post('/coordinator/logout')
     def coordinator_logout():
@@ -369,6 +397,7 @@ def create_app(database_url=None):
             abort(404)
         student = shape(row)
         signed_in = login.enabled and session.get('coordinator') is True      # not merely "the app is open"
+        signed_in = signed_in or (guard_login.enabled and session.get('guard') is True)
         private = signed_in or os.environ.get('PUBLIC_CARD_DETAILS', '') == '1'
         if not private:                          # anyone with the sticker can scan it: the contact details stay off the page
             for key in ('address', 'contact_number'):    # (the student number is printed on the card, so it stays)
@@ -1444,6 +1473,8 @@ def create_app(database_url=None):
             workspace = 'coordinator'
         if workspace == 'coordinator' and not coordinator_signed_in():
             workspace = 'student'                    # nobody can borrow the coordinator's answers by naming the role
+        if workspace == 'guard' and not guard_signed_in():
+            workspace = 'student'
 
         selected = None                    # the student the conversation is about, kept by the browser
         selected_missing = False
