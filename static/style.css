@@ -616,3 +616,4 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
 
 /* The Students heading: Select all, and the QR scan button under it on the right. */
 .panel-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
