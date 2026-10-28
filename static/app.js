@@ -2049,7 +2049,7 @@ function openRoleDialog() {
 }
 $('switch-role').onclick = () => {                              // the chooser is the home page; leaving the coordinator signs out
   const home = () => location.assign('/');
-  if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
+  if (workspaceRole === 'coordinator' || workspaceRole === 'guard') fetch(`/${workspaceRole}/logout`, { method: 'POST' }).then(home, home);
   else home();
 };
 $('role-form').addEventListener('submit', event => {
