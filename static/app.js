@@ -279,8 +279,9 @@ function setRole(role, { useHash = false } = {}) {
   renderSelected();
   updateSuggestions();
   loadChatHistory();
+  placeTicker(role);
+  loadNews();                                  // every role sees the school's news
   if (role === 'coordinator') {
-    loadNews();
     load();                                    // also loads the numbers behind the sidebar badges
   }
   const items = NAV[role];
@@ -338,6 +339,7 @@ function showView(viewId, { replay = false } = {}) {
   }
   if (viewId === 'incidents') loadIncidents();
   if (viewId === 'assistant') {
+    fitTicker();
     scrollMessages();
     if (!isMobile()) $('chat-input').focus({ preventScroll: true });   // on a phone, focusing would open the keyboard
   }
@@ -932,8 +934,16 @@ function tickerItemHtml(item) {
   return `<span class="ticker-item${item.alert ? ' alert' : ''}${item.muted ? ' muted' : ''}">${lead}${body}</span>`;
 }
 
+/* The strip sits under the Dashboard heading for the coordinator and under the Assistant heading for everyone else. */
+function placeTicker(role) {
+  const ticker = $('ticker');
+  if (role === 'coordinator') $('dashboard-tiles').before(ticker);
+  else $('view-assistant').querySelector('.heading').after(ticker);
+  tickerFit = '';                                      // measured again in its new place
+}
+
 function renderTicker() {
-  if (workspaceRole !== 'coordinator' || !newsItems.length) return;
+  if (!newsItems.length) return;
   const items = tickerItems();
   const key = JSON.stringify(items);
   if (key === tickerKey) return;                       // nothing changed: the scroll carries on

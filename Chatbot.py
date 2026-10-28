@@ -26,6 +26,7 @@ from chat_support import (
     request_subject, staff_lines, student_reply)
 from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
+from id_process import process_answer
 from intent_model import ANNIntentModel, classify, rank_intents
 from small_talk import SMALL_TALK_INTENTS, small_talk_intent
 from student_data import (
@@ -1589,6 +1590,15 @@ def create_app(database_url=None):
                               'Staff can set the date and time using “Update”. This chat has not booked an appointment.')
                 if expected == 'Release':
                     answer += f'\nRelease hours: {RELEASE_HOURS}.'
+        elif intent == 'id_process':
+            # a step-by-step guide that never says the same thing twice in one conversation
+            recent = []
+            if session_id:
+                with connect() as db:
+                    recent = [row[0] for row in db.execute(
+                        'SELECT message FROM chat_history WHERE session_id=%s AND role=%s ORDER BY id DESC LIMIT 30',
+                        (session_id, 'bot'))]
+            answer, process_chips = process_answer(user_text, selected, recent, RELEASE_HOURS)
         else:
             answer = pick(answers.get(intent, answers['out_of_scope']))
 
@@ -1602,6 +1612,8 @@ def create_app(database_url=None):
                 with_follow_ups=not (intent in lookups and selected is None))
             if intent == 'out_of_scope' and suggestions:
                 answer = UNSURE_REPLY
+            if intent == 'id_process':
+                follow_ups = [{'intent': 'id_process', **chip} for chip in process_chips]
 
         actions = list(INTENT_ACTIONS.get(intent, []))
         if student is not None:                # the same card for everyone, with the buttons that fit the role

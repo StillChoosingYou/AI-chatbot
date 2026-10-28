@@ -27,6 +27,7 @@ INTENT_PROMPTS = {
     'office_hours_location': ('Office hours', 'Where is the Property Management Office?'),
     'qr_student_details': ('QR scan', 'What information appears after scanning the QR sticker?'),
     'qr_sticker_request': ('QR sticker', 'How can I print a small QR sticker?'),
+    'id_process': ('ID process', 'What is the process of making a school ID?'),
     'id_inventory': ('Inventory', 'Show the student ID inventory'),
 }
 
@@ -37,7 +38,8 @@ NOT_SUGGESTED = frozenset({'out_of_scope', 'greeting', 'thanks_goodbye'})
 
 # What a person most likely asks next, by the intent that was just answered.
 FOLLOW_UPS = {
-    'id_processing_status': ('id_release_schedule', 'pending_id', 'qr_sticker_request'),
+    'id_processing_status': ('id_process', 'id_release_schedule', 'pending_id'),
+    'id_process': ('id_processing_status', 'id_release_schedule', 'id_requirements'),
     'pending_id': ('pending_id_schedule', 'id_requirements', 'talk_to_human'),
     'id_release_schedule': ('id_requirements', 'office_hours_location', 'qr_sticker_request'),
     'pending_id_schedule': ('pending_id', 'office_hours_location'),

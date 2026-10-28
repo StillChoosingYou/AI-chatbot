@@ -164,3 +164,18 @@ S237,Anong oras bukas ang ID office?,office_hours_location,taglish,ai_seed
 S238,Saan kukunin ang school ID?,office_hours_location,taglish,ai_seed
 S239,Bukas ba ang opisina para sa ID ngayon?,office_hours_location,taglish,ai_seed
 S240,Saan pupunta para sa lost ID appointment?,office_hours_location,taglish,ai_seed
+S241,What is the process of making a school ID?,id_process,en,ai_seed
+S242,What happens during production of my school ID?,id_process,en,ai_seed
+S243,What happens during signature of my school ID?,id_process,en,ai_seed
+S244,What happens during canva edit of my school ID?,id_process,en,ai_seed
+S245,What happens during printing of my school ID?,id_process,en,ai_seed
+S246,What happens during case and lace of my school ID?,id_process,en,ai_seed
+S247,What happens during releasing of my school ID?,id_process,en,ai_seed
+S248,Explain the signature step of the school ID,id_process,en,ai_seed
+S249,Ano ang proseso ng paggawa ng school ID?,id_process,taglish,ai_seed
+S250,Ano ang mga hakbang bago ma-release ang ID?,id_process,taglish,ai_seed
+S251,Saan nagpapapirma para sa ID?,id_process,taglish,ai_seed
+S252,Kailan nilalagyan ng case at lace ang ID?,id_process,taglish,ai_seed
+S253,Paano ginagawa ang school ID?,id_process,taglish,ai_seed
+S254,What is the release step of my school ID?,id_process,en,ai_seed
+S255,Ano ang nangyayari pagkatapos ma-print ang ID?,id_process,taglish,ai_seed
