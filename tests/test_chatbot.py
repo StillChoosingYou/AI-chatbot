@@ -17,7 +17,7 @@ class DatasetTests(unittest.TestCase):
             rows = list(csv.DictReader(f))
         with (ROOT/'property_management_intent.csv').open() as f:
             intents = {r['intent'] for r in csv.DictReader(f)}
-        self.assertEqual(len(rows),165)
+        self.assertEqual(len(rows),180)
         self.assertEqual(len({r['id'] for r in rows}),len(rows))
         self.assertEqual(len({r['text'].lower() for r in rows}),len(rows))
         self.assertEqual({r['intent'] for r in rows},intents-{'out_of_scope'})   # the fallback has no examples

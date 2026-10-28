@@ -184,7 +184,7 @@ class SuggestionLogicTests(unittest.TestCase):
         self.assertEqual((self.labels(chips), title, follow), (['pending_id'], 'Not what you meant? Try:', []))
         chips, title, follow = reply_chips([('id_processing_status', .97), ('pending_id', .01)], 'id_processing_status', .97, 'student')
         self.assertEqual((chips, title), ([], ''))
-        self.assertEqual(self.labels(follow), ['id_release_schedule', 'pending_id', 'qr_sticker_request'])
+        self.assertEqual(self.labels(follow), ['id_process', 'id_release_schedule', 'pending_id'])
         chips, _, follow = reply_chips([('lost_id_schedule', .66), ('pending_id_schedule', .27)], 'lost_id_schedule', .66, 'student')
         self.assertEqual((self.labels(chips), follow), (['pending_id_schedule'], []))
 

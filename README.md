@@ -44,7 +44,7 @@ empty database. Records and appointment changes persist in PostgreSQL.
 `static/` and is served by the app itself; nothing is fetched from a CDN or from Google Fonts
 (see [`static/vendor/README.md`](static/vendor/README.md) for the list, versions and licenses).
 
-Choose a role on the first screen. The **coordinator** starts on the **Dashboard**, a live ticker above a table of
+Choose a role on the first screen. The **coordinator** starts on the **Dashboard**, a PGPC NEWS ticker above a table of
 every student with a status filter, **Select all** and CSV **Import**. The **guard** starts on the **Assistant**, a
 full-page chat: type a student ID such as `P202400230`, or a name, and the assistant answers with that student.
 The **student** has nothing but that chat: lookups, the **Request help** button and the follow-up of a request all
@@ -176,7 +176,7 @@ control (see [Privacy and access](#privacy-and-access)).
 
 | Role | Pages | What it does |
 |---|---|---|
-| Coordinator | Dashboard, Assistant, Appointments, Requests, Incidents, Feedback, Activity | **Dashboard**: every student with Student ID, Full name, Year & Section, Status, Address and Contact number. Filter by status, **Select all**, change the status of many students at once, print sticker sheets, **Import students** (CSV), **Add student**, export CSV. A **live ticker** (status counts, what is overdue or due today, open requests and incidents, the latest activity) scrolls above the table and refreshes by itself; see [The Dashboard ticker](#the-dashboard-ticker). Tiles and shortcuts (Not yet made, Overdue, Today, For release without a date, Pending without a reason) sit under it; the old Overview page is now part of it. **Requests** is an inbox: Submitted → In review → Accepted → Closed. **Incidents** is the review list of what the guard filed: Resolve or Reopen, and mark or withdraw a false statement. A coordinator files an incident the same way the guard does, in the Assistant (its **File incident** button switches there and opens the pop-up). |
+| Coordinator | Dashboard, Assistant, Appointments, Requests, Incidents, Feedback, Activity | **Dashboard**: every student with Student ID, Full name, Year & Section, Status, Address and Contact number. Filter by status, **Select all**, change the status of many students at once, print sticker sheets, **Import students** (CSV), **Add student**, export CSV. A **PGPC NEWS ticker** scrolls above the table; see [The PGPC NEWS ticker](#the-pgpc-news-ticker). Tiles and shortcuts (Not yet made, Overdue, Today, For release without a date, Pending without a reason) sit under it; the old Overview page is now part of it. **Requests** is an inbox: Submitted → In review → Accepted → Closed. **Incidents** is the review list of what the guard filed: Resolve or Reopen, and mark or withdraw a false statement. A coordinator files an incident the same way the guard does, in the Assistant (its **File incident** button switches there and opens the pop-up). |
 | Guard | Assistant, Verify ID | **Assistant**: type a student ID or name to see whether the ID is released, then check the student in or out. The gate log and the list of IDs not yet made are typed there too, and so are the **incidents**: a small **⚠️ File incident** button opens the report as a pop-up (like Request help), and `incidents` lists them with a Resolve button each. **Verify ID** finds a student by ID, name or QR scan. There is no Incidents page in the guard's sidebar. |
 | Student | Assistant (the only page) | **Everything is in the chat.** Type a student ID or name to see that student's ID status (never the address, contact number, staff notes or QR token). When the answer is about a lost, missing or unreleased ID, a small **📝 Request help** button appears under it and opens the request form as a pop-up; type `my requests` to follow what was sent. There is no sidebar page for any of this and no Search ID form. |
 
@@ -255,24 +255,31 @@ The student role is chat-only, so the help request lives where the question is a
 
 The same chat answers the staff roles as before; the button and `my requests` are for students.
 
-### The Dashboard ticker
+### The PGPC NEWS ticker
 
-The strip under the Dashboard heading is a live news ticker for the coordinator. It reads the same records and
-counters as the tiles, so its numbers always agree with the table.
-
-| Shows | From |
-|---|---|
-| Pending, Processing, For release and Released counts | the student records |
-| Overdue appointments and appointments today | the records (overdue is shown in red) |
-| Open requests, open incidents (shown in red), feedback to review | `GET /api/stats` |
-| The latest six actions (who did what) | `recent_activity` in `GET /api/stats` |
-| "Nothing needs attention right now" | when all of the above are quiet |
+A scrolling strip of Padre Garcia Polytechnic College announcements. The **coordinator** sees it under the Dashboard
+heading; **students and guards** see it under the Assistant heading. The text comes from `data/pgpc_news.json` (a list
+of `{"icon", "text"}`; edit it to change the news, no code needed) through the public `GET /api/news`.
 
 It scrolls on its own and **holds still while the pointer is on the text or the keyboard focus is in it**. **⏸ / ▶**
-pauses it for good (remembered in the browser). It refreshes every 20 seconds and when the tab is opened again;
-if the counts changed, the table below reloads too. Screen readers get one plain sentence instead of the moving
-text. With "reduce motion" switched on in the operating system, the ticker does not move: it shows one copy of the
-items that can be scrolled by hand.
+pauses it for good (remembered in the browser). Screen readers get one plain sentence instead of the moving text. With
+"reduce motion" switched on in the operating system, the ticker does not move: it shows one copy of the items that can
+be scrolled by hand.
+
+### The ID process guide
+
+Ask "What is the process of making a school ID?" (or about one step, in English or Taglish) and the assistant explains
+the six steps: **Production → Signature → Canva edit → Printing → Case and lace → Releasing**. The ANN only decides
+that the question is about the process (intent `id_process`); `id_process.py` picks the step from plain keywords and
+writes the answer. The flow is an assumption: change it in `STEPS` in `id_process.py` and the answers, the chips and
+the tests follow.
+
+* Each step has several wordings (what happens, what you can do, a one-line version). A question already answered in
+  the conversation is never answered with the same text again; when everything has been said, the reply points to
+  another step instead.
+* The chips under an answer are the next step, the one before it and "All steps".
+* With a student selected, the answer says where that student's ID is (for example "status is For release, so it is at
+  step 6").
 
 ### Animations
 

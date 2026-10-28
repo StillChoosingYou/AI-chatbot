@@ -31,18 +31,18 @@ class ANNTrainingTests(unittest.TestCase):
     def test_training_saved_model_and_reports(self):
         with contextlib.redirect_stdout(io.StringIO()):
             report = train(self.options)
-        self.assertEqual(report['train_count'],132)
-        self.assertEqual(report['test_count'],33)
+        self.assertEqual(report['train_count'],144)
+        self.assertEqual(report['test_count'],36)
         self.assertFalse(set(report['train_ids']) & set(report['test_ids']))
-        self.assertEqual(report['deployment_train_count'],165)
+        self.assertEqual(report['deployment_train_count'],180)
         saved = ANNIntentModel(self.options.model_out)
         self.assertEqual(saved.match('When can I collect my school ID?'), 'id_release_schedule')
         self.assertEqual(saved.match('purple asteroid quantum banana'), 'out_of_scope')
         self.assertEqual(saved.match(''), 'out_of_scope')
         metrics=json.loads((self.options.report_dir/'metrics.json').read_text())
-        self.assertEqual(sum(map(sum,metrics['confusion_matrix'])),33)
-        self.assertEqual(len((self.options.report_dir/'predictions.csv').read_text().splitlines()),34)
-        self.assertEqual(len((self.options.report_dir/'confusion_matrix.csv').read_text().splitlines()),13)      # header + 11 topics + out_of_scope
+        self.assertEqual(sum(map(sum,metrics['confusion_matrix'])),36)
+        self.assertEqual(len((self.options.report_dir/'predictions.csv').read_text().splitlines()),37)
+        self.assertEqual(len((self.options.report_dir/'confusion_matrix.csv').read_text().splitlines()),14)      # header + 12 topics + out_of_scope
         self.assertNotIn('out_of_scope',metrics['classification_report'])   # no examples, so not scored
         self.assertIn('turned_away_by_fallback',metrics)
         bundle=joblib.load(self.options.model_out)
@@ -79,9 +79,9 @@ class ANNTrainingTests(unittest.TestCase):
         self.options.test_dataset=independent
         with contextlib.redirect_stdout(io.StringIO()):
             report=train(self.options)
-        self.assertEqual(report['train_count'],165)
+        self.assertEqual(report['train_count'],180)
         self.assertEqual(report['test_count'],2)
-        self.assertEqual(report['deployment_train_count'],165)
+        self.assertEqual(report['deployment_train_count'],180)
         self.assertEqual(report['test_ids'],['E1','E2'])
         self.assertIsNotNone(report['test_dataset_hash'])
         self.assertEqual(sum(map(sum,report['confusion_matrix'])),2)

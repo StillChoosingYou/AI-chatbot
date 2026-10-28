@@ -412,6 +412,7 @@ dialog::backdrop { background: var(--dialog-backdrop); }
 /* ========= DASHBOARD TICKER ========= */
 .ticker { display: flex; align-items: stretch; margin: 22px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-sm); }
 .ticker[hidden] { display: none; }
+.assistant-page .ticker { margin: 4px 0 16px; }
 .ticker-live { display: inline-flex; align-items: center; gap: 7px; flex: none; padding: 0 14px; background: var(--green-bg); color: var(--green); font: 700 10px/1 Manrope, system-ui, sans-serif; letter-spacing: 1.4px; }
 .ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: tickerPulse 1.8s ease-in-out infinite; }
 .ticker-window { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%); }
