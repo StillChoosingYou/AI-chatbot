@@ -154,12 +154,13 @@ class SchoolIDTests(DatabaseTestCase):
 
     def test_each_role_has_its_own_address_and_the_home_page_is_the_chooser(self):
         self.assertIn('data-page-role=""', self.client.get('/').get_data(as_text=True))
-        for role in ('coordinator', 'guard', 'student'):
+        for role in ('coordinator', 'student'):
             for path in (f'/{role}', f'/{role}/'):
                 with self.subTest(path=path):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 200)
                     self.assertIn(f'data-page-role="{role}"', response.get_data(as_text=True))
+        self.assertEqual(self.client.get('/guard').status_code, 302)     # the guard role is gone: old links go to the chooser
         self.assertEqual(self.client.get('/admin').status_code, 404)
         self.assertEqual(self.client.get('/student/unknown').status_code, 404)    # a sticker token still works as before
 
@@ -172,15 +173,15 @@ class SchoolIDTests(DatabaseTestCase):
     def test_role_tools_and_student_request(self):
         home = self.client.get('/').get_data(as_text=True)
         self.assertIn('role-dialog', home)
-        self.assertIn('Verify ID', home)
+        self.assertNotIn('Verify ID', home)
+        self.assertNotIn('data-workspace="guard"', home)
         found = self.client.get('/api/verify', query_string={'q': self.row['student_id']})
         self.assertEqual(found.status_code, 200)
         self.assertEqual(found.json['matches'][0]['student_id'], self.row['student_id'])
         lookup = self.client.post('/api/student/lookup', json={'student_id': self.row['student_id']})
         self.assertEqual(lookup.status_code, 200)
         self.assertEqual(self.client.post('/api/student/lookup', json={'student_id': 'NOPE'}).status_code, 404)
-        gate = self.client.post('/api/gate', json={'student_id': self.row['student_id'], 'direction': 'in'})
-        self.assertEqual(gate.status_code, 201)
+        self.assertEqual(self.client.post('/api/gate', json={'direction': 'in', 'name': 'x'}).status_code, 404)   # no gate log any more
         incident = self.client.post('/api/incidents', json={
             'category': 'No ID', 'location': 'Main gate', 'detail': 'Visitor without a card'})
         self.assertEqual(incident.status_code, 201)
@@ -194,9 +195,8 @@ class SchoolIDTests(DatabaseTestCase):
         student_chat = self.client.post('/api/chat', json={
             'message': 'What can you do?', 'workspace_role': 'student'}).json
         self.assertIn('Type a student ID', student_chat['reply'])
-        guard_chat = self.client.post('/api/chat', json={
-            'message': 'hello', 'workspace_role': 'guard'}).json
-        self.assertTrue(any(a['type'] == 'open_verify' for a in guard_chat['actions']))
+        stale = self.client.post('/api/chat', json={'message': 'hello', 'workspace_role': 'guard'})
+        self.assertEqual(stale.status_code, 200)             # a tab left open on the old guard page still gets an answer
         card = self.client.get(f'/card/{self.row["id"]}/front.png')
         self.assertEqual(card.status_code, 200)
         self.assertTrue(card.data.startswith(b'\x89PNG'))

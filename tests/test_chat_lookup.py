@@ -1,18 +1,17 @@
 """The chat is the way to look a student up: type an ID or a name and the chat answers with that student.
 
-The guard also checks students in and out from the chat, and the guard and the coordinator can ask for the
-gate log and for the IDs that are not made yet. None of this uses the neural network, only the database.
+The coordinator can also ask for the IDs that are not made yet. None of this uses the neural network, only the
+database.
 """
 import json
 import unittest
-from datetime import datetime, timedelta
 from unittest import mock
 
 from chat_support import PRIVATE_NOTE
 from pg_support import AppTestCase
 from student_data import RELEASE_HOURS, STUDENT_ID_EXAMPLE
 
-ROLES = ('student', 'guard', 'coordinator')
+ROLES = ('student', 'coordinator')
 
 
 class ChatTestCase(AppTestCase):
@@ -21,9 +20,6 @@ class ChatTestCase(AppTestCase):
             'student_id': student_id, 'name': name, 'year_section': year_section, **extra})
         self.assertEqual(response.status_code, 201, response.json)
         return response.json
-
-    def gate_rows(self):
-        return self.client.get('/api/gate').json['logs']
 
     def types(self, reply):
         return [action['type'] for action in reply['actions']]
@@ -81,7 +77,7 @@ class LookupByIdTests(ChatTestCase):
         alex = self.student('P202400101')
         self.client.patch(f'/api/inventory/{alex["id"]}', json={'notes': 'Internal: the parent teaches here'})
         for role in ROLES:
-            for message in ('P202400101', 'Alex Rivera', 'P202400101 P202400102', 'records', 'gate log'):
+            for message in ('P202400101', 'Alex Rivera', 'P202400101 P202400102', 'records'):
                 reply = self.ask(message, role, record_id=alex['id'])
                 dump = json.dumps(reply, ensure_ascii=False)
                 self.assertNotIn(alex['token'], dump, (role, message))
@@ -100,7 +96,7 @@ class LookupByIdTests(ChatTestCase):
         self.assertIsNone(reply['student'])                               # the chat is not about one student now
         self.assertLess(reply['reply'].index('Taylor A. Cruz'), reply['reply'].index('Alex M. Rivera'))
         self.assertEqual(reply['reply'].count('Student ID:'), 2)
-        every = self.ask('P202400101 P202400102 P202400103 P202400104 P202400105 P202400106', 'guard')
+        every = self.ask('P202400101 P202400102 P202400103 P202400104 P202400105 P202400106', 'coordinator')
         self.assertEqual(every['reply'].count('Student ID:'), 3)
         partly = self.ask('P202400101 and P202499999', 'student')            # the ID that is not there is named, not ignored
         self.assertEqual(partly['reply'].count('Student ID:'), 1)
@@ -133,10 +129,10 @@ class LookupByIdTests(ChatTestCase):
     def test_odd_text_never_breaks_the_lookup(self):
         for text in ("'; DROP TABLE inventory;--", 'P202400101%', '%', '_', 'P_0240010_', '\\', 'P202400101​', '😀 P202400101',
                      'x' * 900, ' '.join(['P20240010' + str(n) for n in range(10)])):
-            response = self.client.post('/api/chat', json={'message': text, 'workspace_role': 'guard'})
+            response = self.client.post('/api/chat', json={'message': text, 'workspace_role': 'coordinator'})
             self.assertEqual(response.status_code, 200, text[:30])
         self.assertEqual(len(self.client.get('/api/inventory').json['records']), 6)
-        self.assertEqual(self.client.post('/api/chat', json={'message': 'P2024\x00', 'workspace_role': 'guard'}).status_code, 400)
+        self.assertEqual(self.client.post('/api/chat', json={'message': 'P2024\x00', 'workspace_role': 'coordinator'}).status_code, 400)
 
 
 class LookupByNameTests(ChatTestCase):
@@ -229,12 +225,9 @@ class FollowUpTests(ChatTestCase):
             self.assertIn('**2030-01-07 at 09:30**', reply['reply'])
             self.assertIn(f'Release hours: {RELEASE_HOURS}', reply['reply'])
 
-    def test_the_guard_is_told_what_the_status_means_at_the_gate_and_the_coordinator_is_not(self):
+    def test_the_coordinator_and_the_student_are_told_the_status(self):
         jamie = self.student('P202400102')
-        guard = self.ask('What is the status of my student ID?', 'guard', record_id=jamie['id'])['reply']
-        self.assertIn('Gate: the ID is not yet made (records show Pending)', guard)
         coordinator = self.ask('What is the status of my student ID?', 'coordinator', record_id=jamie['id'])['reply']
-        self.assertNotIn('Gate:', coordinator)
         self.assertIn('Jamie L. Santos: ID status is **Pending**', coordinator)
         reason = self.ask('Why is my student ID pending?', 'student', record_id=jamie['id'])['reply']
         self.assertIn('Photo verification needed', reason)
@@ -277,9 +270,6 @@ class LookupDoesNotUseTheNetworkTests(ChatTestCase):
                 self.assertEqual(self.ask('Alex Rivera', role)['intent'], 'student_lookup', role)
                 self.assertEqual(self.ask('P202499999', role)['intent'], 'student_not_found', role)
                 self.assertEqual(self.ask('records', role)['intent'], 'records_list', role)
-                self.assertEqual(self.ask('gate log', role)['intent'], 'gate_log', role)
-            self.assertEqual(self.ask('check in P202400101', 'guard')['intent'], 'gate_check_in')
-            self.assertEqual(self.ask('check in', 'guard')['intent'], 'gate_not_logged')
             # an ordinary question does need it: the failure is a clean error, not a crash
             with self.assertLogs(self.app.logger, 'ERROR'):
                 response = self.client.post('/api/chat', json={'message': 'When is my ID release?'})
@@ -287,229 +277,9 @@ class LookupDoesNotUseTheNetworkTests(ChatTestCase):
             self.assertIn('error', response.json)
 
 
-class GateInChatTests(ChatTestCase):
-    def test_check_in_logs_the_student_and_answers_with_the_record(self):
-        reply = self.ask('check in P202400104', 'guard')
-        self.assertEqual(reply['intent'], 'gate_check_in')
-        text = reply['reply']
-        self.assertIn('✅ Taylor A. Cruz (P202400104) checked in at', text)
-        self.assertIn('Year & Section: 4B · Status: **Released** (ID already claimed)', text)
-        self.assertIn('Gate: the ID was released, so the student should have the card.', text)
-        self.assertEqual(reply['student']['student_id'], 'P202400104')
-        rows = self.gate_rows()
-        self.assertEqual([(r['student_id'], r['name'], r['direction'], r['note']) for r in rows],
-                         [('P202400104', 'Taylor A. Cruz', 'in', 'logged in the chat')])
-        self.assertEqual(self.client.get('/api/gate').json['today'], {'in': 1, 'out': 0})
-        self.assertIn(('Gate in', 'P202400104'), [(e['action'], e['detail']) for e in self.client.get('/api/activity').json['events']])
-        out = self.ask('check out P202400104', 'guard')
-        self.assertEqual(out['intent'], 'gate_check_out')
-        self.assertIn('checked out at', out['reply'])
-        self.assertEqual(self.client.get('/api/gate').json['today'], {'in': 1, 'out': 1})
-
-    def test_the_gate_note_follows_the_status_so_a_card_that_cannot_exist_is_flagged(self):
-        notes = {'P202400102': 'Gate: the ID is not yet made (records show Pending)',
-                 'P202400103': 'Gate: the ID is not yet made (records show Processing)',
-                 'P202400101': 'Gate: the ID is made but not claimed yet. Send the student to the Property Management Office to claim it.'}
-        for student_id, note in notes.items():
-            self.assertIn(note, self.ask(f'check in {student_id}', 'guard')['reply'], student_id)
-
-    def test_the_command_can_be_worded_in_many_ways(self):
-        cases = (('check in P202400101', 'in', 'P202400101'), ('check-out p202400102', 'out', 'P202400102'),
-                 ('time in Sam Reyes', 'in', 'P202400103'), ('pasok Taylor Cruz', 'in', 'P202400104'),
-                 ('labas Casey Garcia', 'out', 'P202400105'), ('please log out Jordan Flores', 'out', 'P202400106'),
-                 ('Check In: P202400102 ', 'in', 'P202400102'), ('out Alex', 'out', 'P202400101'))
-        for text, direction, student_id in cases:
-            reply = self.ask(text, 'guard')
-            self.assertEqual(reply['intent'], f'gate_check_{direction}', text)
-            last = self.gate_rows()[0]
-            self.assertEqual((last['student_id'], last['direction']), (student_id, direction), text)
-        self.assertEqual(len(self.gate_rows()), len(cases))
-
-    def test_a_visitor_is_logged_by_name_and_is_not_looked_up(self):
-        reply = self.ask('check in visitor Pedro Penduko', 'guard')
-        self.assertEqual(reply['intent'], 'gate_check_in')
-        self.assertIn('✅ Visitor Pedro Penduko checked in at', reply['reply'])
-        self.assertIn('not on the student list', reply['reply'])
-        self.assertIsNone(reply['student'])
-        row = self.gate_rows()[0]
-        self.assertEqual((row['student_id'], row['name'], row['direction'], row['note']),
-                         ('', 'Pedro Penduko', 'in', 'visitor, logged in the chat'))
-        again = self.ask('in visitor pedro penduko', 'guard')                      # a double tap, whatever the case
-        self.assertIn('was already logged in a moment ago', again['reply'])
-        self.assertEqual(len(self.gate_rows()), 1)
-        out = self.ask('labas bisita Pedro Penduko', 'guard')
-        self.assertEqual(out['intent'], 'gate_check_out')
-        self.assertEqual(len(self.gate_rows()), 2)
-        self.assertIn('IN · Pedro Penduko', self.ask('gate log', 'coordinator')['reply'])
-
-    def test_a_visitor_needs_a_name_and_only_the_guard_can_log_one(self):
-        for text in ('check in visitor', 'check out visitor:', 'in bisita'):
-            reply = self.ask(text, 'guard')
-            self.assertEqual(reply['intent'], 'gate_not_logged', text)
-            self.assertIn('Type the visitor’s name', reply['reply'])
-        self.ask('check in visitor Pedro Penduko', 'coordinator')
-        self.ask('check in visitor Pedro Penduko', 'student')
-        self.assertEqual(self.gate_rows(), [])
-
-    def test_pressing_the_button_twice_is_one_entry(self):
-        first = self.ask('check in P202400104', 'guard')
-        again = self.ask('check in P202400104', 'guard')
-        self.assertTrue(first['reply'].startswith('✅'))
-        self.assertIn('was already logged in a moment ago, so nothing was added', again['reply'])
-        self.assertEqual(again['intent'], 'gate_check_in')
-        self.assertEqual(len(self.gate_rows()), 1)
-        self.assertTrue(self.ask('check out P202400104', 'guard')['reply'].startswith('✅'))       # the other direction counts
-        self.assertEqual(len(self.gate_rows()), 2)
-        with self.db() as db:                                     # the same student, the same way, a while later
-            db.execute('UPDATE gate_logs SET timestamp = %s',
-                       ((datetime.now() - timedelta(seconds=30)).strftime('%Y-%m-%d %H:%M:%S'),))
-        self.assertTrue(self.ask('check in P202400104', 'guard')['reply'].startswith('✅'))
-        self.assertEqual(len(self.gate_rows()), 3)
-
-    def test_nothing_is_logged_for_a_student_who_is_not_there(self):
-        unknown_id = self.ask('check in P202499999', 'guard')
-        self.assertEqual(unknown_id['intent'], 'gate_not_logged')
-        self.assertIn('Nothing was logged. I couldn’t find a student with ID P202499999.', unknown_id['reply'])
-        unknown_name = self.ask('check out Maria Clara', 'guard')
-        self.assertEqual(unknown_name['intent'], 'gate_not_logged')
-        self.assertIn('Nothing was logged. I couldn’t find a student named “Maria Clara”.', unknown_name['reply'])
-        self.assertEqual(self.gate_rows(), [])
-        self.assertIsNone(unknown_id['student'])
-
-    def test_two_students_with_the_same_name_are_not_guessed_between(self):
-        self.add('P202499040', 'Ana Rivera', '2A')
-        reply = self.ask('check in Rivera', 'guard')
-        self.assertEqual(reply['intent'], 'gate_not_logged')
-        self.assertIn('Nothing was logged yet. Which student checked in?', reply['reply'])
-        self.assertEqual(reply['suggestions_title'], 'Which student?')
-        self.assertEqual({chip['question'] for chip in reply['suggestions']}, {'check in P202499040', 'check in P202400101'})
-        self.assertEqual(self.gate_rows(), [])
-        chosen = self.ask(reply['suggestions'][0]['question'], 'guard')                  # the tap
-        self.assertTrue(chosen['reply'].startswith('✅'))
-        self.assertEqual(len(self.gate_rows()), 1)
-
-    def test_a_name_that_is_too_vague_is_not_listed_or_logged(self):
-        for number, word in enumerate(('One', 'Two', 'Three', 'Four', 'Five', 'Six'), start=1):
-            self.add(f'P2024994{number:02d}', f'{word} Villanueva', '1A')
-        reply = self.ask('check in Villanueva', 'guard')
-        self.assertIn('matches 6 students', reply['reply'])
-        self.assertEqual(self.gate_rows(), [])
-
-    def test_only_the_guard_can_log_so_the_same_words_elsewhere_only_look_the_student_up(self):
-        for role in ('coordinator', 'student'):
-            reply = self.ask('check in P202400104', role)
-            self.assertEqual(reply['intent'], 'student_lookup', role)
-            self.assertEqual(reply['student']['student_id'], 'P202400104', role)
-        self.assertEqual(self.gate_rows(), [])
-
-    def test_a_question_is_a_question_and_a_bare_verb_asks_for_the_student(self):
-        question = self.ask('check in P202400104?', 'guard')
-        self.assertEqual(question['intent'], 'student_lookup')
-        self.assertEqual(self.gate_rows(), [])
-        for text in ('check in', 'Check out', 'pasok', 'please time out.'):
-            reply = self.ask(text, 'guard')
-            self.assertEqual(reply['intent'], 'gate_not_logged', text)
-            self.assertIn(f'check in {STUDENT_ID_EXAMPLE}', reply['reply'], text)
-        self.assertEqual(self.gate_rows(), [])
-
-    def test_a_sentence_that_starts_with_in_or_out_is_not_a_command(self):
-        """"in" and "out" are everyday words: after them only a student makes a command."""
-        for text in ('in case I lost my ID what should I do', 'out of curiosity where is the office',
-                     'in the morning can I claim my id', 'in visitor parking where do I go',
-                     'out of town students pick up'):
-            reply = self.ask(text, 'guard')
-            self.assertNotIn(reply['intent'], ('gate_check_in', 'gate_check_out', 'gate_not_logged'), text)
-            self.assertNotIn('Nothing was logged', reply['reply'], text)
-        self.assertEqual(self.gate_rows(), [])
-        # After an explicit verb the same words are an order, and an ID or a name after "in" still is one.
-        self.assertEqual(self.ask('check in case I lost my ID', 'guard')['intent'], 'gate_not_logged')
-        missing = self.ask('in P202499999', 'guard')
-        self.assertEqual(missing['intent'], 'gate_not_logged')
-        self.assertIn('P202499999', missing['reply'])
-        self.assertEqual(self.ask('in Taylor Cruz', 'guard')['intent'], 'gate_check_in')
-        self.assertEqual(self.ask('check in visitor Pedro Penduko', 'guard')['intent'], 'gate_check_in')
-        self.assertEqual(len(self.gate_rows()), 2)
-
-    def test_the_guards_card_has_the_buttons_the_gate_needs_and_they_work(self):
-        reply = self.ask('P202400104', 'guard')
-        buttons = {a['type']: a for a in reply['actions'] if a['type'] in ('send', 'open_incident')}
-        self.assertEqual(self.types(reply), ['send', 'send', 'open_incident', 'preview_card'])
-        self.assertEqual([a['text'] for a in reply['actions'] if a['type'] == 'send'],
-                         ['check in P202400104', 'check out P202400104'])
-        self.assertEqual(buttons['open_incident']['student_id'], 'P202400104')
-        for action in reply['actions']:
-            if action['type'] == 'send':
-                self.assertTrue(self.ask(action['text'], 'guard')['reply'].startswith('✅'))
-        self.assertEqual([r['direction'] for r in self.gate_rows()], ['out', 'in'])
-
-    def test_the_other_roles_cards_have_their_own_buttons(self):
-        self.assertEqual(self.types(self.ask('P202400104', 'coordinator')),
-                         ['view_record', 'update_record', 'print_sticker', 'preview_card'])
-        card = self.ask('P202400104', 'student')
-        self.assertEqual(self.types(card), ['print_sticker', 'preview_card', 'open_student_request'])
-        self.assertEqual({k: v for k, v in card['actions'][2].items() if k != 'label'},
-                         {'type': 'open_student_request', 'student_id': 'P202400104', 'name': 'Taylor A. Cruz'})
-
-    def test_the_gate_page_is_gone_from_the_guards_welcome_and_the_log_is_one_tap_away(self):
-        reply = self.ask('hello', 'guard')
-        self.assertEqual(reply['intent'], 'greeting')
-        self.assertEqual(self.types(reply), ['open_verify', 'send', 'open_incident', 'send'])
-        self.assertEqual([a['text'] for a in reply['actions'] if a['type'] == 'send'], ['gate log', 'incidents'])
-        help_text = self.ask('What can you do?', 'guard')['reply']
-        self.assertIn('check in', help_text)
-        self.assertIn('gate log', help_text)
-
-
-class GateLogInChatTests(ChatTestCase):
-    def test_an_empty_day_says_so_and_how_to_log(self):
-        for role in ('guard', 'coordinator'):
-            reply = self.ask('gate log', role)
-            self.assertEqual(reply['intent'], 'gate_log')
-            self.assertIn('No gate entries today yet', reply['reply'])
-            self.assertIn('check in', reply['reply'])
-
-    def test_the_log_lists_todays_entries_newest_first_with_the_counts(self):
-        with self.db() as db:                                     # yesterday's entries are not today's
-            db.execute("INSERT INTO gate_logs (student_id,name,direction,note,timestamp) "
-                       "VALUES ('P202400101','Alex M. Rivera','in','','2020-01-01 08:00:00')")
-        self.ask('check in P202400104', 'guard')
-        self.ask('check in P202400101', 'guard')
-        self.ask('check out P202400104', 'guard')
-        self.client.post('/api/gate', json={'direction': 'in', 'name': 'Delivery rider'})        # the old form still works
-        today = datetime.now().strftime('%Y-%m-%d')
-        for role in ('guard', 'coordinator'):
-            text = self.ask('gate log', role)['reply']
-            self.assertIn(f'🚪 Gate log for {today}: 3 in, 1 out (latest first)', text, role)
-            lines = text.splitlines()[1:]
-            self.assertEqual(len(lines), 4)
-            self.assertTrue(lines[0].endswith('IN · Delivery rider'), lines[0])
-            self.assertTrue(lines[1].endswith('OUT · Taylor A. Cruz · P202400104'), lines[1])
-            self.assertTrue(lines[3].endswith('IN · Taylor A. Cruz · P202400104'), lines[3])
-            self.assertNotIn('2020-01-01', text)
-
-    def test_a_long_day_shows_the_latest_fifteen_and_says_how_many_are_left(self):
-        for _ in range(17):
-            self.client.post('/api/gate', json={'direction': 'in', 'student_id': 'P202400101'})
-        text = self.ask('gate log', 'guard')['reply']
-        self.assertEqual(text.count('• '), 15)
-        self.assertIn('…and 2 earlier entries today.', text)
-
-    def test_the_log_can_be_asked_for_in_other_words(self):
-        self.ask('check in P202400104', 'guard')
-        for text in ('gate logs', 'Show the gate entries', 'gate-history', "who's inside", 'logs at the gate', 'GATE LOG please'):
-            self.assertEqual(self.ask(text, 'coordinator')['intent'], 'gate_log', text)
-
-    def test_a_student_is_pointed_to_their_own_status_instead(self):
-        self.ask('check in P202400104', 'guard')
-        reply = self.ask('gate log', 'student')
-        self.assertEqual(reply['intent'], 'gate_log')
-        self.assertIn('kept by the guard', reply['reply'])
-        self.assertNotIn('Taylor', reply['reply'])
-
-
 class RecordsListTests(ChatTestCase):
-    def test_records_lists_the_ids_that_are_not_made_yet_for_the_guard_and_the_coordinator(self):
-        for role in ('guard', 'coordinator'):
+    def test_records_lists_the_ids_that_are_not_made_yet_for_the_coordinator(self):
+        for role in ('coordinator',):
             reply = self.ask('records', role)
             self.assertEqual(reply['intent'], 'records_list', role)
             lines = reply['reply'].splitlines()
@@ -523,26 +293,24 @@ class RecordsListTests(ChatTestCase):
                              ['P202400106', 'P202400102', 'P202400105', 'P202400103'])
             self.assertNotIn('Address', reply['reply'])
         self.assertEqual(self.types(self.ask('records', 'coordinator')), ['show_not_made'])
-        self.assertEqual(self.types(self.ask('records', 'guard')), [])
 
     def test_it_is_asked_for_in_english_and_in_tagalog(self):
         for text in ('Records', 'list records', 'show me the student records', 'Hindi pa nagagawang ID', 'hindi pa nagawa',
                      'di pa nagagawang ID', 'ID not yet made', 'IDs not made yet', 'unmade IDs', 'Hindi-pa-nagagawa'):
-            for role in ('guard', 'coordinator'):
-                self.assertEqual(self.ask(text, role)['intent'], 'records_list', (text, role))
+            self.assertEqual(self.ask(text, 'coordinator')['intent'], 'records_list', text)
 
     def test_a_student_is_not_given_the_list(self):
         for text in ('records', 'hindi pa nagagawang ID'):
             reply = self.ask(text, 'student')
             self.assertEqual(reply['intent'], 'records_list')
-            self.assertIn('is for the office and the guard', reply['reply'])
+            self.assertIn('is for the office', reply['reply'])
             for name in ('Jordan', 'Jamie', 'Casey', 'Sam D. Reyes'):
                 self.assertNotIn(name, reply['reply'])
             self.assertEqual(reply['suggestions'], [])
 
     def test_a_tap_on_a_name_in_the_list_opens_that_student(self):
-        reply = self.ask('records', 'guard')
-        opened = self.ask(reply['suggestions'][0]['question'], 'guard')
+        reply = self.ask('records', 'coordinator')
+        opened = self.ask(reply['suggestions'][0]['question'], 'coordinator')
         self.assertEqual(opened['student']['name'], 'Jordan F. Flores')
 
     def test_when_every_id_is_made_the_list_says_so(self):
@@ -559,10 +327,7 @@ class RecordsListTests(ChatTestCase):
         self.assertEqual(coordinator.splitlines()[0], '📂 IDs not yet made: 12 (Pending 10 · Processing 2)')
         self.assertEqual(coordinator.count('• '), 10)
         self.assertIn('…and 2 more. Use the “Not yet made” filter on the Dashboard to see them all.', coordinator)
-        guard = self.ask('records', 'guard')
-        self.assertIn('…and 2 more.', guard['reply'])
-        self.assertNotIn('Dashboard', guard['reply'])
-        self.assertEqual(len(guard['suggestions']), 6)
+        self.assertEqual(len(self.ask('records', 'coordinator')['suggestions']), 6)
 
     def test_the_word_records_inside_a_real_question_does_not_trigger_the_list(self):
         for text in ('Where are the student records kept?', 'Does the office keep records of lost IDs?'):
@@ -584,7 +349,6 @@ class WelcomeTests(ChatTestCase):
 
     def test_the_help_text_of_each_role_mentions_what_that_role_can_do(self):
         expected = {'coordinator': ('records', 'import students', 'Not yet made', 'Lost ID'),
-                    'guard': ('check in', 'gate log', 'Cashier'),
                     'student': ('student ID or name', 'Request help', 'Cashier')}
         for role, words in expected.items():
             text = self.ask('What can you do?', role)['reply']

@@ -1,6 +1,6 @@
 /* School ID property management – role-based front end.
-   One page, three workspaces. The Assistant is a full-page chat that works the same way for the
-   coordinator, the guard and the student; the coordinator also gets the Dashboard of every student. */
+   One page, two workspaces. The Assistant is a full-page chat that works the same way for the
+   coordinator and the student; the coordinator also gets the Dashboard of every student. */
 'use strict';
 
 /* Every animation is played by static/fx.js (the Motion library). If that file did not load, each call does nothing. */
@@ -13,7 +13,7 @@ const store = {
   remove(key) { try { localStorage.removeItem(key); } catch { /* ignore */ } },
 };
 
-/* crypto.randomUUID exists only on https:// pages and on localhost. A guard's phone may open this app over
+/* crypto.randomUUID exists only on https:// pages and on localhost. A phone may open this app over
    plain http on the school network, so there is a fallback instead of a crash. */
 function uuid() {
   if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -39,7 +39,7 @@ let stats = null, serverToday = '', sending = false, historyLoadId = 0;
 let tickerKey = '', tickerUnit = '', tickerFit = '';   // what the Dashboard ticker shows, and how it is laid out
 let intentLabels = {}, knownIntents = [];
 const badgeCounts = { dashboard: 0, requests: 0, feedback: 0, incidents: 0 };
-/* The role comes from the address: /coordinator, /guard or /student. On '/' there is none, and the chooser shows. */
+/* The role comes from the address: /coordinator or /student. On '/' there is none, and the chooser shows. */
 let workspaceRole = document.body.dataset.pageRole || '';
 let currentView = '';                              // the workspace page on screen, so a change of page starts at the top
 const baseSession = store.get('chatSessionId') || (() => {
@@ -58,10 +58,6 @@ const NAV = {
     { id: 'feedback', label: '👍  Feedback' },
     { id: 'activity', label: '🕓  Activity' },
   ],
-  guard: [
-    { id: 'assistant', label: '◌  Assistant' },
-    { id: 'verify', label: '🔎  Verify ID' },          // incidents are filed and followed in the chat
-  ],
   student: [
     { id: 'assistant', label: '◌  Assistant' },          // everything a student does happens in the chat
   ],
@@ -71,12 +67,7 @@ const ROLE_META = {
   coordinator: {
     title: 'Coordinator', avatar: 'PM', caption: 'Property Management', eyebrow: 'COORDINATOR',
     blurb: 'Type a student ID or name and I will show that student’s record, with address and contact number.',
-    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show that student’s record, with address and contact number. Type “records” to list the IDs that are not made yet, or “gate log” for today’s gate entries.',
-  },
-  guard: {
-    title: 'Guard', avatar: 'GD', caption: 'Campus gate', eyebrow: 'GUARD',
-    blurb: 'Type a student ID or name to see whether the ID is released, then check the student in or out, or file an incident.',
-    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show whether that student’s ID is released. To log the gate, type “check in” or “check out” and the student ID or name (for a visitor: “check in visitor Juan Dela Cruz”). Type “records” to list the IDs that are not made yet. A student with no ID or a lost one: tap File incident, or type “file incident”.',
+    welcome: 'Hi! I’m an automated assistant for school IDs. Type a student ID or name and I will show that student’s record, with address and contact number. Type “records” to list the IDs that are not made yet.',
   },
   student: {
     title: 'Student', avatar: 'ST', caption: 'Self-service', eyebrow: 'STUDENT',
@@ -1005,14 +996,14 @@ function hideTyping() {
 }
 
 /* The ANN's score is how closely the words matched a known topic, not a probability that the
-   answer is right, so people see a plain label and the number only as a tooltip. Student lookups, gate
-   commands and the records list come from the database and carry no score at all. */
+   answer is right, so people see a plain label and the number only as a tooltip. Student lookups
+   and the records list come from the database and carry no score at all. */
 const QUIET_INTENTS = new Set(['out_of_scope', 'greeting', 'thanks_goodbye']);
 /* Answers that are a record or a list from the database are drawn as a card. */
 /* Confirmations glow once when they arrive. */
-const GLOW_INTENTS = new Set(['incident_filed', 'request_submitted', 'gate_check_in', 'gate_check_out']);
-const CARD_INTENTS = new Set(['student_lookup', 'student_not_found', 'gate_check_in', 'gate_check_out',
-  'gate_not_logged', 'gate_log', 'records_list', 'my_requests', 'request_submitted', 'incidents_list', 'incident_filed',
+const GLOW_INTENTS = new Set(['incident_filed', 'request_submitted']);
+const CARD_INTENTS = new Set(['student_lookup', 'student_not_found',
+  'records_list', 'my_requests', 'request_submitted', 'incidents_list', 'incident_filed',
   'incident_status']);
 
 function matchLabel(score) {
@@ -1190,14 +1181,13 @@ function handleAction(action, { button = null, student = null } = {}) {
     open_requests: () => showView('requests'),
     open_feedback: () => showView('feedback'),
     open_incidents: () => showView('incidents'),
-    open_verify: () => { showView('verify'); $('verify-query').focus(); },
     open_incident: () => openIncident(action, student),
     open_student_request: () => openStudentRequest(action, student),
     ask_office: () => send('Where is the Property Management Office and what are the hours?'),
     ask_human: () => send('I need to talk to a person at the office'),
     send: () => {
       if (!action.text) return;
-      if (button) {                                  // a double tap must not log the gate twice
+      if (button) {                                  // a double tap must not send twice
         button.disabled = true;
         setTimeout(() => { button.disabled = false; }, 1500);
       }
@@ -1263,23 +1253,6 @@ function suggestionList() {
   const ask = (q, label) => ({ q, label });
   const act = (label, action) => ({ label, action });
   const common = [ask('Where is the Property Management Office?', 'Office hours')];
-  if (workspaceRole === 'guard') {
-    return selected ? [
-      ask(`check in ${selected.student_id}`, '✅ Check in'),
-      ask(`check out ${selected.student_id}`, '⬅️ Check out'),
-      act('⚠️ File incident', { type: 'open_incident', student_id: selected.student_id }),
-      ask('incidents', '📋 Incidents'),
-      ask('gate log', '📜 Gate log'),
-      ask('records', '📂 IDs not yet made'),
-    ] : [
-      act('⚠️ File incident', { type: 'open_incident' }),
-      ask('incidents', '📋 Incidents'),
-      ask('records', '📂 IDs not yet made'),
-      ask('gate log', '📜 Gate log'),
-      ask('I lost my school ID', 'A student lost the ID'),
-      ...common,
-    ];
-  }
   if (workspaceRole === 'student') {
     const help = act('📝 Request help', { type: 'open_student_request' });
     return selected ? [
@@ -1310,7 +1283,6 @@ function suggestionList() {
   }
   return [
     ask('records', '📂 IDs not yet made'),
-    ask('gate log', '📜 Gate log'),
     act('📤 Import students', { type: 'open_import' }),
     ask('What can you do?', 'Help'),
     ...common,
@@ -1558,47 +1530,7 @@ async function loadActivity() {
   } catch (error) { notify(error.message); }
 }
 
-/* ═══════════════ Verify ID (guard) ═══════════════ */
-let lastVerify = [];
-
-function verifyCard(row) {
-  const flags = [];
-  if (row.false_statements) flags.push(`${plural(row.false_statements, 'false statement')} on record`);
-  if (row.penalty_due) flags.push(`penalty due ${money(row.penalty_due)}`);
-  return `<article class="tool-row">
-    <div>
-      <h3>${escapeHtml(row.name)}</h3>
-      <p>${escapeHtml(row.student_id)} · ${escapeHtml(row.year_section)} · <span class="status ${statusClass(row.status)}">${escapeHtml(row.status)}</span> ${escapeHtml(row.status_note || '')}</p>
-      <p>${escapeHtml(row.gate_note || '')}</p>
-      ${flags.length ? `<p class="reason">⚠ ${escapeHtml(flags.join(' · '))}</p>` : ''}
-    </div>
-    <div class="row-actions">
-      <button type="button" class="gate-btn" data-verify-chat="${row.id}" title="Open this student in the chat, to check them in or out">Open in chat</button>
-      <button type="button" class="text-button" data-verify-incident="${escapeHtml(row.student_id)}">File incident</button>
-      <a href="/student/${encodeURIComponent(row.token)}" target="_blank" rel="noopener">Open profile ↗</a>
-    </div>
-  </article>`;
-}
-
-async function runVerify(query, { fromScan = false } = {}) {
-  try {
-    const data = await api(`/api/verify?q=${encodeURIComponent(query)}`);
-    lastVerify = data.matches;
-    if (fromScan && data.matches.length === 1) {
-      $('verify-query').value = data.matches[0].student_id;     // show the ID, not the long token
-      notify(`Scanned ${data.matches[0].name}.`);
-    }
-    $('verify-result').innerHTML = data.matches.length
-      ? data.matches.map(verifyCard).join('')
-      : emptyState(fromScan
-        ? 'That QR code does not match any student. The record may have been deleted. File an incident if they have no ID.'
-        : 'No matching student. File an incident if they have no ID.');
-    fx.fill($('verify-result'));
-  } catch (error) {
-    $('verify-result').innerHTML = emptyState(escapeHtml(error.message));
-    fx.fill($('verify-result'));
-  }
-}
+/* ═══════════════ QR scanner (coordinator) ═══════════════ */
 
 /* ── QR scanner (camera) ──
    The decoder (jsQR, vendored in static/vendor) is loaded only when the scanner opens, so it works in
@@ -1664,8 +1596,6 @@ function scanLoop() {
   tick();
 }
 
-let scanForDashboard = false;            // the camera was opened from the Students list, not from Verify ID
-
 async function findOnDashboardByScan(token) {
   try {
     const data = await api(`/api/verify?q=${encodeURIComponent(token)}`);
@@ -1678,9 +1608,7 @@ async function findOnDashboardByScan(token) {
 
 function finishScan(token) {
   $('scan-dialog').close();
-  if (scanForDashboard) { findOnDashboardByScan(token); return; }
-  $('verify-query').value = token;
-  runVerify(token, { fromScan: true });
+  findOnDashboardByScan(token);
 }
 
 async function openScanner() {
@@ -1718,11 +1646,11 @@ async function openScanner() {
   }
 }
 
-/* ═══════════════ Incidents (guard and coordinator): No ID and Lost ID ═══════════════ */
+/* ═══════════════ Incidents (coordinator): No ID and Lost ID ═══════════════ */
 let incidentCheckTicket = 0, incidentCheckTimer = 0;
 const ID_STILL_TYPING = /^p\d{0,8}$/i;     // part of a student ID: wait for the rest before looking it up
 
-/* What the records say about the student, shown while the guard is still filling the form in. */
+/* What the records say about the student, shown while the form is still being filled in. */
 function checkCardHtml(data) {
   if (!data.found) return `<p><b>Not on the list.</b> ${escapeHtml(data.message)}</p>`;
   const s = data.student;
@@ -1824,7 +1752,7 @@ async function loadIncidents() {
   } catch (error) { notify(error.message); }
 }
 
-/* Sending the form puts the confirmation in the chat: the guard never leaves the conversation. */
+/* Sending the form puts the confirmation in the chat: the coordinator never leaves the conversation. */
 async function fileIncident(event) {
   event.preventDefault();
   const form = event.target;
@@ -2008,8 +1936,7 @@ $('close-dialog').onclick = () => $('record-dialog').close();
 $('import-form').onsubmit = importStudents;
 $('import-close').onclick = () => $('import-dialog').close();
 $('import-done').onclick = () => $('import-dialog').close();
-$('scan-btn').onclick = () => { scanForDashboard = false; openScanner(); };
-$('dash-scan-btn').onclick = () => { scanForDashboard = true; openScanner(); };
+$('dash-scan-btn').onclick = openScanner;
 $('scan-close').onclick = () => $('scan-dialog').close();
 $('scan-dialog').addEventListener('close', stopScanner);
 
@@ -2049,7 +1976,7 @@ function openRoleDialog() {
 }
 $('switch-role').onclick = () => {                              // the chooser is the home page; leaving the coordinator signs out
   const home = () => location.assign('/');
-  if (workspaceRole === 'coordinator' || workspaceRole === 'guard') fetch(`/${workspaceRole}/logout`, { method: 'POST' }).then(home, home);
+  if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
   else home();
 };
 $('role-form').addEventListener('submit', event => {
@@ -2112,14 +2039,6 @@ document.addEventListener('click', event => {
       })
       .catch(error => { notify(error.message); feedbackStatus.disabled = false; });
   }
-  const verifyChat = event.target.closest('[data-verify-chat]');
-  if (verifyChat) {
-    const row = lastVerify.find(r => r.id === Number(verifyChat.dataset.verifyChat));
-    if (row) openInChat(row);
-  }
-  const verifyIncident = event.target.closest('[data-verify-incident]');
-  if (verifyIncident) openIncident({ student_id: verifyIncident.dataset.verifyIncident });
-
   const incidentButton = event.target.closest('[data-incident]');
   if (incidentButton) {
     incidentButton.disabled = true;
@@ -2156,11 +2075,7 @@ document.addEventListener('change', event => {
     .finally(() => { topic.disabled = false; });
 });
 
-/* ── Guard and student forms ── */
-$('verify-form').onsubmit = event => {
-  event.preventDefault();
-  runVerify($('verify-query').value.trim());
-};
+/* ── Incident form ── */
 $('incident-form').onsubmit = fileIncident;
 $('incident-form').elements.student_id.addEventListener('input', scheduleIncidentCheck);
 $('incident-form').elements.student_id.addEventListener('change', () => runIncidentCheck({ force: true }));

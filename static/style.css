@@ -137,8 +137,6 @@ footer { display: flex; justify-content: space-between; font-size: 9px; color: v
 .export-btn { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 7px; padding: 8px 14px; font-size: 11px; font-weight: 600; transition: all var(--transition); }
 .export-btn:hover:not(:disabled) { background: var(--green-bg); color: var(--green); border-color: var(--green); }
 .danger-text { color: var(--danger) !important; }
-.gate-btn { border: 1px solid var(--green); background: var(--green-bg); color: var(--green); border-radius: 7px; padding: 8px 12px; font-size: 11px; font-weight: 700; transition: all var(--transition); }
-.gate-btn:hover:not(:disabled) { background: var(--green); color: var(--surface); }
 .form-buttons { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 /* ========= FORMS ========= */

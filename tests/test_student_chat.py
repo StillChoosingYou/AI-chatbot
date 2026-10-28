@@ -80,7 +80,7 @@ class RequestHelpButtonTests(StudentChatCase):
         self.assertEqual(reply['actions'][1]['text'], f'my requests {TAYLOR}')
 
     def test_the_other_roles_never_get_the_button(self):
-        for role in ('coordinator', 'guard'):
+        for role in ('coordinator',):
             for text in ('I lost my school ID', 'hello', 'I want to talk to a real person', 'request help', 'P202400999', TAYLOR):
                 self.assertNotIn('open_student_request', self.types(self.ask(text, role)), (role, text))
 
@@ -223,7 +223,7 @@ class MyRequestsTests(StudentChatCase):
         self.assertEqual(self.ask(f'my requests {TAYLOR}', 'student')['reply'].count('\n• '), 10)
 
     def test_only_the_student_chat_has_these_commands(self):
-        for role in ('coordinator', 'guard'):
+        for role in ('coordinator',):
             for text in ('my requests', 'request help'):
                 self.assertNotIn(self.ask(text, role)['intent'], ('my_requests', 'request_help'), (role, text))
 
@@ -297,7 +297,7 @@ class TickerDataTests(StudentChatCase):
     def test_stats_carry_the_latest_events_for_the_dashboard_ticker(self):
         from Chatbot import RECENT_ACTIVITY
         for _ in range(RECENT_ACTIVITY + 3):
-            self.client.post('/api/gate', json={'direction': 'in', 'student_id': 'P202400101'})
+            self.client.post('/api/incidents', json={'category': 'No ID', 'detail': 'x'})
         recent = self.client.get('/api/stats').json['recent_activity']
         self.assertEqual(len(recent), RECENT_ACTIVITY)
         self.assertEqual(set(recent[0]), {'actor_role', 'action', 'detail', 'timestamp'})

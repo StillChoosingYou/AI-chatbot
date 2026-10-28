@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <title>School ID · Property Management</title>
-  <meta name="description" content="School ID workspace for coordinators, guards, and students. Type a student ID or name in the chat to see that student's ID status.">
+  <meta name="description" content="School ID workspace for coordinators and students. Type a student ID or name in the chat to see that student's ID status.">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/vendor/motion.js" defer></script>
   <script src="/static/fx.js" defer></script>
@@ -155,14 +155,14 @@
       <div id="request-inbox" class="tool-list" aria-live="polite"></div>
     </div>
 
-    <!-- Coordinator: the incidents the guard filed. Filing one happens in the Assistant, in a pop-up. -->
+    <!-- Coordinator: the incidents on record. Filing one happens in the Assistant, in a pop-up. -->
     <div class="workspace" data-workspace="coordinator" id="view-incidents" hidden>
       <div class="heading">
         <div class="eyebrow" id="incidents-eyebrow">INCIDENTS</div>
         <div class="title-row">
           <div>
             <h1>Incidents</h1>
-            <p>A student at the gate with no ID, or with a lost one. Resolve one here, or mark or withdraw a false statement: giving false information twice carries a {{ penalty_text }} penalty. New ones are filed in the Assistant.</p>
+            <p>A student with no ID, or with a lost one. Resolve one here, or mark or withdraw a false statement: giving false information twice carries a {{ penalty_text }} penalty. New ones are filed in the Assistant.</p>
           </div>
           <div class="title-actions keep-width">
             <button class="primary" id="incident-open" type="button">⚠️ File incident</button>
@@ -195,25 +195,9 @@
     <div class="workspace" data-workspace="coordinator" id="view-activity" hidden>
       <div class="heading">
         <div class="eyebrow">COORDINATOR</div>
-        <div class="title-row"><div><h1>Activity log</h1><p>Recent dashboard, gate, incident, and request actions.</p></div></div>
+        <div class="title-row"><div><h1>Activity log</h1><p>Recent dashboard, incident, and request actions.</p></div></div>
       </div>
       <div id="activity-list" class="tool-list" aria-live="polite"></div>
-    </div>
-
-    <!-- Guard: verify -->
-    <div class="workspace" data-workspace="guard" id="view-verify" hidden>
-      <div class="heading">
-        <div class="eyebrow">GUARD</div>
-        <div class="title-row"><div><h1>Verify ID</h1><p>Look up a student by ID number, name, or QR token at the gate. To log the gate, open the student in the chat.</p></div></div>
-      </div>
-      <form class="tool-card" id="verify-form">
-        <label>Student ID, name, or token<input id="verify-query" maxlength="100" placeholder="e.g. {{ student_id_example }} or a name" required autocomplete="off"></label>
-        <div class="form-buttons">
-          <button class="primary" type="submit">Verify</button>
-          <button class="export-btn" id="scan-btn" type="button" title="Scan a student's QR sticker with the camera">📷 Scan QR</button>
-        </div>
-      </form>
-      <div id="verify-result" class="tool-list" aria-live="polite"></div>
     </div>
 
     <footer>School ID management prototype · build {{ build }} <span>Appointments use school local time · All displayed records are fictional.</span></footer>
@@ -230,7 +214,6 @@
     <p class="subtle">Pick a role so the pages and the assistant match your tasks. You can switch anytime.</p>
     <div class="role-choices">
       <button type="submit" value="coordinator" class="role-card"><strong>Property coordinator</strong><span>Dashboard of every student, import, requests, incidents, QR print</span></button>
-      <button type="submit" value="guard" class="role-card"><strong>Guard</strong><span>Chat to check students in and out, verify IDs, incident reports</span></button>
       <button type="submit" value="student" class="role-card"><strong>Student</strong><span>Chat to see your ID status, report a lost ID, office hours</span></button>
     </div>
   </form>
@@ -295,7 +278,7 @@
       <h2 id="incident-title">File incident</h2>
       <button type="button" id="incident-close" class="text-button" aria-label="Close dialog">✕</button>
     </div>
-    <p class="subtle request-intro">A student at the gate with no ID, or with a lost one. A lost ID goes to the Cashier first. Giving false information twice carries a {{ penalty_text }} penalty.</p>
+    <p class="subtle request-intro">A student with no ID, or with a lost one. A lost ID goes to the Cashier first. Giving false information twice carries a {{ penalty_text }} penalty.</p>
     <div class="form-grid">
       <label>Category<select name="category">{% for c in incident_categories %}<option>{{c}}</option>{% endfor %}</select></label>
       <label>Student ID<input name="student_id" maxlength="40" placeholder="{{ student_id_example }}" autocomplete="off"></label>

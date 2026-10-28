@@ -3,7 +3,6 @@ import csv
 import io
 import json
 import os
-import re
 import secrets
 from datetime import datetime
 from pathlib import Path
@@ -16,14 +15,14 @@ from psycopg import errors as pg_errors
 from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
-from auth import CoordinatorLogin, GuardLogin
+from auth import CoordinatorLogin
 from avatars import avatar_svg
 from chat_support import (
-    FEEDBACK_REASONS, asks_for_gate_log, asks_for_incidents, asks_for_my_requests, asks_for_records,
-    asks_to_file_incident, asks_to_request_help, clean_text, csv_safe, gate_verb_is_a_preposition, id_candidates,
+    FEEDBACK_REASONS, asks_for_incidents, asks_for_my_requests, asks_for_records,
+    asks_to_file_incident, asks_to_request_help, clean_text, csv_safe, id_candidates,
     incident_filed_reply, incident_help_reply, incident_status_command, incidents_reply, intent_label,
-    is_bare_gate_verb, my_requests_reply, parse_gate_command, redact_text, reply_chips, request_sent_reply,
-    request_subject, staff_lines, student_reply)
+    my_requests_reply, redact_text, reply_chips, request_sent_reply,
+    request_subject, student_reply)
 from database import Database, init_schema, lock_student, seed_demo_records
 from id_cards import sample_card
 from id_process import process_answer
@@ -33,7 +32,7 @@ from student_data import (
     ADDRESS_MAX, CONTACT_HINT, IMPORT_COLUMNS, MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, MAX_YEAR, NAME_MAX,
     NOT_YET_MADE, PENALTY_NOTE, PENALTY_TEXT, RELEASE_HOURS, STATUS_NOTES, STATUSES, STUDENT_ID_EXAMPLE,
     STUDENT_ID_HINT, STUDENT_ID_RE, STUDENT_LOST_STEPS, YEAR_SECTION_HINT, ImportFileError, claim_check, clean_contact,
-    clean_student_id, clean_status, find_by_name, format_year_section, gate_note, incident_steps,
+    clean_student_id, clean_status, find_by_name, format_year_section, incident_steps,
     looks_like_a_name, name_query, office_hours_error, parse_year_section, penalty_for, read_student_csv, tidy)
 
 ROOT = Path(__file__).resolve().parent
@@ -61,8 +60,7 @@ def parse_year(value):
     return value if 1 <= value <= MAX_YEAR else None
 KINDS = ('New ID', 'Pending ID', 'Lost ID')
 SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
-ROLES = ('coordinator', 'guard', 'student')
-GATE_DIRECTIONS = ('in', 'out')
+ROLES = ('coordinator', 'student')
 INCIDENT_CATEGORIES = ('No ID', 'Lost ID')
 INCIDENT_STATUSES = ('Open', 'Resolved')
 REQUEST_TYPES = ('Lost ID', 'Status inquiry', 'Appointment help', 'Other')
@@ -84,9 +82,6 @@ API_ERRORS = {
     405: 'That method is not allowed here.',
 }
 CARD_ACADEMIC_YEAR = '2026 - 2027'
-COORDINATOR_LOGIN_TEXT = {'role': 'Coordinator', 'eyebrow': 'SCHOOL ID · PROPERTY COORDINATOR', 'action': '/coordinator/login',
-                          'variable': 'COORDINATOR_PASSWORD'}
-GUARD_LOGIN_TEXT = {'role': 'Guard', 'eyebrow': 'SCHOOL ID · GATE GUARD', 'action': '/guard/login', 'variable': 'GUARD_PASSWORD'}   # printed on the back of the card on the scan page
 MAX_NEWS = 20              # how many announcements the ticker carries
 MAX_LOOKUP_LIST = 5        # a name that matches more students than this is too vague to list
 RECENT_ACTIVITY = 6        # how many of the latest events the dashboard ticker carries
@@ -119,7 +114,7 @@ def help_action(student=None, request_type=''):
 
 
 def incident_action(student=None, category=''):
-    """The small "File incident" button (guard and coordinator). It opens the incident form over the chat, filled in
+    """The small "File incident" button (coordinator). It opens the incident form over the chat, filled in
     with the student the answer is about and, when the answer already shows it, the category."""
     action = {'label': '⚠️ File incident', 'type': 'open_incident'}
     if student:
@@ -167,7 +162,6 @@ def create_app(database_url=None):
     matcher = ANNIntentModel()
     app.url_map.converters['rowid'] = RowIdConverter
     login = CoordinatorLogin(database_url=database_url)
-    guard_login = GuardLogin(database_url=database_url)
     app.secret_key = login.secret
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                       SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600)
@@ -175,13 +169,10 @@ def create_app(database_url=None):
     def coordinator_signed_in():
         return not login.enabled or session.get('coordinator') is True
 
-    def guard_signed_in():
-        return not guard_login.enabled or session.get('guard') is True
-
     def coordinator_only(path, method):
-        """The pages and API calls only the coordinator's dashboard uses. The guard and student never call these."""
+        """The pages and API calls only the coordinator's dashboard uses. The student never calls these."""
         if path.startswith(('/api/inventory', '/api/stats', '/api/queue', '/api/activity', '/api/requests',
-                            '/api/feedback', '/stickers', '/sticker/', '/card/', '/qr/')):
+                            '/api/feedback', '/api/verify', '/stickers', '/sticker/', '/card/', '/qr/')):
             return True
         return path == '/api/incidents' or (path.startswith('/api/incidents/') and method == 'PATCH')
 
@@ -324,7 +315,7 @@ def create_app(database_url=None):
 
 
     def workspace(page_role=''):
-        """The one-page app. '/' shows only the role chooser; /coordinator, /guard and /student open that role."""
+        """The one-page app. '/' shows only the role chooser; /coordinator and /student open that role."""
         return render_template(
             'index.html', page_role=page_role, statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
@@ -340,33 +331,14 @@ def create_app(database_url=None):
     app.add_url_rule('/student', 'role_student', lambda: workspace('student'), strict_slashes=False)
 
     @app.get('/guard', strict_slashes=False)
-    def guard_page():
-        if guard_signed_in():
-            return workspace('guard')
-        return render_template('login.html', who=GUARD_LOGIN_TEXT, configured=True, error='')
-
-    @app.post('/guard/login')
-    def guard_login_route():
-        address = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
-        if guard_login.check(request.form.get('username', ''), request.form.get('password', ''), address):
-            session.clear()
-            session['guard'] = True
-            session.permanent = True
-            return redirect('/guard')
-        error = ('Too many wrong tries. Wait a minute and try again.' if guard_login.locked(address)
-                 else 'Wrong username or password.')
-        return render_template('login.html', who=GUARD_LOGIN_TEXT, configured=True, error=error), 401
-
-    @app.post('/guard/logout')
-    def guard_logout():
-        session.clear()
-        return redirect('/')
+    def guard_page_gone():
+        return redirect('/')                 # the guard role no longer exists: old links lead to the role chooser
 
     @app.get('/coordinator', strict_slashes=False)
     def coordinator_page():
         if coordinator_signed_in():
             return workspace('coordinator')
-        return render_template('login.html', who=COORDINATOR_LOGIN_TEXT, configured=login.configured, error='')
+        return render_template('login.html', configured=login.configured, error='')
 
     @app.post('/coordinator/login')
     def coordinator_login():
@@ -378,7 +350,7 @@ def create_app(database_url=None):
             return redirect('/coordinator')
         error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(address)
                  else 'Wrong username or password.')
-        return render_template('login.html', who=COORDINATOR_LOGIN_TEXT, configured=login.configured, error=error), 401
+        return render_template('login.html', configured=login.configured, error=error), 401
 
     @app.post('/coordinator/logout')
     def coordinator_logout():
@@ -397,7 +369,6 @@ def create_app(database_url=None):
             abort(404)
         student = shape(row)
         signed_in = login.enabled and session.get('coordinator') is True      # not merely "the app is open"
-        signed_in = signed_in or (guard_login.enabled and session.get('guard') is True)
         private = signed_in or os.environ.get('PUBLIC_CARD_DETAILS', '') == '1'
         if not private:                          # anyone with the sticker can scan it: the contact details stay off the page
             for key in ('address', 'contact_number'):    # (the student number is printed on the card, so it stays)
@@ -781,7 +752,7 @@ def create_app(database_url=None):
                 'SELECT actor_role, action, detail, timestamp FROM activity_log ORDER BY id DESC LIMIT 40')]
         return jsonify(events=rows)
 
-    # ─── Guard tools ──────────────────────────────────────────────
+    # ─── Finding a student from a scanned QR token (the dashboard's Scan QR sticker button) ──
 
     @app.get('/api/verify')
     def verify():
@@ -803,49 +774,10 @@ def create_app(database_url=None):
                     LIMIT 8''', (query, query, *likes, query, query))]
         for row in rows:
             row['status_note'] = STATUS_NOTES.get(row['status'], '')
-            row['gate_note'] = gate_note(row['status'])
         add_incident_facts(rows)
         return jsonify(matches=rows)
 
-    def write_gate(direction, student_id, name, note=''):
-        with connect() as db:
-            row = dict(db.execute(
-                'INSERT INTO gate_logs (student_id,name,direction,note,timestamp) VALUES (%s,%s,%s,%s,%s) RETURNING *',
-                (student_id, name or 'Visitor', direction, note, now_stamp())).fetchone())
-        log_activity('guard', f'Gate {direction}', student_id or name)
-        return row
-
-    @app.get('/api/gate')
-    def list_gate():
-        today = datetime.now().strftime('%Y-%m-%d')
-        with connect() as db:
-            rows = [dict(row) for row in db.execute(
-                'SELECT * FROM gate_logs ORDER BY id DESC LIMIT 50')]
-            counts = {row[0]: row[1] for row in db.execute(
-                'SELECT direction, COUNT(*) FROM gate_logs WHERE timestamp >= %s GROUP BY direction', (today,))}
-        return jsonify(logs=rows, today={'in': counts.get('in', 0), 'out': counts.get('out', 0)})
-
-    @app.post('/api/gate')
-    def add_gate():
-        payload = request.get_json(silent=True)
-        if not isinstance(payload, dict):
-            return jsonify(error='Send a JSON object.'), 400
-        direction = payload.get('direction')
-        if direction not in GATE_DIRECTIONS:
-            return jsonify(error='Choose in or out.'), 400
-        student_id = text_field(payload.get('student_id', ''), required=False) or ''
-        note = text_field(payload.get('note', ''), max_len=500, required=False) or ''
-        name = text_field(payload.get('name', ''), required=False) or ''
-        if student_id:
-            found = find_by_student_id(student_id)
-            if found:
-                name = found['name']
-                student_id = found['student_id']
-        if not name and not student_id:
-            return jsonify(error='Enter a student ID or visitor name.'), 400
-        return jsonify(write_gate(direction, student_id, name, note)), 201
-
-    # ─── Incidents: a student at the gate with no ID, or with a lost one ──────
+    # ─── Incidents: a student with no ID, or with a lost one ──────
 
     def false_statements_of(db, student_id):
         return db.execute(
@@ -937,7 +869,7 @@ def create_app(database_url=None):
         with connect() as db:
             record = None
             if student_id:
-                lock_student(db, student_id)          # two guards filing at once are counted one after the other
+                lock_student(db, student_id)          # two incidents filed at once are counted one after the other
                 record = db.execute('SELECT * FROM inventory WHERE LOWER(student_id) = LOWER(%s)',
                                     (student_id,)).fetchone()
             if false_statement and record is None:
@@ -968,7 +900,7 @@ def create_app(database_url=None):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
-        body, status = file_incident(payload, 'guard')
+        body, status = file_incident(payload, 'coordinator')
         return jsonify(body), status
 
     def set_incident_status(incident_id, status, actor):
@@ -1014,7 +946,7 @@ def create_app(database_url=None):
                 db.execute('UPDATE incidents SET penalty=0 WHERE id=%s', (incident_id,))
             updated = incident_row(db, incident_id)
         if 'status' in payload:
-            log_activity('guard', 'Updated incident', payload['status'])
+            log_activity('coordinator', 'Updated incident', payload['status'])
         if 'false_statement' in payload and flag != row['false_statement']:
             log_activity('coordinator', 'False statement' if flag else 'False statement withdrawn',
                          row['student_id'])
@@ -1230,105 +1162,12 @@ def create_app(database_url=None):
         return None
 
     MAX_RECORDS_LIST = 10      # how many "not yet made" records one chat answer lists
-    DOUBLE_TAP_SECONDS = 20    # the same student logged the same way again within this time is one tap, not two
-
-    def gate_log_answer():
-        today = datetime.now().strftime('%Y-%m-%d')
-        with connect() as db:
-            rows = [dict(row) for row in db.execute(
-                'SELECT * FROM gate_logs WHERE timestamp >= %s ORDER BY id DESC LIMIT 15', (today,))]
-            counts = {row[0]: row[1] for row in db.execute(
-                'SELECT direction, COUNT(*) FROM gate_logs WHERE timestamp >= %s GROUP BY direction', (today,))}
-        total = counts.get('in', 0) + counts.get('out', 0)
-        if not total:
-            return {'intent': 'gate_log', 'answer': '🚪 No gate entries today yet. To log one, type “check in” or '
-                                                    '“check out” followed by a student ID or name.'}
-        lines = [f'🚪 Gate log for {today}: {counts.get("in", 0)} in, {counts.get("out", 0)} out (latest first)']
-        for entry in rows:
-            who = entry['name'] + (f' · {entry["student_id"]}' if entry['student_id'] else '')
-            lines.append(f'• {entry["timestamp"][11:16]} · {entry["direction"].upper()} · {who}')
-        if total > len(rows):
-            lines.append(f'…and {total - len(rows)} earlier entries today.')
-        return {'intent': 'gate_log', 'answer': '\n'.join(lines)}
-
-    VISITOR = re.compile(r'^\s*(?:visitor|bisita)\b\s*[:\-]?\s*(.*?)\s*$', re.IGNORECASE)
-
-    def visitor_gate(direction, raw_name):
-        """A visitor is not on the student list: only the name and the time are logged."""
-        name = tidy(raw_name)
-        if len(name) < 2 or len(name) > NAME_MAX or not clean_text(name):
-            return {'intent': 'gate_not_logged',
-                    'answer': 'Nothing was logged. Type the visitor’s name, for example '
-                              '“check in visitor Juan Dela Cruz”.'}
-        with connect() as db:
-            last = db.execute(
-                "SELECT timestamp FROM gate_logs WHERE student_id = '' AND LOWER(name) = LOWER(%s) AND direction = %s "
-                'ORDER BY id DESC LIMIT 1', (name, direction)).fetchone()
-        if last and (datetime.now() - datetime.strptime(last[0], '%Y-%m-%d %H:%M:%S')).total_seconds() < DOUBLE_TAP_SECONDS:
-            lead = f'↩️ Visitor {name} was already logged {direction} a moment ago, so nothing was added.'
-        else:
-            entry = write_gate(direction, '', name, 'visitor, logged in the chat')
-            lead = f'✅ Visitor {name} checked {direction} at {entry["timestamp"][11:16]}.'
-        return {'intent': f'gate_check_{direction}',
-                'answer': lead + '\nA visitor is not on the student list, so there is no ID record to check.'}
-
-    def gate_command(direction, who, bare=False):
-        """Log a student in or out, from "check in P202400230" or "out Alex Rivera", or a visitor, from
-        "check in visitor Juan Dela Cruz". A finished answer, or None when the words after the verb name
-        nobody at all (then it is an ordinary message).
-
-        `bare` is a command that began with just "in" or "out", which also start ordinary sentences ("in case I
-        lost my ID ..."). It counts only when it names a student, or a visitor by a name that is shaped like one."""
-        visitor = VISITOR.match(who)
-        if visitor:
-            name = visitor.group(1)
-            if bare and name and not looks_like_a_name(name) and not re.fullmatch(r"[^\W\d_][\w'’.-]{1,29}", name):
-                return None                              # "in visitor parking, where do I go" is a sentence
-            return visitor_gate(direction, name)
-        found = resolve_student(who)
-        if found is None:
-            if bare or not (name_query(who) or id_candidates(who)):
-                return None
-            return {'intent': 'gate_not_logged',
-                    'answer': f'Nothing was logged. I couldn’t find a student named “{who.strip()[:60]}”. '
-                              'Type the student ID or the full name.'}
-        if found['intent'] == 'student_not_found':
-            return {'intent': 'gate_not_logged',
-                    'answer': f'Nothing was logged. I couldn’t find a student with ID {found["asked"]}.'}
-        if found.get('missing'):
-            return {'intent': 'gate_not_logged',
-                    'answer': f'Nothing was logged. I couldn’t find a student with ID {found["missing"][0]}. '
-                              'Type one student at a time.'}
-        rows, matched = found['rows'], found.get('matched', len(found['rows']))
-        if len(rows) != 1 or matched != 1:
-            if matched > MAX_LOOKUP_LIST:
-                return {'intent': 'gate_not_logged',
-                        'answer': f'Nothing was logged. “{who.strip()[:60]}” matches {matched} students. '
-                                  'Type the student ID or the full name.'}
-            listing = '\n'.join(f'• {row["name"]} · {row["student_id"]} · {row["year_section"]}' for row in rows)
-            return {'intent': 'gate_not_logged', 'chips_title': 'Which student?',
-                    'answer': f'Nothing was logged yet. Which student checked {direction}?\n{listing}',
-                    'chips': [{'label': row['name'], 'question': f'check {direction} {row["student_id"]}'}
-                              for row in rows]}
-        row = add_incident_facts([rows[0]])[0]
-        with connect() as db:
-            last = db.execute(
-                'SELECT timestamp FROM gate_logs WHERE LOWER(student_id) = LOWER(%s) AND direction = %s '
-                'ORDER BY id DESC LIMIT 1', (row['student_id'], direction)).fetchone()
-        if last and (datetime.now() - datetime.strptime(last[0], '%Y-%m-%d %H:%M:%S')).total_seconds() < DOUBLE_TAP_SECONDS:
-            lead = f'↩️ {row["name"]} was already logged {direction} a moment ago, so nothing was added.'
-        else:
-            entry = write_gate(direction, row['student_id'], row['name'], 'logged in the chat')
-            lead = f'✅ {row["name"]} ({row["student_id"]}) checked {direction} at {entry["timestamp"][11:16]}.'
-        status = f'Year & Section: {row["year_section"]} · Status: **{row["status"]}** ({STATUS_NOTES.get(row["status"], "see the office")})'
-        return {'intent': f'gate_check_{direction}', 'student': row,
-                'answer': '\n'.join([lead, status, gate_note(row['status']), *staff_lines(row)])}
 
     def records_answer(workspace):
         """The IDs that are not made yet (Pending and Processing): "hindi pa nagagawang ID"."""
         if workspace == 'student':
             return {'intent': 'records_list',
-                    'answer': 'The list of IDs that are not made yet is for the office and the guard. Type your '
+                    'answer': 'The list of IDs that are not made yet is for the office. Type your '
                               'student ID or name to see whether your own ID is made.'}
         with connect() as db:
             rows = [shape(row) for row in db.execute(
@@ -1415,9 +1254,8 @@ def create_app(database_url=None):
                 'answer': my_requests_reply(who['student_id'], who['name'], student_request_rows(who['student_id']))}
 
     def resolve_command(text, workspace, selected=None):
-        """Orders typed into the chat rather than questions: log a student in or out (the guard), show the gate
-        log (guard and coordinator), list the IDs that are not made yet (guard and coordinator), file, list and
-        resolve incidents (guard and coordinator) and, for a student, follow their requests or ask for the Request
+        """Orders typed into the chat rather than questions: list the IDs that are not made yet, file, list and
+        resolve incidents (the coordinator) and, for a student, follow their requests or ask for the Request
         help form. A finished answer, or None when the message is none of these."""
         if workspace == 'student':
             if asks_for_my_requests(text):
@@ -1426,7 +1264,7 @@ def create_app(database_url=None):
                 return {'intent': 'request_help', 'actions': [help_action(selected)],
                         'answer': 'Tap Request help below and fill in the form. The office reviews every request, '
                                   'and you can follow yours by typing “my requests”.'}
-        if workspace in ('guard', 'coordinator'):
+        if workspace == 'coordinator':
             status_change = incident_status_command(text)
             if status_change:
                 return incident_status_answer(workspace, *status_change)
@@ -1438,22 +1276,8 @@ def create_app(database_url=None):
         elif asks_for_incidents(text) or incident_status_command(text) or (
                 asks_to_file_incident(text) is not None and 'incident' in text.lower()):
             return {'intent': 'incident_not_for_students', 'actions': [help_action(selected, 'Lost ID')],
-                    'answer': 'Incidents are filed by the guard and the office. If you lost your ID, tap Request '
+                    'answer': 'Incidents are filed by the office. If you lost your ID, tap Request '
                               'help below and the office will take it from there.'}
-        command = parse_gate_command(text)
-        if command and workspace == 'guard':
-            answer = gate_command(*command, bare=gate_verb_is_a_preposition(text))
-            if answer is not None:
-                return answer
-        if workspace == 'guard' and is_bare_gate_verb(text):
-            return {'intent': 'gate_not_logged',
-                    'answer': 'Nothing was logged. Type check in or check out, then the student ID or name, '
-                              f'for example “check in {STUDENT_ID_EXAMPLE}”.'}
-        if asks_for_gate_log(text):
-            if workspace == 'student':
-                return {'intent': 'gate_log', 'answer': 'The gate log is kept by the guard. Type your student ID '
-                                                        'or name to see your own ID status.'}
-            return gate_log_answer()
         if asks_for_records(text):
             return records_answer(workspace)
         return None
@@ -1473,8 +1297,6 @@ def create_app(database_url=None):
             workspace = 'coordinator'
         if workspace == 'coordinator' and not coordinator_signed_in():
             workspace = 'student'                    # nobody can borrow the coordinator's answers by naming the role
-        if workspace == 'guard' and not guard_signed_in():
-            workspace = 'student'
 
         selected = None                    # the student the conversation is about, kept by the browser
         selected_missing = False
@@ -1508,19 +1330,16 @@ def create_app(database_url=None):
         answers = {
             'greeting': {
                 'coordinator': 'Hello, coordinator. Type a student ID or name and I will show that student’s record. I can also help with the queue, requests, imports and QR stickers.',
-                'guard': 'Hello. Type a student ID or name and I will show whether that student’s ID is released. I can also help you log a gate entry or file an incident.',
                 'student': 'Hi! Type a student ID or name and I will show that student’s ID status. You can also ask me about requirements, office hours or a lost ID.',
             },
             'thanks_goodbye': 'You’re welcome! Come back whenever you need help with school IDs. Have a great day!',
             'bot_help': {
                 'coordinator': 'Coordinator tools:\n• Type a student ID or name to see that student’s record, with address and contact number\n• Type “records” to list the IDs that are not made yet\n• Dashboard: filter by status (including “Not yet made”), select all, change many statuses at once, import students from a CSV file\n• Needs attention shortcuts, the appointment queue (Mon–Fri, 8:00–12:00 and 1:00–5:00) and QR sticker sheets\n• Student requests: accepting a lost ID request sends a Released ID back to Pending\n• Incidents: tap File incident (or type “file incident”) for a No ID or Lost ID report, type “incidents” to list them; the Incidents page is where a false statement is marked or withdrawn, with the ' + PENALTY_TEXT + ' penalty for a second one\n• Review which answers people rated 👎 on the Feedback page',
-                'guard': 'Guard tools:\n• Type a student ID or name to see whether that student’s ID is made or released\n• Type “records” to list the IDs that are not made yet\n• Gate log: tap Check in or Check out under a student, or type “check in P202400230” or “check out …” (for a visitor: “check in visitor Juan Dela Cruz”); type “gate log” to see today’s entries\n• Verify ID by student number, name, QR token, or camera scan\n• Incidents: tap File incident (or type “file incident”) to open the report form. Only two kinds: No ID or Lost ID. A lost ID goes to the Cashier first; a second false statement carries a ' + PENALTY_TEXT + ' penalty\n• Type “incidents” to see the latest ones and resolve them',
                 'student': 'Student tools:\n• Type a student ID or name to see that student’s ID status, year and section, and appointment\n• Ask about requirements, office hours or the release schedule\n• Tell me you lost your ID and I will show a Request help button: it opens the form, right here in the chat (a lost ID is paid for at the Cashier first)\n• Type “my requests” to track a request you made\n• Tap 👍 or 👎 under my answers to tell the office how I did',
             },
             'talk_to_human': f'Please contact the Property Management Office.\n📍 {OFFICE["location"]}\n🕒 {OFFICE["hours"]}\n☎ {OFFICE["contact"]}',
             'lost_id_report': {
                 'coordinator': 'A student reports a lost ID: send them to the Cashier first to pay the replacement fee. They then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to this office. Open the student on the Dashboard and choose “Lost ID” in its menu, or accept the student’s request in the Requests inbox. Either way a Released ID goes back to Pending. This chat has not changed any record. ' + PENALTY_NOTE,
-                'guard': 'If a student says their ID is lost, type the student ID or name here to check the records, tap File incident below to file a Lost ID incident, and send the student to the Cashier to pay the replacement fee. Then the student goes to the Property Management Office. ' + PENALTY_NOTE,
                 'student': 'Go to the Cashier first and pay the replacement fee. Then bring the Cashier’s receipt, an affidavit of loss and a 1×1 photo to the Property Management Office, or tap “Request help” below to report it. When the office accepts your request, your ID goes back to Pending while the replacement is processed. This chat does not replace the official report until you send the request. ' + PENALTY_NOTE,
             },
             'id_requirements': (
@@ -1532,18 +1351,15 @@ def create_app(database_url=None):
             'qr_student_details': 'Scan the QR sticker with your phone camera. It opens the student’s name, year and section. Your phone must be able to reach this app’s URL.',
             'qr_sticker_request': {
                 'coordinator': 'Use “Print sticker” on a student record. The label has a 30 mm QR code; print at actual size and test a scan before attaching it.',
-                'guard': 'Ask the student to show the QR on their sticker or printed card. Use Verify ID with the student number if the scan fails.',
                 'student': 'Type your student ID, then use “Print QR sticker” under my answer. Print at actual size (30 mm QR) and keep it with your card.',
             },
             'id_inventory': {
                 'coordinator': 'Open the Dashboard to filter students by status, search them, select several and change their status, or import a CSV file of new students. Export CSV downloads everything.',
-                'guard': 'Guards do not edit inventory. Use Verify ID to look up a student at the gate.',
                 'student': 'I can show the ID status of a student when you type their student ID or name. Staff manage the full inventory.',
             },
             'out_of_scope': 'I’m an automated assistant for school IDs, so I can’t help with that. Try typing a student ID or name, or ask “When is my ID release?”, “Why is my ID pending?” or “How do I print a QR sticker?” For anything else, please contact the office.',
             'export_data': {
                 'coordinator': 'Click “Export CSV” on the Dashboard to download all records as a spreadsheet.',
-                'guard': 'CSV export is a coordinator tool. I can still help you verify a student or log a gate event.',
                 'student': 'Inventory export is for staff. Type a student ID or name and I will show that student’s status.',
             },
         }
@@ -1575,7 +1391,7 @@ def create_app(database_url=None):
                               'the office.')
             else:
                 rows = found['rows']
-                if workspace in ('guard', 'coordinator'):
+                if workspace == 'coordinator':
                     add_incident_facts(rows)
                 matched = found.get('matched', len(rows))
                 if len(rows) == 1 and matched == 1:
@@ -1600,10 +1416,7 @@ def create_app(database_url=None):
             if selected is None:
                 answer = f'⚡ Type a student ID (for example {STUDENT_ID_EXAMPLE}) or a name first, then ask about status or schedule.'
             elif intent == 'id_processing_status':
-                gate_hint = ''
-                if workspace == 'guard':
-                    gate_hint = ' ' + gate_note(selected['status'])
-                answer = f'📋 {selected["name"]}: ID status is **{selected["status"]}** ({selected["request_type"]}).{gate_hint}'
+                answer = f'📋 {selected["name"]}: ID status is **{selected["status"]}** ({selected["request_type"]}).'
             elif intent == 'pending_id':
                 answer = f'📋 {selected["name"]}: status is **{selected["status"]}**. ' + (
                     selected['pending_reason'] or 'No pending reason has been recorded. Ask staff to confirm any missing requirements.')
@@ -1655,12 +1468,6 @@ def create_app(database_url=None):
                     {'label': '🖨️ Print sticker', 'type': 'print_sticker'},
                     {'label': '🪪 Preview ID card', 'type': 'preview_card'},
                 ],
-                'guard': [
-                    {'label': '✅ Check in', 'type': 'send', 'text': f'check in {student["student_id"]}'},
-                    {'label': '⬅️ Check out', 'type': 'send', 'text': f'check out {student["student_id"]}'},
-                    incident_action(student),
-                    {'label': '🪪 Preview ID card', 'type': 'preview_card'},
-                ],
                 'student': [
                     {'label': '🖨️ Print QR sticker', 'type': 'print_sticker'},
                     {'label': '🪪 Preview ID card', 'type': 'preview_card'},
@@ -1669,19 +1476,6 @@ def create_app(database_url=None):
             }[workspace]
         elif found:
             actions = list(found.get('actions', []))
-        elif workspace == 'guard':
-            actions = [a for a in actions if a['type'] not in ('update_record', 'new_record', 'export_csv', 'reset_filters')]
-            if intent in ('greeting', 'bot_help', 'id_inventory'):
-                actions = [
-                    {'label': '🔎 Verify ID', 'type': 'open_verify'},
-                    {'label': '📜 Gate log', 'type': 'send', 'text': 'gate log'},
-                    incident_action(selected),
-                    {'label': '📋 Incidents', 'type': 'send', 'text': 'incidents'},
-                ]
-            if intent == 'lost_id_report':
-                actions = [incident_action(selected, 'Lost ID')]
-            if selected and intent in lookups:
-                actions.append({'label': '✅ Check in', 'type': 'send', 'text': f'check in {selected["student_id"]}'})
         elif workspace == 'student':
             actions = [a for a in actions if a['type'] not in ('update_record', 'new_record', 'export_csv', 'reset_filters', 'view_record')]
             if intent in ('greeting', 'bot_help'):
@@ -1771,15 +1565,15 @@ def create_app(database_url=None):
 
     @app.post('/api/chat/incident')
     def chat_incident():
-        """The incident form, sent from the pop-up in the guard's (or the coordinator's) chat. The incident is filed
+        """The incident form, sent from the pop-up in the coordinator's chat. The incident is filed
         exactly like one from /api/incidents, and the confirmation comes back as a chat answer that is kept in the
         chat history. What was written in "What happened?" is not copied into the history."""
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
         workspace = payload.get('workspace_role')
-        if workspace not in ('guard', 'coordinator'):
-            return jsonify(error='Incidents are filed by the guard and the office.'), 403
+        if workspace != 'coordinator' or not coordinator_signed_in():
+            return jsonify(error='Incidents are filed by the office.'), 403
         body, status = file_incident(payload, workspace)
         if status != 201:
             return jsonify(body), status

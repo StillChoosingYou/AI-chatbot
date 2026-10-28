@@ -191,11 +191,11 @@ class SuggestionLogicTests(unittest.TestCase):
     def test_staff_only_topics_are_never_offered_to_other_roles(self):
         ranked = [('id_processing_status', .45), ('id_inventory', .40)]
         self.assertEqual(self.labels(reply_chips(ranked, 'id_processing_status', .45, 'coordinator')[0]), ['id_inventory'])
-        for role in ('guard', 'student'):
+        for role in ('student',):
             self.assertEqual(reply_chips(ranked, 'id_processing_status', .45, role)[0], [])
         # Follow-ups are filtered the same way, for every answered intent and every role.
         for intent in FOLLOW_UPS:
-            for role in ('guard', 'student'):
+            for role in ('student',):
                 _, _, follow = reply_chips([(intent, .99)], intent, .99, role)
                 self.assertNotIn('id_inventory', self.labels(follow))
         self.assertEqual(self.labels(prompt_chips(['id_inventory', 'bot_help'], 'coordinator')), ['id_inventory', 'bot_help'])
@@ -240,7 +240,7 @@ class SuggestionRouteTests(AppTestCase):
         self.assertEqual(history[-1]['message'], UNSURE_REPLY)
 
     def test_small_talk_is_answered_by_rules_for_every_role_and_carries_no_score(self):
-        for role in ('student', 'guard', 'coordinator'):
+        for role in ('student', 'coordinator'):
             for text, intent in (('hello po', 'greeting'), ('salamat po', 'thanks_goodbye'),
                                  ('What can you do?', 'bot_help'), ('I want to talk to a real person', 'talk_to_human')):
                 with self.subTest(role=role, text=text):
@@ -263,7 +263,7 @@ class SuggestionRouteTests(AppTestCase):
         # Two to five words with no question or filler words look like a name. The network cannot tell a
         # name it has never seen from nonsense, so the answer covers both and points to the office.
         for text in ('purple asteroid quantum banana', 'Juan Dela Cruz'):
-            for role in ('student', 'guard', 'coordinator'):
+            for role in ('student', 'coordinator'):
                 with self.subTest(text=text, role=role):
                     reply = self.ask(text, role=role)
                     self.assertEqual((reply['intent'], reply['suggestions'], reply['follow_ups']), ('student_not_found', [], []))
@@ -288,8 +288,8 @@ class SuggestionRouteTests(AppTestCase):
         reply = self.ask('Download the inventory as CSV')
         self.assertIn('Export CSV', reply['reply'])
         self.assertIn('export_csv', [a['type'] for a in reply['actions']])
-        guard = self.ask('Download the inventory as CSV', role='guard')
-        self.assertNotIn('export_csv', [a['type'] for a in guard['actions']])
+        student = self.ask('Download the inventory as CSV', role='student')
+        self.assertNotIn('export_csv', [a['type'] for a in student['actions']])
 
     def test_unexpected_errors_are_logged_and_never_leak_details(self):
         with patch('Chatbot.classify', side_effect=RuntimeError('secret detail')), \
@@ -327,7 +327,6 @@ class HardeningTests(AppTestCase):
         self.assertEqual(self.raw_post('/api/chat', '{"message": "hi", "session_id": "\\ud800"}').json['message_id'], None)
         patch_bad = self.client.patch(f'/api/inventory/{self.row["id"]}', data='{"notes":"\\ud800"}', content_type='application/json')
         self.assertEqual(patch_bad.status_code, 400)
-        self.assertEqual(self.raw_post('/api/gate', '{"direction":"in","name":"\\ud800"}').status_code, 400)
 
     def test_huge_record_numbers_are_not_found_or_invalid_never_a_crash(self):
         huge = '9' * 25
@@ -378,8 +377,8 @@ class HardeningTests(AppTestCase):
             self.assertIn(field, record)
         self.assertNotIn('address', record)               # for the coordinator only
         self.assertNotIn('contact_number', record)
-        guard = self.client.get('/api/verify', query_string={'q': self.row['student_id']}).json['matches'][0]
-        self.assertIn('token', guard)
+        match = self.client.get('/api/verify', query_string={'q': self.row['student_id']}).json['matches'][0]
+        self.assertIn('token', match)
 
     def test_verify_finds_tokens_with_underscores_and_treats_wildcards_literally(self):
         # token_urlsafe() output contains "_" and "-"; about one token in three has an underscore.
@@ -488,15 +487,6 @@ class DashboardAndToolTests(AppTestCase):
         self.assertEqual(len(dates), 2)
         self.assertTrue(all(d >= stats['today'] for d in dates))
 
-    def test_gate_list_counts_todays_events(self):
-        for direction in ('in', 'in', 'out'):
-            self.client.post('/api/gate', json={'student_id': self.row['student_id'], 'direction': direction})
-        with self.db() as db:
-            db.execute("INSERT INTO gate_logs (student_id,name,direction,note,timestamp) VALUES ('X','Old','in','','2020-01-01 08:00:00')")
-        data = self.client.get('/api/gate').json
-        self.assertEqual(data['today'], {'in': 2, 'out': 1})
-        self.assertEqual(len(data['logs']), 4)
-
     def test_sticker_sheet(self):
         ids = [r['id'] for r in self.records]
         page = self.client.get('/stickers', query_string={'ids': f'{ids[0]},{ids[1]},{ids[0]}'})
@@ -525,9 +515,6 @@ class DashboardAndToolTests(AppTestCase):
         coordinator = self.ask('What can you do?')['reply']
         for word in ('Feedback', 'Needs attention', 'Not yet made', 'import', 'Incidents'):
             self.assertIn(word, coordinator)
-        guard = self.ask('What can you do?', role='guard')['reply']
-        for word in ('camera', 'Check in', 'gate log', 'No ID or Lost ID'):
-            self.assertIn(word, guard)
         student = self.ask('What can you do?', role='student')['reply']
         for word in ('track', 'Cashier'):
             self.assertIn(word, student)
@@ -595,7 +582,6 @@ class PageAndContractTests(AppTestCase):
         def offered(role):
             return {action['type'] for action in self.ask('What can you do?', role=role)['actions']}
         self.assertIn('open_feedback', offered('coordinator'))
-        self.assertNotIn('open_feedback', offered('guard'))
         self.assertNotIn('open_feedback', offered('student'))
 
 

@@ -258,7 +258,7 @@
   /* ── The chat ── */
 
   /* A message arrives: yours from the right, the assistant's from the left, and the buttons under it a moment later.
-     A confirmation (an incident filed, a request sent, a gate entry) also glows once. */
+     A confirmation (an incident filed, a request sent, a request sent) also glows once. */
   function message(node, { kind = 'bot', glow = false } = {}) {
     const from = kind === 'user' ? 28 : -28;
     const arrived = run(node,
@@ -404,11 +404,11 @@
   /* ── Hover and press: every button and chip lifts when the pointer is on it and sinks while it is held ──
      Done here for every button at once, including the ones drawn later. The stylesheet's own hover transforms are
      switched off while Motion is running (html.fx), so the two never fight. */
-  const TOUCHY = ['.primary', '.export-btn', '.text-button', '.gate-btn', '.action-chip', '.reply-chip', '.suggestions button',
+  const TOUCHY = ['.primary', '.export-btn', '.text-button', '.action-chip', '.reply-chip', '.suggestions button',
     '.filter-chip', 'button.tile', '.role-card', '.nav', '.mobile-dock a', '.row-more', '.emoji-btn', '.theme-toggle',
     '.role-switch', '.ticker-toggle', '.menu-toggle', '.row-menu button'].join(', ');
   const LIFT = [['button.tile, .role-card', -3],
-    ['.primary, .export-btn, .gate-btn, .action-chip, .reply-chip, .suggestions button, .filter-chip', -1]];
+    ['.primary, .export-btn, .action-chip, .reply-chip, .suggestions button, .filter-chip', -1]];
   const GROW = [['.emoji-btn', 1.25], ['.theme-toggle', 1.1]];
   const SLIDE = [['.nav', 3]];
   const pick = (table, el, none) => { const row = table.find(([selector]) => el.matches(selector)); return row ? row[1] : none; };
