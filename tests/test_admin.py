@@ -212,3 +212,13 @@ class AdminTests(DatabaseTestCase):
         out = client.post('/admin/logout')
         self.assertEqual(out.headers['Location'], '/')
         self.assertIn('Admin sign in', client.get('/').get_data(as_text=True))
+
+    def test_the_student_page_is_pure_even_for_a_signed_in_admin(self):
+        client = self.signed_in()
+        client.post('/admin/switch', data={'to': 'coordinator'})
+        student = client.get('/student').get_data(as_text=True)
+        self.assertNotIn('data-admin', student)
+        self.assertNotIn('Back to Admin panel', student)
+        self.assertNotIn('/admin', student)
+        coordinator = client.get('/coordinator').get_data(as_text=True)
+        self.assertIn('Back to Admin panel', coordinator)
