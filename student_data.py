@@ -360,7 +360,7 @@ def penalty_for(number):
 
 
 def claim_check(category, status):
-    """Does what a student says at the gate agree with the records? Returns (agrees, message).
+    """Does what a student reports agree with the records? Returns (agrees, message).
 
     agrees is True or False when the records settle it and None when they cannot (a student who says
     "no ID" but whose card was released may simply have left it at home).

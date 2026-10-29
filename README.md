@@ -49,8 +49,7 @@ every student with a status filter, **Select all** and CSV **Import**. The **stu
 full-page chat: type a student ID such as `P202400230`, or a name, and the assistant answers with that student.
 The student has nothing but that chat: lookups, the **Request help** button and the follow-up of a request all
 happen inside it. Apart from the incident pop-up with its Resolve buttons, and a student's own Request help form,
-chat messages never change anything; staff save changes on the Dashboard. There is no guard role any more:
-`/guard` leads to the role chooser.
+chat messages never change anything; staff save changes on the Dashboard.
 
 ### QR printing and phone scanning
 
@@ -307,8 +306,7 @@ How it behaves:
 ### IDs not yet made, in the chat (coordinator)
 
 Type `records` or `hindi pa nagagawang ID` to list the IDs that are not made yet (Pending and Processing). Students
-cannot see this list. The gate log and the guard's check-in and check-out commands were removed together with the
-guard role; the `gate_logs` table is kept in the database so earlier entries are not lost.
+cannot see this list. The old `gate_logs` table is kept in the database so earlier entries are not lost.
 
 **IDs not yet made** ("hindi pa nagagawang ID") are the Pending and Processing students. The Dashboard has a
 **Not yet made** filter and tile, and a student's card says what the status means.
