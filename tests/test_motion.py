@@ -95,7 +95,7 @@ class MotionLayerTests(unittest.TestCase):
 
 class PageLoadsMotionTests(AppTestCase):
     def test_scripts_load_in_order_and_only_from_this_app(self):
-        page = self.client.get('/').get_data(as_text=True)
+        page = self.client.get('/coordinator').get_data(as_text=True)
         scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"[^>]*>', page)
         self.assertEqual(scripts, ['/static/vendor/motion.js', '/static/fx.js', '/static/app.js'])
         for tag in re.findall(r'<script\b[^>]*\bsrc="[^"]+"[^>]*>', page):
@@ -109,13 +109,13 @@ class PageLoadsMotionTests(AppTestCase):
                 self.assertGreater(len(response.data), 500, path)
 
     def test_the_scanner_has_the_frame_the_scan_line_moves_in(self):
-        page = self.client.get('/').get_data(as_text=True)
+        page = self.client.get('/coordinator').get_data(as_text=True)
         for ident in ('scan-frame', 'scan-line', 'scan-video'):
             self.assertIn(f'id="{ident}"', page)
         self.assertLess(page.index('id="scan-frame"'), page.index('id="scan-video"'))
 
     def test_the_build_label_is_still_shown(self):
-        self.assertIn(f'build {BUILD}', self.client.get('/').get_data(as_text=True))
+        self.assertIn(f'build {BUILD}', self.client.get('/coordinator').get_data(as_text=True))
 
 
 if __name__ == '__main__':

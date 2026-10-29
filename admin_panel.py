@@ -14,6 +14,7 @@ import platform
 import sys
 import time
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 import qrcode
 import sklearn
@@ -23,6 +24,8 @@ from student_auth import hash_pin, new_pin
 
 ADMIN_IDLE_SECONDS = 15 * 60
 MAX_NEWS = 20
+DEFAULT_PUBLIC_URL = 'https://pgpc-ai-chatbot.vercel.app'     # the live site: what the links show when the panel is opened on localhost
+LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]', '0.0.0.0')
 SECURITY_ACTIONS = ('sign in', 'failed sign in', 'pin issued', 'pins issued', 'pin unlocked',
                     'admin sign in', 'admin failed sign in', 'portal', 'news', 'purge', 'backup', 'switch role')
 
@@ -47,8 +50,19 @@ def register_admin(app, ctx):
     def url_for_role(host, path):
         if host:
             return f'https://{host}{path}'
-        base = ctx.public_base or request.url_root.rstrip('/')
-        return f'{base}{path}'
+        return f'{public_base()}{path}'
+
+    def public_base():
+        """The address in the links: the one the admin saved, else PUBLIC_BASE_URL, else this site's own address
+        (the live site's when the panel is opened on localhost)."""
+        saved = (ctx.get_setting('public_url', '') or '').rstrip('/')
+        if saved:
+            return saved
+        if ctx.public_base:
+            return ctx.public_base
+        if request.host.split(':')[0].lower() in LOCAL_HOSTS:
+            return DEFAULT_PUBLIC_URL
+        return request.url_root.rstrip('/')
 
     def links():
         return {'student': url_for_role(ctx.student_host, '/student'),
@@ -58,7 +72,9 @@ def register_admin(app, ctx):
 
     # ─── pages ───
     @app.get('/admin', strict_slashes=False)
+    @app.get('/', endpoint='home')
     def admin_page():
+        """The home page is the admin sign-in; signed in, it is the admin panel."""
         if not admin_signed_in():
             return render_template('login.html', configured=login.configured, error='', role_title='ADMIN',
                                    action='/admin/login', page_title='Admin sign in', back=False)
@@ -73,7 +89,7 @@ def register_admin(app, ctx):
             session['seen'] = time.time()
             session.permanent = True
             log('admin', 'admin sign in', f'from {who}'[:120])
-            return redirect('/admin')
+            return redirect('/')
         log('admin', 'admin failed sign in', f'from {who}'[:120])
         error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(who)
                  else 'Wrong username or password.')
@@ -83,19 +99,19 @@ def register_admin(app, ctx):
     @app.post('/admin/logout')
     def admin_logout():
         session.clear()
-        return redirect('/admin')
+        return redirect('/')
 
     @app.post('/admin/switch')
     def admin_switch():
         """Role switch: the admin steps into the coordinator workspace (the admin session is kept)."""
         if not admin_signed_in():
-            return redirect('/admin')
+            return redirect('/')
         if request.form.get('to') == 'coordinator':
             session['coordinator'] = True
             session['seen'] = time.time()
             log('admin', 'switch role', 'admin opened the coordinator workspace')
             return redirect('/coordinator')
-        return redirect('/admin')
+        return redirect('/')
 
     # ─── numbers ───
     @app.get('/api/admin/overview')
@@ -120,12 +136,29 @@ def register_admin(app, ctx):
                        portal_open=ctx.get_setting('student_portal_open', '1') == '1',
                        student_login=ctx.student_login_on, links=links())
 
+    @app.put('/api/admin/public-url')
+    def admin_public_url():
+        """Save the website address the links are built from. An empty value goes back to the automatic one."""
+        denied = need_admin()
+        if denied:
+            return denied
+        value = str((request.get_json(silent=True) or {}).get('url', '')).strip().rstrip('/')
+        if value:
+            parsed = urlparse(value)
+            if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.path or parsed.query or len(value) > 200:
+                return jsonify(error='Use the site address only, for example https://pgpc-ai-chatbot.vercel.app'), 400
+            ctx.set_setting('public_url', value)
+        else:
+            ctx.delete_setting('public_url')
+        log('admin', 'portal', f'public address set to {value or "automatic"}'[:120])
+        return jsonify(**links(), public_url=value)
+
     @app.get('/api/admin/links')
     def admin_links():
         denied = need_admin()
         if denied:
             return denied
-        return jsonify(**links(), student_login=ctx.student_login_on,
+        return jsonify(**links(), student_login=ctx.student_login_on, public_url=ctx.get_setting('public_url', '') or '',
                        portal_open=ctx.get_setting('student_portal_open', '1') == '1')
 
     @app.get('/api/admin/qr.png')

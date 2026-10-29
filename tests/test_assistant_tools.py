@@ -524,7 +524,7 @@ class PageAndContractTests(AppTestCase):
     """What the page and the browser code rely on the server to provide."""
 
     def test_page_ships_the_feedback_form_built_from_the_server_side_reasons(self):
-        page = self.client.get('/').get_data(as_text=True)
+        page = self.client.get('/coordinator').get_data(as_text=True)
         self.assertIn('<template id="feedback-template">', page)
         for reason in FEEDBACK_REASONS:
             self.assertIn(f'value="{escape(reason)}"', page)
@@ -545,7 +545,7 @@ class PageAndContractTests(AppTestCase):
         with self.client.get('/static/app.js') as response:
             script = response.get_data(as_text=True)
         self.assertIn("script.src = '/static/vendor/jsQR.js'", script)     # loaded on demand, from this app
-        page = self.client.get('/').get_data(as_text=True)
+        page = self.client.get('/coordinator').get_data(as_text=True)
         references = re.findall(r'<(?:script|link)\b[^>]*?\b(?:src|href)="([^"]+)"', page)
         self.assertTrue(references)
         self.assertTrue(all(ref.startswith('/static/') for ref in references), references)

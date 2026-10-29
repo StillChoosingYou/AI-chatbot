@@ -70,7 +70,7 @@ class FontFilesTests(unittest.TestCase):
 
 class PagesAskForNothingOutsideTests(AppTestCase):
     def test_the_page_names_no_other_host(self):
-        page = self.client.get('/').get_data(as_text=True)
+        page = self.client.get('/coordinator').get_data(as_text=True)
         self.assertNotRegex(page, r'(?:src|href|action)\s*=\s*["\'](?:https?:)?//')
         self.assertNotRegex(page, r'url\(\s*[\'"]?(?:https?:)?//')
         self.assertNotIn('googleapis', page)

@@ -298,14 +298,14 @@ class IncidentListTests(IncidentChatCase):
 
 class PageTests(AppTestCase):
     def test_the_form_is_a_pop_up_and_the_incidents_page_is_the_coordinators_list(self):
-        html = self.client.get('/').get_data(as_text=True)
+        html = self.client.get('/coordinator').get_data(as_text=True)
         self.assertIn('<dialog id="incident-dialog"', html)
         self.assertEqual(html.count('id="incident-form"'), 1)                   # one form, not one on the page and one in the pop-up
         self.assertIn('data-workspace="coordinator" id="view-incidents"', html)
         self.assertNotIn('id="incident-result"', html)
 
     def test_the_footer_says_which_build_this_is(self):
-        html = self.client.get('/').get_data(as_text=True)
+        html = self.client.get('/coordinator').get_data(as_text=True)
         self.assertIn(f'build {BUILD}', html)
 
 

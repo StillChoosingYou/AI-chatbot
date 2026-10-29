@@ -69,11 +69,17 @@ const views = {
       <p class="no-print">Right-click the QR to save it, or print this page to put it on a poster.</p></div>`;
     view.innerHTML = `<h1>Student portal</h1><p class="lead">The link students use. It comes from here.</p>
       <div class="a-two">${row('Student link', l.student, 'student')}${row('Coordinator link', l.coordinator, 'coordinator')}</div>
+      <div class="a-card" style="margin-top:14px"><h2>Website address</h2>
+        <p>The links and QR codes above are built from this address. Leave it empty to use the automatic one (the live site, even when you open this panel on your own computer).</p>
+        <div class="a-row"><input id="public-url" value="${esc(l.public_url)}" placeholder="https://pgpc-ai-chatbot.vercel.app" style="flex:1 1 320px"><button type="button" class="primary" id="save-url">Save address</button></div></div>
       <div class="a-card" style="margin-top:14px"><h2>Portal switch</h2>
         <p>Status: ${badge(l.portal_open, 'Open', 'Closed')} · Student sign-in: ${badge(l.student_login, 'On', 'Off')}</p>
         <p>Closing the portal shows students a "closed" page and stops their chat (maintenance, an exam day). Sticker scan pages and the coordinator workspace keep working.</p>
         <div class="a-row"><button type="button" class="${l.portal_open ? 'danger' : 'primary'}" id="toggle-portal">${l.portal_open ? 'Close the student portal' : 'Open the student portal'}</button></div>
         ${l.separate_hosts ? '' : '<div class="a-warn">Student and coordinator are on the same address. For two separate addresses, add two domains in Vercel and set STUDENT_HOST and COORDINATOR_HOST (see the README).</div>'}</div>`;
+    $('save-url').onclick = async () => {
+      try { await api('/api/admin/public-url', send('PUT', { url: $('public-url').value })); toast('Address saved'); show('portal'); } catch (e) { toast(e.message); }
+    };
     $('toggle-portal').onclick = async () => {
       if (l.portal_open && !confirm('Close the student portal now? Students will see a "closed" page.')) return;
       await api('/api/admin/portal', send('POST', { open: !l.portal_open })); toast(l.portal_open ? 'Student portal closed' : 'Student portal open'); show('portal');
