@@ -433,7 +433,7 @@ def create_app(database_url=None):
                                   (signed_student_id(),)).fetchone()
             me = dict(mine) if mine else None
         return render_template(
-            'index.html', page_role=page_role, signed_student=me, is_admin=session.get('admin') is True, statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
+            'index.html', page_role=page_role, signed_student=me, is_admin=(session.get('admin') is True and page_role == 'coordinator'),   # the student page is purely the student's statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
             request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
