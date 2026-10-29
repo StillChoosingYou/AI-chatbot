@@ -4,6 +4,7 @@ import io
 import json
 import os
 import secrets
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -16,6 +17,8 @@ from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
 from auth import CoordinatorLogin
+from student_auth import FAILS_ALLOWED as PIN_FAILS_ALLOWED, LOCK_SECONDS as PIN_LOCK_SECONDS
+from student_auth import hash_pin, new_pin, pin_matches, seconds_locked
 from avatars import avatar_svg
 from chat_support import (
     FEEDBACK_REASONS, asks_for_incidents, asks_for_my_requests, asks_for_records,
@@ -166,8 +169,17 @@ def create_app(database_url=None):
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                       SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600)
 
+    student_login_on = os.environ.get('STUDENT_LOGIN', '').strip() == '1'
+    student_host = os.environ.get('STUDENT_HOST', '').strip().lower()            # e.g. pgpc-student.vercel.app
+    coordinator_host = os.environ.get('COORDINATOR_HOST', '').strip().lower()    # e.g. pgpc-coordinator.vercel.app
+    IDLE_SECONDS = {'coordinator': 30 * 60, 'student': 20 * 60}                  # signed out after this long without a request
+
     def coordinator_signed_in():
         return not login.enabled or session.get('coordinator') is True
+
+    def signed_student_id():
+        """The student ID of the signed-in student, or None (also None when student sign-in is switched off)."""
+        return session.get('student') if student_login_on else None
 
     def coordinator_only(path, method):
         """The pages and API calls only the coordinator's dashboard uses. The student never calls these."""
@@ -175,6 +187,58 @@ def create_app(database_url=None):
                             '/api/feedback', '/api/verify', '/stickers', '/sticker/', '/card/', '/qr/')):
             return True
         return path == '/api/incidents' or (path.startswith('/api/incidents/') and method == 'PATCH')
+
+    @app.before_request
+    def split_hosts():
+        """With STUDENT_HOST and COORDINATOR_HOST set, each address serves only its own role. Any other address
+        (a preview deployment, localhost) is unrestricted, so testing is not affected."""
+        host = request.host.split(':')[0].lower()
+        path = request.path
+        if student_host and host == student_host:
+            if path == '/':
+                return redirect('/student')
+            if coordinator_only(path, request.method) or path.startswith('/coordinator'):
+                abort(404)
+        elif coordinator_host and host == coordinator_host:
+            if path == '/':
+                return redirect('/coordinator')
+            if path.rstrip('/') == '/student' or path.startswith('/student/login'):
+                abort(404)
+
+    @app.before_request
+    def same_origin_only():
+        """A page on another site cannot make the browser change anything here: the Origin of a write must be ours."""
+        origin = request.headers.get('Origin')
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and origin and origin != 'null' \
+                and urlparse(origin).netloc != request.host:
+            abort(403)
+
+    @app.before_request
+    def idle_timeout():
+        """A signed-in session ends after a stretch with no requests (30 minutes coordinator, 20 minutes student)."""
+        if request.path.startswith('/static/'):
+            return
+        who = 'coordinator' if session.get('coordinator') else 'student' if session.get('student') else None
+        if who is None:
+            return
+        now = time.time()
+        if now - session.get('seen', now) > IDLE_SECONDS[who]:
+            session.clear()
+            return
+        session['seen'] = now
+
+    @app.after_request
+    def security_headers(response):
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-Frame-Options', 'DENY')
+        response.headers.setdefault('Referrer-Policy', 'no-referrer')
+        response.headers.setdefault('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
+        if login.on_vercel:
+            response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+        if request.path.startswith('/api/') or request.path.startswith(('/coordinator', '/student', '/card/', '/sticker')) \
+                or request.path == '/':
+            response.headers['Cache-Control'] = 'no-store'      # signed-in pages and records are never kept by the browser
+        return response
 
     @app.before_request
     def require_coordinator():
@@ -249,6 +313,8 @@ def create_app(database_url=None):
     def shape(row):
         """A record as the browser sees it: the stored columns plus year and section written as one ("3E")."""
         row = dict(row)
+        for secret in ('pin_hash', 'pin_failures', 'pin_locked_until'):
+            row.pop(secret, None)                      # the PIN hash and its lock never leave the server
         row['year_section'] = format_year_section(row['year_level'], row['section'])
         return row
 
@@ -316,8 +382,14 @@ def create_app(database_url=None):
 
     def workspace(page_role=''):
         """The one-page app. '/' shows only the role chooser; /coordinator and /student open that role."""
+        me = None
+        if page_role == 'student' and signed_student_id():
+            with connect() as db:
+                mine = db.execute('SELECT id, student_id, name FROM inventory WHERE LOWER(student_id)=LOWER(%s)',
+                                  (signed_student_id(),)).fetchone()
+            me = dict(mine) if mine else None
         return render_template(
-            'index.html', page_role=page_role, statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
+            'index.html', page_role=page_role, signed_student=me, statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
             request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
@@ -328,7 +400,70 @@ def create_app(database_url=None):
     def home():
         return workspace()
 
-    app.add_url_rule('/student', 'role_student', lambda: workspace('student'), strict_slashes=False)
+    def student_page():
+        if student_login_on and not signed_student_id():
+            return render_template('student_login.html', error='')
+        return workspace('student')
+
+    app.add_url_rule('/student', 'role_student', student_page, strict_slashes=False)
+
+    def client_address():
+        return request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+
+    student_attempts = {}                    # address -> (wrong tries, time of the last): a second lock beside the account's own
+
+    @app.post('/student/login')
+    def student_login():
+        if not student_login_on:
+            return redirect('/student')
+        address, now = client_address(), time.time()
+        tries, last = student_attempts.get(address, (0, 0))
+        if tries >= 20 and now - last < 600:                 # one address guessing across many accounts
+            return render_template('student_login.html', error='Too many tries from this device. Wait a few minutes.'), 429
+        student_id = request.form.get('student_id', '').strip()[:40]
+        pin = request.form.get('pin', '')[:20]
+        if not clean_text(student_id) or not clean_text(pin):        # a NUL or a lone surrogate cannot be stored
+            student_id, pin = '', ''
+        with connect() as db:
+            row = db.execute('SELECT student_id, pin_hash, pin_failures, pin_locked_until FROM inventory '
+                             'WHERE LOWER(student_id)=LOWER(%s)', (student_id,)).fetchone()
+            if row is not None and row['pin_locked_until'] > now:
+                wait = max(1, seconds_locked(row['pin_locked_until'], now) // 60 + 1)
+                return render_template('student_login.html',
+                                       error=f'Too many wrong tries. Try again in {wait} minute(s), or ask the office.'), 429
+            if row is not None and pin_matches(pin, row['pin_hash']):
+                db.execute('UPDATE inventory SET pin_failures = 0, pin_locked_until = 0 WHERE LOWER(student_id)=LOWER(%s)',
+                           (student_id,))
+                student_attempts.pop(address, None)
+                session.clear()
+                session['student'] = row['student_id']
+                session['seen'] = now
+                session.permanent = True
+                return redirect('/student')
+            pin_matches(pin, '')                              # an unknown ID costs the same time as a wrong PIN
+            if row is not None:
+                failures = row['pin_failures'] + 1
+                locked = now + PIN_LOCK_SECONDS if failures >= PIN_FAILS_ALLOWED else 0
+                db.execute('UPDATE inventory SET pin_failures = %s, pin_locked_until = %s WHERE LOWER(student_id)=LOWER(%s)',
+                           (0 if locked else failures, locked, student_id))
+        student_attempts[address] = (tries + 1, now)
+        return render_template('student_login.html', error='Wrong student ID or PIN. If you do not have a PIN yet, ask the office.'), 401
+
+    @app.post('/student/logout')
+    def student_logout():
+        session.clear()
+        return redirect('/student' if student_login_on else '/')
+
+    @app.post('/api/inventory/<rowid:record_id>/pin')
+    def issue_pin(record_id):
+        """Coordinator: make a new PIN for one student. It is shown once here and stored only as a hash."""
+        row = record(record_id)
+        pin = new_pin()
+        with connect() as db:
+            db.execute('UPDATE inventory SET pin_hash = %s, pin_failures = 0, pin_locked_until = 0 WHERE id = %s',
+                       (hash_pin(pin), record_id))
+        log_activity('coordinator', 'pin issued', f'New PIN issued for {row["name"]} ({row["student_id"]})')
+        return jsonify(pin=pin, student_id=row['student_id'], name=row['name'])
 
     @app.get('/guard', strict_slashes=False)
     def guard_page_gone():
@@ -346,8 +481,11 @@ def create_app(database_url=None):
         if login.check(request.form.get('username', ''), request.form.get('password', ''), address):
             session.clear()
             session['coordinator'] = True
+            session['seen'] = time.time()
             session.permanent = True
+            log_activity('coordinator', 'sign in', f'from {address}'[:120])
             return redirect('/coordinator')
+        log_activity('coordinator', 'failed sign in', f'from {address}'[:120])
         error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(address)
                  else 'Wrong username or password.')
         return render_template('login.html', configured=login.configured, error=error), 401
@@ -1298,6 +1436,18 @@ def create_app(database_url=None):
         if workspace == 'coordinator' and not coordinator_signed_in():
             workspace = 'student'                    # nobody can borrow the coordinator's answers by naming the role
 
+        own = None                         # with student sign-in on, the student is the signed-in one and nobody else
+        if student_login_on and workspace == 'student':
+            with connect() as db:
+                mine = db.execute('SELECT * FROM inventory WHERE LOWER(student_id)=LOWER(%s)',
+                                  (signed_student_id() or '',)).fetchone()
+            if mine is None:
+                session.pop('student', None)
+                response = jsonify(error='Sign in with your student ID and PIN first.', sign_in='/student')
+                response.status_code = 401
+                return response
+            own = shape(mine)
+
         selected = None                    # the student the conversation is about, kept by the browser
         selected_missing = False
         if payload.get('record_id') is not None:
@@ -1310,7 +1460,20 @@ def create_app(database_url=None):
             else:
                 selected = shape(chosen)
 
-        found = resolve_command(user_text, workspace, selected) or resolve_student(user_text)
+        if own is not None:
+            selected, selected_missing = own, False
+            if asks_for_my_requests(user_text):
+                found = my_requests_answer('my requests', own)         # always the signed-in student's own requests
+            else:
+                found = resolve_command(user_text, workspace, own) or resolve_student(user_text)
+            if found and found.get('intent') in ('student_lookup', 'student_not_found') \
+                    and not (found['intent'] == 'student_lookup' and not found.get('missing')
+                             and all(row['student_id'].lower() == own['student_id'].lower() for row in found['rows'])):
+                found = {'intent': 'own_record_only', 'student': own,
+                         'answer': 'For privacy I only show your own record while you are signed in. Type “my status” '
+                                   'to see it, or ask about requirements, office hours or a lost ID.'}
+        else:
+            found = resolve_command(user_text, workspace, selected) or resolve_student(user_text)
         small_talk = None if found else small_talk_intent(user_text)
         if found:
             intent, confidence, ranked = found['intent'], 0.0, []
@@ -1545,6 +1708,12 @@ def create_app(database_url=None):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error='Send a JSON object.'), 400
+        if student_login_on:
+            if not signed_student_id():
+                response = jsonify(error='Sign in with your student ID and PIN first.', sign_in='/student')
+                response.status_code = 401
+                return response
+            payload['student_id'] = signed_student_id()               # a request is always filed for yourself
         fields, error = request_fields(payload)
         if error:
             return jsonify(error=error), 400

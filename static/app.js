@@ -234,12 +234,21 @@ function restoreSelected(role) {
   return null;
 }
 
+/* With student sign-in on, the server renders who is signed in; the chat is about that student and no one else. */
+function signedStudent() {
+  try {
+    const me = JSON.parse(document.body.dataset.student || 'null');
+    if (me && Number.isInteger(me.id) && typeof me.student_id === 'string') return { id: me.id, student_id: me.student_id, name: me.name };
+  } catch { /* no signed-in student */ }
+  return null;
+}
+
 function renderSelected() {
   const banner = $('selected-student');
   const text = selected ? `📌 ${selected.name} — ${selected.student_id}` : 'No student selected yet. Type a student ID or name.';
   const changed = banner.textContent !== text;
   banner.textContent = text;
-  $('clear-selected').hidden = !selected;
+  $('clear-selected').hidden = !selected || !!signedStudent();
   if (changed) fx.swap(banner);
 }
 
@@ -275,6 +284,14 @@ function setRole(role, { useHash = false } = {}) {
   $('assistant-blurb').textContent = meta.blurb;
   $('incidents-eyebrow').textContent = meta.eyebrow;
   selected = restoreSelected(role);
+  const me = role === 'student' ? signedStudent() : null;
+  if (me) {
+    selected = me;
+    $('assistant-blurb').textContent = 'Ask about your ID status, requirements, office hours or a lost ID. Need the office’s help? Ask me, then tap Request help.';
+    $('chat-input').placeholder = 'Type “my status” or ask a question…';
+    $('role-caption').innerHTML = `${escapeHtml(me.name)}<small>${escapeHtml(me.student_id)} · signed in</small>`;
+    document.querySelector('#switch-role small').textContent = 'Sign out';
+  }
   bulkSelected.clear();
   for (const key of Object.keys(badgeCounts)) badgeCounts[key] = 0;
   renderNav();
@@ -669,6 +686,16 @@ async function markReleased(row) {
   } catch (error) { notify(error.message); }
 }
 
+/* A new sign-in PIN for one student. It is shown once; the server keeps only a hash. */
+async function issuePin(row) {
+  if (!confirm(`Issue a new PIN for ${row.name}? Any PIN they had stops working.`)) return;
+  try {
+    const result = await api(`/api/inventory/${row.id}/pin`, { method: 'POST' });
+    prompt(`PIN for ${result.name} (${result.student_id}). Give it to the student in person. It is shown only this once:`, result.pin);
+    refreshActivity();
+  } catch (error) { notify(error.message); }
+}
+
 /* A lost ID goes back to Pending (the server checks that it had been Released). */
 async function reportLost(row) {
   const ok = confirm(`${row.name} lost the ID?\n\nThe status goes from Released back to Pending and the release appointment is cleared. ` +
@@ -712,6 +739,7 @@ function openRowMenu(button) {
     ['sticker', '🖨️ Print QR sticker'],
     ['card', '🪪 Preview ID card'],
     ['profile', '🔗 Open QR profile'],
+    ['pin', '🔑 Issue sign-in PIN'],
   ];
   if (row.status === 'For release') items.push(['release', '✅ Mark as released']);
   if (row.status === 'Released') items.push(['lost', '⚠️ Lost ID (back to Pending)']);
@@ -757,6 +785,7 @@ function runRowAction(action, row) {
     release: () => markReleased(row),
     lost: () => reportLost(row),
     delete: () => deleteRecord(row),
+    pin: () => issuePin(row),
   };
   if (actions[action]) actions[action]();
 }
@@ -1315,7 +1344,9 @@ function updateSuggestions() {
 
 function welcomeMessage() {
   const meta = ROLE_META[workspaceRole];
-  addMessage(meta ? meta.welcome : 'Hi! Choose a role so I can show the right tools.', 'bot', { confidence: 0 });
+  const me = workspaceRole === 'student' ? signedStudent() : null;
+  addMessage(me ? `Hi ${me.name.split(' ')[0]}! You are signed in. Type “my status” to see your ID, or ask about requirements, office hours, a lost ID or how an ID is made. For anything the office must do, I will show a Request help button.`
+    : meta ? meta.welcome : 'Hi! Choose a role so I can show the right tools.', 'bot', { confidence: 0 });
 }
 
 async function loadChatHistory() {
@@ -1988,6 +2019,7 @@ function openRoleDialog() {
 $('switch-role').onclick = () => {                              // the chooser is the home page; leaving the coordinator signs out
   const home = () => location.assign('/');
   if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
+  else if (signedStudent()) fetch('/student/logout', { method: 'POST' }).then(() => location.assign('/student'), home);
   else home();
 };
 $('role-form').addEventListener('submit', event => {

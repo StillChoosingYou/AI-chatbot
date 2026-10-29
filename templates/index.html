@@ -11,7 +11,7 @@
   <script src="/static/fx.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
-<body data-page-role="{{ page_role }}">
+<body data-page-role="{{ page_role }}"{% if signed_student %} data-student="{{ signed_student|tojson|forceescape }}"{% endif %}>
 <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
 <div class="nav-backdrop" id="nav-backdrop" hidden></div>
 <aside class="sidebar" id="sidebar">
