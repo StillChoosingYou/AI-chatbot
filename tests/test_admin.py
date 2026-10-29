@@ -199,3 +199,16 @@ class AdminTests(DatabaseTestCase):
         client.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'}, base_url='https://my-site.vercel.app')
         links = client.get('/api/admin/links', base_url='https://my-site.vercel.app').json
         self.assertEqual(links['student'], 'https://my-site.vercel.app/student')
+
+    def test_the_home_page_is_the_admin_sign_in_and_signing_in_leads_back_to_it(self):
+        client = self.start()
+        home = client.get('/')
+        self.assertEqual(home.status_code, 200)
+        self.assertIn('Admin sign in', home.get_data(as_text=True))
+        self.assertNotIn('Property coordinator', home.get_data(as_text=True))       # no public role chooser
+        login = client.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
+        self.assertEqual(login.headers['Location'], '/')
+        self.assertIn('Admin panel', client.get('/').get_data(as_text=True))
+        out = client.post('/admin/logout')
+        self.assertEqual(out.headers['Location'], '/')
+        self.assertIn('Admin sign in', client.get('/').get_data(as_text=True))

@@ -440,10 +440,6 @@ def create_app(database_url=None):
             student_id_example=STUDENT_ID_EXAMPLE, id_hint=STUDENT_ID_HINT, release_hours=RELEASE_HOURS,
             penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT, build=BUILD)
 
-    @app.get('/')
-    def home():
-        return workspace()
-
     def student_page():
         if student_login_on and not signed_student_id():
             return render_template('student_login.html', error='')
