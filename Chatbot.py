@@ -248,7 +248,7 @@ def create_app(database_url=None):
         response.headers.setdefault('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
         if login.on_vercel:
             response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
-        if request.path.startswith('/api/') or request.path.startswith(('/coordinator', '/student', '/card/', '/sticker')) \
+        if request.path.startswith('/api/') or request.path.startswith(('/coordinator', '/student', '/card/', '/sticker', '/me/')) \
                 or request.path == '/':
             response.headers['Cache-Control'] = 'no-store'      # signed-in pages and records are never kept by the browser
         return response
@@ -580,7 +580,25 @@ def create_app(database_url=None):
     @app.get('/sticker/<rowid:record_id>')
     def sticker(record_id):
         row = record(record_id)
-        return render_template('sticker.html', student=row, scan_url=scan_url(row['token']))
+        return render_template('sticker.html', student=row, scan_url=scan_url(row['token']), qr_src=f'/qr/{record_id}.png', mine=False)
+
+    def own_record_or_redirect(record_id):
+        """The student's own preview pages. No coordinator sign-in; with student sign-in on, only your own record."""
+        row = record(record_id)
+        if student_login_on and session.get('student') != row['student_id']:
+            return row, redirect('/student')
+        return row, None
+
+    @app.get('/me/sticker/<rowid:record_id>')
+    def my_sticker(record_id):
+        row, denied = own_record_or_redirect(record_id)
+        return denied or render_template('sticker.html', student=row, scan_url=scan_url(row['token']),
+                                         qr_src=f"/student/{row['token']}/qr.png", mine=True)
+
+    @app.get('/me/card/<rowid:record_id>')
+    def my_card(record_id):
+        row, denied = own_record_or_redirect(record_id)
+        return denied or render_template('card.html', student=row, private=False, academic_year=CARD_ACADEMIC_YEAR)
 
     @app.get('/card/<rowid:record_id>')
     def card_preview(record_id):

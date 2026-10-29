@@ -31,6 +31,35 @@ class StudentLoginTests(DatabaseTestCase):
     def ask(self, client, message, **extra):
         return client.post('/api/chat', json={'message': message, 'session_id': 's1', 'workspace_role': 'student', **extra})
 
+    def row_id(self, student_id):
+        rows = self.coordinator.get('/api/inventory').json['records']
+        return next(r['id'] for r in rows if r['student_id'] == student_id)
+
+    def test_student_previews_own_card_and_sticker_without_coordinator_sign_in(self):
+        client = self.start()
+        pin = self.pin_for(ALEX)
+        self.login(client, ALEX, pin)
+        rid = self.row_id(ALEX)
+        card = client.get(f'/me/card/{rid}')
+        self.assertEqual(card.status_code, 200)
+        self.assertIn(b'shown to school staff only', card.data)
+        self.assertEqual(client.get(f'/me/sticker/{rid}').status_code, 200)
+        self.assertEqual(client.get(f'/card/{rid}').status_code, 302)
+        self.assertEqual(client.get(f'/sticker/{rid}').status_code, 302)
+        self.assertEqual(client.get(f'/me/card/{self.row_id(CASEY)}').status_code, 302)
+
+    def test_preview_pages_ask_for_sign_in_when_not_signed_in(self):
+        client = self.start()
+        response = client.get(f'/me/card/{self.row_id(ALEX)}')
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/student'))
+
+    def test_open_student_page_previews_without_any_sign_in(self):
+        client = self.start(STUDENT_LOGIN='0')
+        rid = self.row_id(ALEX)
+        self.assertEqual(client.get(f'/me/card/{rid}').status_code, 200)
+        self.assertEqual(client.get(f'/card/{rid}').status_code, 302)
+
     def test_the_student_page_asks_for_sign_in_first(self):
         client = self.start()
         page = client.get('/student')

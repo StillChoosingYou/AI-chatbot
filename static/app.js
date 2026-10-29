@@ -1212,8 +1212,8 @@ function handleAction(action, { button = null, student = null } = {}) {
   const handlers = {
     view_record: () => (target ? showOnDashboard(target.student_id) : needStudent()),
     update_record: () => (row ? openDialog(row) : notify('Open this student on the Dashboard to update them.')),
-    print_sticker: () => (target ? openTab(`/sticker/${target.id}`) : needStudent()),
-    preview_card: () => (target ? openTab(`/card/${target.id}`) : needStudent()),
+    print_sticker: () => (target ? openTab(`${workspaceRole === 'student' ? '/me' : ''}/sticker/${target.id}`) : needStudent()),
+    preview_card: () => (target ? openTab(`${workspaceRole === 'student' ? '/me' : ''}/card/${target.id}`) : needStudent()),
     new_record: () => openDialog(),
     open_import: () => { showView('dashboard'); openImport(); },
     reset_filters: () => { showView('dashboard'); resetFilters(); },
