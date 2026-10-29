@@ -30,6 +30,7 @@
   <header class="topbar">
     <span id="topbar-path">Workspace <span class="slash">/</span> <span id="topbar-section">Home</span></span>
     <div class="topbar-right">
+      <span class="live-chip off" id="live-chip" title="Updates by itself"><i class="live-dot"></i><span>Live</span></span>
       <span class="demo-dot">Sample data</span>
       <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
     </div>
@@ -135,6 +136,56 @@
         <small class="char-count" id="chat-count" aria-live="polite" hidden></small>
         <p class="assistant-note"><span class="note-full">I am an automated assistant. Student lookups come straight from the records. For other questions I match your words to a fixed set of topics and can be wrong. Tap 👍 or 👎 under an answer to help the office improve it.</span><span class="note-short">Automated assistant: lookups come from the records, other answers can be wrong. 👍 / 👎 helps the office.</span></p>
       </section>
+    </div>
+
+    <!-- Student: settings -->
+    <div class="workspace" data-workspace="student" id="view-settings" hidden>
+      <div class="heading">
+        <div class="eyebrow">STUDENT</div>
+        <div class="title-row"><div><h1>Settings</h1><p>Your account, your sign-in PIN and how the assistant looks on this device.</p></div></div>
+      </div>
+      <div class="settings-grid">
+        <section class="set-card" aria-labelledby="set-profile-h">
+          <h2 id="set-profile-h">My account</h2>
+          <dl class="set-list" id="set-profile"><dt>Loading…</dt></dl>
+          <p class="set-note"><span class="live-dot" aria-hidden="true"></span> Your ID status updates here by itself when the office changes it.</p>
+        </section>
+
+        <section class="set-card" aria-labelledby="set-pin-h">
+          <h2 id="set-pin-h">Change my PIN</h2>
+          <form id="pin-form" autocomplete="off" novalidate>
+            <label>Current PIN<input id="pin-current" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password" required></label>
+            <label>New PIN (6 digits)<input id="pin-new" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password" required></label>
+            <label>Type the new PIN again<input id="pin-confirm" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password" required></label>
+            <label class="set-check"><input type="checkbox" id="pin-show"> Show the PINs</label>
+            <ul class="pin-rules" id="pin-rules" aria-label="PIN rules">
+              <li data-rule="len">Exactly 6 digits</li><li data-rule="mix">Not one digit repeated, not a run like 123456</li><li data-rule="same">Both new boxes match</li>
+            </ul>
+            <p class="set-error" id="pin-error" role="alert" hidden></p>
+            <button class="primary" type="submit" id="pin-save">Save new PIN</button>
+          </form>
+          <p class="set-note">Changing your PIN signs you out on your other devices. Never share it. The office will never ask for it.</p>
+        </section>
+
+        <section class="set-card" aria-labelledby="set-look-h">
+          <h2 id="set-look-h">Appearance</h2>
+          <div class="set-row"><span>Theme</span>
+            <div class="seg" role="group" aria-label="Theme" id="seg-theme"><button type="button" data-v="auto">Auto</button><button type="button" data-v="light">Light</button><button type="button" data-v="dark">Dark</button></div></div>
+          <div class="set-row"><span>Text size</span>
+            <div class="seg" role="group" aria-label="Text size" id="seg-text"><button type="button" data-v="small">Small</button><button type="button" data-v="normal">Normal</button><button type="button" data-v="large">Large</button></div></div>
+          <label class="set-row set-switch"><span>Reduce motion<small>Turns off the animations</small></span><input type="checkbox" id="set-motion" role="switch"></label>
+          <label class="set-row set-switch"><span>Announcement ticker<small>The scrolling PGPC NEWS strip</small></span><input type="checkbox" id="set-ticker" role="switch"></label>
+          <p class="set-note">These are kept on this device only.</p>
+        </section>
+
+        <section class="set-card" aria-labelledby="set-data-h">
+          <h2 id="set-data-h">Chat, data and sign-out</h2>
+          <div class="set-row"><span>Clear this conversation<small>Deletes your chat messages from the server</small></span><button type="button" id="set-clear">Clear chat</button></div>
+          <div class="set-row"><span>Download my data<small>Your record, requests and reports as a file</small></span><button type="button" id="set-export">Download</button></div>
+          <div class="set-row"><span>Sign out<small>Ends this session on this device</small></span><button type="button" class="danger" id="set-signout">Sign out</button></div>
+          <p class="set-note">Under the Data Privacy Act you may ask the office to correct your record.</p>
+        </section>
+      </div>
     </div>
 
     <!-- Coordinator: appointments -->

@@ -42,10 +42,13 @@ const progress = document.createElement('div');
 progress.className = 'a-progress'; progress.setAttribute('aria-hidden', 'true');
 document.body.appendChild(progress);
 let inflight = 0;
+let silent = false;                  // live refreshes do not flash the progress bar
 function progressStart() {
+  if (silent) return;
   inflight++; progress.classList.remove('done'); progress.classList.add('run');
 }
 function progressStop() {
+  if (silent) return;
   inflight = Math.max(0, inflight - 1);
   if (inflight) return;
   progress.classList.add('done');
@@ -177,7 +180,10 @@ async function show(tab, { quiet = false } = {}) {
   try {
     const paint = await views[tab]();               // each view fetches, then returns a function that draws
     if (mine !== epoch) return;
-    if (quiet) { paint(); return; }
+    if (quiet) {
+      view.classList.add('still'); paint();
+      view.querySelectorAll('[data-count]').forEach((el) => { if (!el.dataset.value) { el.dataset.value = el.dataset.count; el.textContent = Number(el.dataset.count).toLocaleString(); } });
+      setTimeout(() => view.classList.remove('still'), 80); return; }
     view.classList.add('leaving'); await wait(90);
     if (mine !== epoch) return;
     paint(); stagger(); runCounters();
@@ -203,7 +209,7 @@ const views = {
     return () => {
       const live = $('ov-live');
       if (live && live.dataset.ready) {                            // refresh in place: numbers roll to the new value
-        const values = { students: o.students, requests: o.open_requests, incidents: o.open_incidents, answers: o.answers };
+        const values = { students: o.students, requests: o.open_requests, incidents: o.open_incidents, answers: o.answers, signedin: o.signed_in_today };
         Object.entries(values).forEach(([key, v]) => {
           const el = view.querySelector(`[data-key="${key}"] strong`); if (el) { el.dataset.count = v; countUp(el, v, Number(el.dataset.value || 0)); }
         });
@@ -213,7 +219,7 @@ const views = {
         return;
       }
       view.innerHTML = `<div class="a-head"><div><h1>Overview</h1><p class="lead">The whole system at a glance.</p></div>
-        <div class="a-live" id="ov-live" data-ready="1"><i class="live-dot"></i> Updated <time>${clock()}</time> · every 30 s <button type="button" id="ov-refresh" class="icon-btn" aria-label="Refresh now" title="Refresh now">↻</button></div></div>
+        <div class="a-live" id="ov-live" data-ready="1"><i class="live-dot"></i> Live · updated <time>${clock()}</time> <button type="button" id="ov-refresh" class="icon-btn" aria-label="Refresh now" title="Refresh now">↻</button></div></div>
         <div class="a-grid">
           ${stat('Students', o.students, `${o.statuses['For release'] || 0} for release · ${o.statuses['Pending'] || 0} pending`, 'students')}
           ${stat('Open requests', o.open_requests, 'waiting for the coordinator', 'requests')}
@@ -221,6 +227,7 @@ const views = {
           ${stat('Chatbot answers', o.answers, `${fallbackRate}% could not be placed`, 'answers')}
           ${stat('Feedback', `${o.thumbs_up} 👍 / ${o.thumbs_down} 👎`, 'from students and staff')}
           ${stat('Students with a PIN', `${o.with_pin}/${o.students}`, o.locked ? `${o.locked} locked` : 'none locked')}
+          ${stat('Signed in today', o.signed_in_today, 'students using the assistant', 'signedin')}
         </div>
         <div class="a-two">
           <div class="a-card"><h2>Student portal</h2>
@@ -268,19 +275,22 @@ const views = {
     const missing = list.filter((s) => !s.has_pin).length, locked = list.filter((s) => s.locked).length;
     return () => {
       view.innerHTML = `<h1>Access & PINs</h1><p class="lead">Student sign-in is Student ID + a 6-digit PIN. PINs are shown once and stored only as a hash.</p>
-        <div class="a-grid">${stat('Students', list.length)}${stat('Without a PIN', missing)}${stat('Locked now', locked)}</div>
+        <div class="a-grid">${stat('Students', list.length)}${stat('Without a PIN', missing)}${stat('Locked now', locked)}${stat('Signed in today', data.today.signed_in)}${stat('Failed tries today', data.today.failed)}${stat('PIN changes today', data.today.pin_changes)}</div>
         <div class="a-card"><h2>Issue PINs in bulk</h2>
           <p>Make PINs for everyone who has none (safe), or reset everyone's PIN (every old PIN stops working). The new PINs appear below once: print them as slips or download the CSV, then hand each one over in person.</p>
           <div class="a-row"><button type="button" class="primary" id="pins-missing" ${missing ? '' : 'disabled'}>Issue PINs for ${missing} student(s) without one</button>
           <button type="button" class="danger" id="pins-all">Reset every student's PIN</button></div>
           <div id="pin-result"></div></div>
+        <div class="a-card" style="margin-top:14px"><h2>Recent student activity</h2>
+          <p>Every sign-in, sign-out, wrong PIN and PIN change is recorded here (also in the Security log).</p>
+          ${data.recent.length ? `<ul class="a-feed">${data.recent.map((r) => `<li class="${/fail|locked/.test(r.action) ? 'bad' : ''}"><time>${esc(r.time)}</time><b>${esc(r.action.replace('student ', ''))}</b><span>${esc(r.detail)}</span></li>`).join('')}</ul>` : '<p>No student has signed in yet.</p>'}</div>
         <div class="a-card" style="margin-top:14px"><h2>Accounts</h2>
           <div class="a-row"><input id="pin-search" type="search" placeholder="Search student ID or name   ( / )" style="flex:1 1 240px;padding:8px 10px">
             <div class="a-chips" id="pin-chips" role="group" aria-label="Filter">
               <button type="button" class="chip on" data-f="all">All <b>${list.length}</b></button>
               <button type="button" class="chip" data-f="none">No PIN <b>${missing}</b></button>
               <button type="button" class="chip" data-f="locked">Locked <b>${locked}</b></button></div></div>
-          <div class="a-scroll"><table class="a-table"><thead><tr><th>Student ID</th><th>Name</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody id="pin-rows"></tbody></table></div>
+          <div class="a-scroll"><table class="a-table"><thead><tr><th>Student ID</th><th>Name</th><th>PIN</th><th>Last sign-in</th><th>Sign-ins</th><th>Status</th><th></th></tr></thead><tbody id="pin-rows"></tbody></table></div>
           <p class="a-count" id="pin-count"></p></div>`;
       let filter = 'all';
       const draw = () => {
@@ -288,9 +298,10 @@ const views = {
         const rows = list.filter((s) => (!q || s.student_id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
           && (filter === 'all' || (filter === 'none' && !s.has_pin) || (filter === 'locked' && s.locked)));
         $('pin-rows').innerHTML = rows.slice(0, 300).map((s, i) =>
-          `<tr class="rise fast" style="--i:${Math.min(i, 10)}" data-row="${esc(s.student_id)}"><td>${esc(s.student_id)}</td><td>${esc(s.name)}</td><td>${badge(s.has_pin, 'Issued', 'None')}</td>
+          `<tr class="rise fast" style="--i:${Math.min(i, 10)}" data-row="${esc(s.student_id)}"><td>${esc(s.student_id)}</td><td>${esc(s.name)}</td><td>${badge(s.has_pin, 'Issued', 'None')}${s.pin_changed ? ' <small title="Changed by the student">own PIN</small>' : ''}</td>
+           <td>${s.last_signin ? esc(s.last_signin) : '<small>never</small>'}</td><td>${s.signins || 0}</td>
            <td>${s.locked ? `<span class="a-badge warn">Locked ${s.locked_minutes} min</span>` : s.failures ? `${s.failures} wrong try(s)` : ''}</td>
-           <td>${s.locked || s.failures ? `<button type="button" data-unlock="${esc(s.student_id)}">Unlock</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="5">No match.</td></tr>';
+           <td>${s.locked || s.failures ? `<button type="button" data-unlock="${esc(s.student_id)}">Unlock</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7">No match.</td></tr>';
         $('pin-count').textContent = rows.length > 300 ? `Showing the first 300 of ${rows.length}. Search to narrow it down.` : `${rows.length} of ${list.length} student(s)`;
       };
       draw(); $('pin-search').oninput = draw;
@@ -444,9 +455,18 @@ const views = {
   },
 };
 
-/* ---------- overview: refresh now and every 30 seconds (also keeps the tab badges honest) ---------- */
+/* ---------- live: one change counter, asked every 4 seconds; the page reloads what it shows when it moves ---------- */
+const LIVE_MS = 4000;
+let rev = null;
+const liveSafe = {                                   // a tab whose text boxes hold something is left alone
+  overview: () => true,
+  security: () => !$('sec-search')?.value && !$('sec-role')?.value && !$('sec-bad')?.checked,
+  insights: () => !$('miss-search')?.value,
+  access: () => !$('pin-result')?.innerHTML && !$('pin-search')?.value && document.querySelector('#pin-chips .chip.on')?.dataset.f === 'all',
+  system: () => true,
+};
 async function refreshOverview(button, manual = false) {
-  const spin = button && button.classList.add('spin');
+  button && button.classList.add('spin');
   try {
     if (current === 'overview') await show('overview', { quiet: true });
     else paintBadges(await api('/api/admin/overview'));
@@ -454,8 +474,32 @@ async function refreshOverview(button, manual = false) {
   } catch (error) { if (manual && error.message !== 'Signed out') toast(error.message, 'err'); }
   finally { if (button) setTimeout(() => button.classList.remove('spin'), 500); }
 }
-setInterval(() => { if (!document.hidden && !document.querySelector('.a-modal-back')) refreshOverview(null); }, REFRESH_MS);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOverview(null); });
+async function liveRefresh() {
+  silent = true;
+  try {
+    if (current === 'overview') await show('overview', { quiet: true });
+    else {
+      paintBadges(await api('/api/admin/overview'));
+      if (liveSafe[current] && liveSafe[current]() && !document.activeElement?.matches?.('input, textarea, select')) await show(current, { quiet: true });
+    }
+  } catch { /* the next change tries again */ }
+  finally { silent = false; }
+}
+function liveState(on) {
+  document.querySelectorAll('.live-dot').forEach((d) => d.classList.toggle('off', !on));
+}
+async function pollLive() {
+  if (document.hidden || document.querySelector('.a-modal-back')) return;
+  try {
+    const response = await fetch('/api/live?role=admin', { cache: 'no-store' });
+    if (response.status === 401) { location.assign('/admin'); return; }
+    const body = await response.json();
+    liveState(true);
+    if (rev !== null && body.rev !== rev) { rev = body.rev; await liveRefresh(); } else rev = body.rev;
+  } catch { liveState(false); }
+}
+setInterval(pollLive, LIVE_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollLive(); });
 
 /* ---------- events ---------- */
 document.addEventListener('click', (e) => {
