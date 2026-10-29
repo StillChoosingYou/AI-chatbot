@@ -292,6 +292,10 @@ function setRole(role, { useHash = false } = {}) {
     $('role-caption').innerHTML = `${escapeHtml(me.name)}<small>${escapeHtml(me.student_id)} · signed in</small>`;
     document.querySelector('#switch-role small').textContent = 'Sign out';
   }
+  const sw = $('switch-role');                                        // nobody but the admin chooses a role now
+  if (document.body.dataset.admin) sw.querySelector('small').textContent = 'Back to Admin panel';
+  else if (role === 'coordinator') sw.querySelector('small').textContent = 'Sign out';
+  sw.hidden = !(document.body.dataset.admin || role === 'coordinator' || me);
   bulkSelected.clear();
   for (const key of Object.keys(badgeCounts)) badgeCounts[key] = 0;
   renderNav();
@@ -2016,12 +2020,10 @@ function openRoleDialog() {
   $('role-dialog').showModal();
   fx.dialog($('role-dialog'));
 }
-$('switch-role').onclick = () => {                              // the chooser is the home page; leaving the coordinator signs out
-  const home = () => location.assign('/');
-  if (document.body.dataset.admin) location.assign('/admin');                  // the admin switches back to the panel, still signed in
-  else if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
-  else if (signedStudent()) fetch('/student/logout', { method: 'POST' }).then(() => location.assign('/student'), home);
-  else home();
+$('switch-role').onclick = () => {                              // the home page is the admin sign-in: only the admin can change role
+  if (document.body.dataset.admin) location.assign('/');                       // back to the admin panel, still signed in
+  else if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(() => location.assign('/coordinator'), () => location.assign('/coordinator'));
+  else if (signedStudent()) fetch('/student/logout', { method: 'POST' }).then(() => location.assign('/student'), () => location.assign('/student'));
 };
 $('role-form').addEventListener('submit', event => {
   event.preventDefault();

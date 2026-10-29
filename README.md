@@ -290,7 +290,7 @@ rest of the app only says what happened ("a message arrived", "a row changed").
 
 | Where | What moves |
 |---|---|
-| Every role | the role chooser and every dialog (spring up, fields follow), the toast, the sidebar and the phone drawer, the theme button, hover and press on every button, chip and card, the page you open |
+| Every role | every dialog (spring up, fields follow), the toast, the sidebar and the phone drawer, the theme button, hover and press on every button, chip and card, the page you open |
 | Coordinator | Dashboard tiles slide in and count up, filter chips pop, only the **new** rows slide in and a **changed** row glows, deleted rows slide out, the ⋯ menu grows out of its button, the bulk bar rises, the import result, the ticker, Appointments / Requests / Incidents / Activity cards (a changed card glows, a card that leaves its filter slides out), Feedback tiles and bars grow |
 | Student | the Request help pop-up and its Lost ID notice, the confirmation card, student cards, the three typing dots |
 
@@ -426,7 +426,9 @@ Not covered yet, and worth doing next: a second factor for the coordinator, a Co
 
 ## Admin panel
 
-`/admin` is the owner's console above the two workspaces. It has its own password, separate from the coordinator's.
+The **home page (`/`) is the admin sign-in**; there is no public role chooser. Signed in, `/` is the admin panel, and the coordinator and student links come from inside it (students and coordinators open their own address directly, `/student` and `/coordinator`). `/admin` shows the same page. The panel has its own password, separate from the coordinator's.
+
+Until `ADMIN_PASSWORD` is set on Vercel the home page cannot be signed into (it fails closed), but `/student` and `/coordinator` keep working.
 
 | Variable | Meaning |
 |---|---|

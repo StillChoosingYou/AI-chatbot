@@ -152,8 +152,10 @@ class SchoolIDTests(DatabaseTestCase):
         self.assertEqual(self.client.get('/student/unknown').status_code,404)
         self.assertIn('30 × 30 mm',self.client.get(f'/sticker/{self.row["id"]}').get_data(as_text=True))
 
-    def test_each_role_has_its_own_address_and_the_home_page_is_the_chooser(self):
-        self.assertIn('data-page-role=""', self.client.get('/').get_data(as_text=True))
+    def test_each_role_has_its_own_address_and_the_home_page_is_the_admin_sign_in(self):
+        home = self.client.get('/').get_data(as_text=True)
+        self.assertTrue('Admin panel' in home or 'Admin sign in' in home)       # open locally with no password set
+        self.assertNotIn('role-dialog', home)                      # there is no public role chooser any more
         for role in ('coordinator', 'student'):
             for path in (f'/{role}', f'/{role}/'):
                 with self.subTest(path=path):
@@ -170,8 +172,7 @@ class SchoolIDTests(DatabaseTestCase):
         self.assertIn("location.assign(`/${role}`)", script)
 
     def test_role_tools_and_student_request(self):
-        home = self.client.get('/').get_data(as_text=True)
-        self.assertIn('role-dialog', home)
+        home = self.client.get('/coordinator').get_data(as_text=True)
         self.assertNotIn('Verify ID', home)
         self.assertNotIn('data-workspace="guard"', home)
         found = self.client.get('/api/verify', query_string={'q': self.row['student_id']})

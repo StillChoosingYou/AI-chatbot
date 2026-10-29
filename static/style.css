@@ -635,3 +635,4 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
   .assistant-page .ticker-item { padding: 10px 18px; }
 }
 .assistant-page[hidden] { display: none; }
+.role-switch[hidden] { display: none; }

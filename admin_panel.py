@@ -72,7 +72,9 @@ def register_admin(app, ctx):
 
     # ─── pages ───
     @app.get('/admin', strict_slashes=False)
+    @app.get('/', endpoint='home')
     def admin_page():
+        """The home page is the admin sign-in; signed in, it is the admin panel."""
         if not admin_signed_in():
             return render_template('login.html', configured=login.configured, error='', role_title='ADMIN',
                                    action='/admin/login', page_title='Admin sign in', back=False)
@@ -87,7 +89,7 @@ def register_admin(app, ctx):
             session['seen'] = time.time()
             session.permanent = True
             log('admin', 'admin sign in', f'from {who}'[:120])
-            return redirect('/admin')
+            return redirect('/')
         log('admin', 'admin failed sign in', f'from {who}'[:120])
         error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(who)
                  else 'Wrong username or password.')
@@ -97,19 +99,19 @@ def register_admin(app, ctx):
     @app.post('/admin/logout')
     def admin_logout():
         session.clear()
-        return redirect('/admin')
+        return redirect('/')
 
     @app.post('/admin/switch')
     def admin_switch():
         """Role switch: the admin steps into the coordinator workspace (the admin session is kept)."""
         if not admin_signed_in():
-            return redirect('/admin')
+            return redirect('/')
         if request.form.get('to') == 'coordinator':
             session['coordinator'] = True
             session['seen'] = time.time()
             log('admin', 'switch role', 'admin opened the coordinator workspace')
             return redirect('/coordinator')
-        return redirect('/admin')
+        return redirect('/')
 
     # ─── numbers ───
     @app.get('/api/admin/overview')
