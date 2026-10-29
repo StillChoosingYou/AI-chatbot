@@ -2018,7 +2018,8 @@ function openRoleDialog() {
 }
 $('switch-role').onclick = () => {                              // the chooser is the home page; leaving the coordinator signs out
   const home = () => location.assign('/');
-  if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
+  if (document.body.dataset.admin) location.assign('/admin');                  // the admin switches back to the panel, still signed in
+  else if (workspaceRole === 'coordinator') fetch('/coordinator/logout', { method: 'POST' }).then(home, home);
   else if (signedStudent()) fetch('/student/logout', { method: 'POST' }).then(() => location.assign('/student'), home);
   else home();
 };

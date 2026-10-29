@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <title>Admin panel · School ID</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/admin.css">
+  <script src="/static/admin.js" defer></script>
+</head>
+<body class="admin-body">
+<header class="admin-top">
+  <div class="admin-brand">
+    <img class="brand-logo" src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="40" height="40">
+    <div><strong>Admin panel</strong><small>School ID · Property Management</small></div>
+  </div>
+  <div class="admin-actions">
+    <span class="admin-who">Signed in as <b>{{ signed_in_as }}</b></span>
+    <form method="post" action="/admin/switch"><input type="hidden" name="to" value="coordinator"><button class="primary" type="submit" title="Open the coordinator workspace. You stay signed in here and can come back with one click.">Open coordinator workspace →</button></form>
+    <button type="button" id="theme" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+    <form method="post" action="/admin/logout"><button type="submit">Sign out</button></form>
+  </div>
+</header>
+<nav class="admin-tabs" id="tabs" aria-label="Admin sections"></nav>
+<main class="admin-main" id="view" aria-live="polite"></main>
+<div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

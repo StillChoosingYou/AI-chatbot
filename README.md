@@ -424,6 +424,22 @@ Both hosts are the same deployment and the same database: add the two domains to
 
 Not covered yet, and worth doing next: a second factor for the coordinator, a Content-Security-Policy, and a shared (database-backed) lock for coordinator sign-in.
 
+## Admin panel
+
+`/admin` is the owner's console above the two workspaces. It has its own password, separate from the coordinator's.
+
+| Variable | Meaning |
+|---|---|
+| `ADMIN_PASSWORD` | Required to sign in (on Vercel with none set, nobody can: it fails closed). Keep it only in the environment, never in the repository. |
+| `ADMIN_USERNAME` | Default `Admin`. |
+| `ADMIN_HOST` | Optional third address for the panel. On the student and coordinator addresses `/admin` returns 404. |
+
+Inside the panel: **Overview** (the whole system and what needs attention) · **Student portal** (the student link and its QR, the link to hand out, and a switch that closes the portal for maintenance) · **Access & PINs** (issue PINs in bulk, printable slips and CSV, unlock accounts) · **Chatbot insights** (answers by intent, questions per day, why 👎, and the questions the bot missed as a CSV for the next dataset) · **Announcements** (edit the PGPC NEWS ticker; it is kept in the database, so no redeploy) · **Data & backup** (full JSON backup without PIN hashes, delete old chat history after counting) · **Security log** (sign-ins, failed sign-ins, PIN and admin actions) · **System** (database, model, versions, configuration; never secrets).
+
+**Switch role.** "Open coordinator workspace" signs the admin in as the coordinator and keeps the admin session; "Back to Admin panel" in the coordinator sidebar returns. Signing out of the panel ends both. The admin session ends after 15 idle minutes.
+
+The first start adds one table, `app_settings` (`CREATE TABLE IF NOT EXISTS`).
+
 ## The page a QR scan opens
 
 Scanning a student's QR sticker opens `/student/<token>`: the school ID, front and back, in the PGPC colours (seal,

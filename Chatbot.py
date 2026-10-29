@@ -16,7 +16,8 @@ from psycopg import errors as pg_errors
 from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
-from auth import CoordinatorLogin
+from admin_panel import ADMIN_IDLE_SECONDS, register_admin
+from auth import AdminLogin, CoordinatorLogin
 from student_auth import FAILS_ALLOWED as PIN_FAILS_ALLOWED, LOCK_SECONDS as PIN_LOCK_SECONDS
 from student_auth import hash_pin, new_pin, pin_matches, seconds_locked
 from avatars import avatar_svg
@@ -165,6 +166,7 @@ def create_app(database_url=None):
     matcher = ANNIntentModel()
     app.url_map.converters['rowid'] = RowIdConverter
     login = CoordinatorLogin(database_url=database_url)
+    admin_login = AdminLogin(database_url=database_url)
     app.secret_key = login.secret
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                       SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600)
@@ -172,7 +174,8 @@ def create_app(database_url=None):
     student_login_on = os.environ.get('STUDENT_LOGIN', '').strip() == '1'
     student_host = os.environ.get('STUDENT_HOST', '').strip().lower()            # e.g. pgpc-student.vercel.app
     coordinator_host = os.environ.get('COORDINATOR_HOST', '').strip().lower()    # e.g. pgpc-coordinator.vercel.app
-    IDLE_SECONDS = {'coordinator': 30 * 60, 'student': 20 * 60}                  # signed out after this long without a request
+    admin_host = os.environ.get('ADMIN_HOST', '').strip().lower()                # e.g. pgpc-admin.vercel.app
+    IDLE_SECONDS = {'admin': ADMIN_IDLE_SECONDS, 'coordinator': 30 * 60, 'student': 20 * 60}                  # signed out after this long without a request
 
     def coordinator_signed_in():
         return not login.enabled or session.get('coordinator') is True
@@ -199,10 +202,19 @@ def create_app(database_url=None):
                 return redirect('/student')
             if coordinator_only(path, request.method) or path.startswith('/coordinator'):
                 abort(404)
+            if path.startswith(('/admin', '/api/admin')):
+                abort(404)
         elif coordinator_host and host == coordinator_host:
             if path == '/':
                 return redirect('/coordinator')
             if path.rstrip('/') == '/student' or path.startswith('/student/login'):
+                abort(404)
+            if path.startswith(('/admin', '/api/admin')):
+                abort(404)
+        elif admin_host and host == admin_host:
+            if path == '/':
+                return redirect('/admin')
+            if path.startswith(('/student', '/coordinator')) and not path.startswith(('/student/')):
                 abort(404)
 
     @app.before_request
@@ -218,7 +230,8 @@ def create_app(database_url=None):
         """A signed-in session ends after a stretch with no requests (30 minutes coordinator, 20 minutes student)."""
         if request.path.startswith('/static/'):
             return
-        who = 'coordinator' if session.get('coordinator') else 'student' if session.get('student') else None
+        who = ('admin' if session.get('admin') else 'coordinator' if session.get('coordinator')
+               else 'student' if session.get('student') else None)
         if who is None:
             return
         now = time.time()
@@ -239,6 +252,37 @@ def create_app(database_url=None):
                 or request.path == '/':
             response.headers['Cache-Control'] = 'no-store'      # signed-in pages and records are never kept by the browser
         return response
+
+    def get_setting(key, default=None):
+        with database.connect() as db:
+            row = db.execute('SELECT value FROM app_settings WHERE key = %s', (key,)).fetchone()
+        return row[0] if row else default
+
+    def set_setting(key, value):
+        with database.connect() as db:
+            db.execute('INSERT INTO app_settings (key, value, updated) VALUES (%s, %s, %s) '
+                       'ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = EXCLUDED.updated',
+                       (key, value, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+
+    def delete_setting(key):
+        with database.connect() as db:
+            db.execute('DELETE FROM app_settings WHERE key = %s', (key,))
+
+    @app.before_request
+    def student_portal_switch():
+        """The admin can close the student portal (maintenance). The scan page of a sticker stays open."""
+        path = request.path
+        student_chat = (request.method == 'POST' and path in ('/api/chat', '/api/chat/request')
+                        and (path == '/api/chat/request' or (request.get_json(silent=True) or {}).get('workspace_role') == 'student'))
+        if not (path.rstrip('/') == '/student' or path == '/student/login' or student_chat):
+            return None
+        if get_setting('student_portal_open', '1') == '1':
+            return None
+        if path.startswith('/api/'):
+            response = jsonify(error='The student assistant is closed for now. Please visit the Property Management Office.')
+            response.status_code = 503
+            return response
+        return render_template('student_closed.html'), 503
 
     @app.before_request
     def require_coordinator():
@@ -389,7 +433,7 @@ def create_app(database_url=None):
                                   (signed_student_id(),)).fetchone()
             me = dict(mine) if mine else None
         return render_template(
-            'index.html', page_role=page_role, signed_student=me, statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
+            'index.html', page_role=page_role, signed_student=me, is_admin=session.get('admin') is True, statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
             request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
@@ -585,20 +629,34 @@ def create_app(database_url=None):
             abort(404)
         return render_template('stickers.html', students=students, skipped=len(ids) - len(students))
 
-    @app.get('/api/news')
-    def news():
-        """The announcements on the dashboard ticker: data/pgpc_news.json, a list of {"icon", "text"}. Bad entries are skipped."""
+    def clean_news(entries):
+        """Announcements as {"icon", "text"}: bad entries are skipped, text is cut to 200 characters."""
+        items = []
+        for entry in entries if isinstance(entries, list) else []:
+            text = entry.get('text') if isinstance(entry, dict) else None
+            if isinstance(text, str) and clean_text(text) and text.strip():
+                icon = entry.get('icon') if isinstance(entry.get('icon'), str) and clean_text(entry.get('icon')) else ''
+                items.append({'icon': icon.strip()[:4] or '📣', 'text': text.strip()[:200]})
+        return items[:MAX_NEWS]
+
+    def news_items():
+        """The ticker: what the admin saved in the database, else data/pgpc_news.json."""
+        try:
+            saved = get_setting('news', None)
+            if saved is not None:
+                return clean_news(json.loads(saved))
+        except (ValueError, psycopg.Error):
+            pass
         try:
             entries = json.loads((ROOT / 'data' / 'pgpc_news.json').read_text(encoding='utf-8'))
         except (OSError, ValueError):
             entries = []
-        items = []
-        for entry in entries if isinstance(entries, list) else []:
-            text = entry.get('text') if isinstance(entry, dict) else None
-            if isinstance(text, str) and text.strip():
-                icon = entry.get('icon') if isinstance(entry.get('icon'), str) else ''
-                items.append({'icon': icon.strip()[:4] or '📣', 'text': text.strip()[:200]})
-        return jsonify(news=items[:MAX_NEWS])
+        return clean_news(entries)
+
+    @app.get('/api/news')
+    def news():
+        """The announcements on the ticker (edited in the admin panel; data/pgpc_news.json until then)."""
+        return jsonify(news=news_items())
 
     @app.get('/api/office')
     def office_info():
@@ -1908,6 +1966,14 @@ def create_app(database_url=None):
         response.headers['Referrer-Policy'] = 'no-referrer'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
+
+    from types import SimpleNamespace
+    register_admin(app, SimpleNamespace(
+        admin_login=admin_login, connect=connect, log_activity=log_activity, get_setting=get_setting,
+        set_setting=set_setting, delete_setting=delete_setting, news_items=news_items, clean_news=clean_news,
+        matcher=matcher, build=BUILD, student_login_on=student_login_on, student_host=student_host,
+        coordinator_host=coordinator_host, admin_host=admin_host, public_base=public_base, on_vercel=login.on_vercel,
+        coordinator_configured=login.configured))
 
     return app
 
