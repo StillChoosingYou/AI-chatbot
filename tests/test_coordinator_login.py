@@ -98,10 +98,8 @@ class CoordinatorLoginRouteTests(DatabaseTestCase):
         self.assertIn('Sign in', page)
         self.assertNotIn('data-page-role="coordinator"', page)
 
-    def test_the_student_page_and_the_chooser_stay_open_and_the_old_guard_link_goes_to_the_chooser(self):
+    def test_the_student_page_and_the_chooser_stay_open(self):
         client = self.start()
-        self.assertEqual(client.get('/guard').status_code, 302)
-        self.assertEqual(client.get('/guard').headers['Location'], '/')
         for path in ('/', '/student', '/api/office'):
             with self.subTest(path=path):
                 self.assertNotIn(client.get(path).status_code, (401, 302))

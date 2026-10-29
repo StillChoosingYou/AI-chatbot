@@ -231,7 +231,7 @@ class NameTests(unittest.TestCase):
             self.assertFalse(looks_like_a_name(text), text)
 
 
-class RecordsAtTheGateTests(unittest.TestCase):
+class ClaimCheckTests(unittest.TestCase):
     def test_the_penalty_is_charged_once_at_the_second_false_statement(self):
         self.assertEqual(PENALTY_AMOUNT, 1500)
         self.assertEqual(PENALTY_TEXT, '₱1,500')

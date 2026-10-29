@@ -465,10 +465,6 @@ def create_app(database_url=None):
         log_activity('coordinator', 'pin issued', f'New PIN issued for {row["name"]} ({row["student_id"]})')
         return jsonify(pin=pin, student_id=row['student_id'], name=row['name'])
 
-    @app.get('/guard', strict_slashes=False)
-    def guard_page_gone():
-        return redirect('/')                 # the guard role no longer exists: old links lead to the role chooser
-
     @app.get('/coordinator', strict_slashes=False)
     def coordinator_page():
         if coordinator_signed_in():
