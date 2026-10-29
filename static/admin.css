@@ -1,0 +1,60 @@
+/* Admin panel: the same navy and gold, one wide page with tabs */
+.admin-body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-family: 'DM Sans', system-ui, sans-serif; }
+.admin-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding: 14px 32px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.admin-brand { display: flex; align-items: center; gap: 12px; }
+.admin-brand strong { display: block; font: 800 17px Manrope, system-ui, sans-serif; color: var(--green); }
+.admin-brand small { color: var(--muted); font-size: 11px; letter-spacing: .6px; }
+.admin-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.admin-actions form { margin: 0; }
+.admin-who { font-size: 12px; color: var(--muted); }
+.admin-tabs { display: flex; gap: 4px; padding: 10px 32px 0; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
+.admin-tabs button { border: 0; background: none; padding: 11px 16px; font-size: 13px; color: var(--muted); border-bottom: 3px solid transparent; border-radius: 0; cursor: pointer; white-space: nowrap; }
+.admin-tabs button:hover { color: var(--ink); }
+.admin-tabs button[aria-selected="true"] { color: var(--green); font-weight: 700; border-bottom-color: var(--gold); }
+.admin-main { max-width: 1180px; margin: 0 auto; padding: 28px 32px 60px; }
+.admin-main h1 { font-size: 24px; margin: 0 0 4px; }
+.admin-main .lead { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+.a-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 20px; }
+.a-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; box-shadow: var(--shadow-sm); }
+.a-card h2 { font-size: 15px; margin: 0 0 10px; }
+.a-card p { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.a-stat small { color: var(--muted); font-size: 11px; letter-spacing: .5px; text-transform: uppercase; }
+.a-stat strong { display: block; font: 800 28px Manrope, system-ui, sans-serif; margin: 6px 0 2px; }
+.a-stat span { font-size: 11px; color: var(--muted); }
+.a-two { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.a-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.a-link { flex: 1 1 260px; font: 13px ui-monospace, Menlo, monospace; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-alt); color: var(--ink); overflow-wrap: anywhere; }
+.a-qr { width: 170px; height: 170px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 6px; }
+.a-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.a-badge.on { background: var(--ready-bg); color: var(--ready-fg); }
+.a-badge.off { background: var(--danger-bg); color: var(--danger); }
+.a-badge.warn { background: var(--pending-bg); color: var(--pending-fg); }
+.a-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.a-table th { text-align: left; color: var(--muted); font-size: 11px; letter-spacing: .5px; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.a-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.a-scroll { max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.a-bar { height: 8px; border-radius: 4px; background: var(--green); min-width: 2px; }
+.a-bar-wrap { background: var(--surface-alt); border-radius: 4px; }
+.a-news { display: grid; grid-template-columns: 70px 1fr auto; gap: 8px; margin: 8px 0; }
+.a-news input { width: 100%; box-sizing: border-box; }
+.a-warn { border-left: 4px solid var(--gold); background: var(--gold-bg); padding: 10px 12px; border-radius: 8px; font-size: 12.5px; margin: 10px 0; color: #5a4600; }
+.a-pin-sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 14px; }
+.a-pin-slip { border: 1px dashed var(--muted); border-radius: 8px; padding: 10px 12px; font-size: 12px; background: #fff; color: #111; break-inside: avoid; }
+.a-pin-slip b { display: block; font: 800 20px ui-monospace, Menlo, monospace; letter-spacing: 3px; margin-top: 4px; }
+.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--green); color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 13px; box-shadow: var(--shadow-lg); z-index: 50; }
+.toast[hidden] { display: none; }
+.admin-main button, .admin-main input, .admin-main select { font: inherit; }
+.admin-main button:not(.primary) { cursor: pointer; }
+.admin-main .danger { color: var(--danger); border-color: var(--danger); }
+@media (max-width: 760px) { .admin-top, .admin-tabs { padding-left: 16px; padding-right: 16px; } .admin-main { padding: 20px 16px 60px; } .a-news { grid-template-columns: 60px 1fr; } }
+@media print { .admin-top, .admin-tabs, .toast, .no-print { display: none !important; } .admin-main { padding: 0; } .a-pin-sheet { gap: 6px; } }
+.admin-body button, .admin-body input, .admin-body select { border-radius: 8px; }
+.admin-main button, .admin-actions button, .admin-body .a-row button { border: 1px solid var(--border); background: var(--surface); color: var(--ink); padding: 8px 14px; font-size: 12.5px; transition: background .15s, border-color .15s; }
+.admin-main button:hover, .admin-actions button:hover { background: var(--surface-hover); border-color: var(--green-light); }
+.admin-main button.primary, .admin-actions button.primary { background: var(--green); color: #fff; border-color: var(--green); font-weight: 700; }
+.admin-main button.primary:hover, .admin-actions button.primary:hover { background: var(--green-light); }
+.admin-main button.danger { background: var(--danger-bg); }
+.admin-main button:disabled { opacity: .5; cursor: not-allowed; }
+.admin-main input, .admin-main select { border: 1px solid var(--border); background: var(--surface); color: var(--ink); padding: 8px 10px; }
+.admin-main a { color: var(--green); text-decoration: none; } .admin-main a:hover { text-decoration: underline; }
+.admin-main a button { color: inherit; }

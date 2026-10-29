@@ -160,7 +160,7 @@ class SchoolIDTests(DatabaseTestCase):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 200)
                     self.assertIn(f'data-page-role="{role}"', response.get_data(as_text=True))
-        self.assertEqual(self.client.get('/admin').status_code, 404)
+        self.assertEqual(self.client.get('/superuser').status_code, 404)
         self.assertEqual(self.client.get('/student/unknown').status_code, 404)    # a sticker token still works as before
 
     def test_role_chooser_is_opaque_white_and_goes_to_the_role_address(self):

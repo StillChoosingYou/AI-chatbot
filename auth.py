@@ -17,10 +17,12 @@ LOCK_SECONDS = 60          # ...then it waits this long. Kept in memory: a best 
 
 
 class CoordinatorLogin:
+    PREFIX, DEFAULT_USER = 'COORDINATOR', 'Coordinator'
+
     def __init__(self, environ=None, database_url=''):
         environ = os.environ if environ is None else environ
-        self.password = environ.get('COORDINATOR_PASSWORD', '')
-        self.username = (environ.get('COORDINATOR_USERNAME', '').strip() or 'Coordinator')
+        self.password = environ.get(f'{self.PREFIX}_PASSWORD', '')
+        self.username = (environ.get(f'{self.PREFIX}_USERNAME', '').strip() or self.DEFAULT_USER)
         self.on_vercel = bool(environ.get('VERCEL'))
         self.enabled = bool(self.password) or self.on_vercel
         self.secret = environ.get('SECRET_KEY', '') or hashlib.sha256(
@@ -54,3 +56,9 @@ class CoordinatorLogin:
         self.failures[address] = (tries + 1, now)
         return False
 
+
+
+class AdminLogin(CoordinatorLogin):
+    """The admin panel's own sign-in: ADMIN_USERNAME (default "Admin") and ADMIN_PASSWORD, kept in the environment.
+    Same rules as the coordinator's, and a separate password: knowing one opens nothing of the other."""
+    PREFIX, DEFAULT_USER = 'ADMIN', 'Admin'
