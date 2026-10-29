@@ -11,6 +11,7 @@
   <script src="/static/admin.js" defer></script>
 </head>
 <body class="admin-body">
+<div class="admin-sticky">
 <header class="admin-top">
   <div class="admin-brand">
     <img class="brand-logo" src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="40" height="40">
@@ -23,8 +24,10 @@
     <form method="post" action="/admin/logout"><button type="submit">Sign out</button></form>
   </div>
 </header>
-<nav class="admin-tabs" id="tabs" aria-label="Admin sections"></nav>
+<nav class="admin-tabs" id="tabs" role="tablist" aria-label="Admin sections"></nav>
+</div>
 <main class="admin-main" id="view" aria-live="polite"></main>
 <div class="toast" id="toast" role="status" hidden></div>
+<noscript><p class="a-warn" style="margin:20px">The admin panel needs JavaScript.</p></noscript>
 </body>
 </html>
