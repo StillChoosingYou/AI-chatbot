@@ -180,3 +180,22 @@ class AdminTests(DatabaseTestCase):
         with client.session_transaction() as s:
             s['seen'] = time.time() - 16 * 60
         self.assertEqual(client.get('/api/admin/overview').status_code, 401)
+
+    def test_links_use_the_live_site_on_localhost_and_the_admin_can_change_the_address(self):
+        client = self.signed_in()
+        links = client.get('/api/admin/links').json
+        self.assertEqual(links['student'], 'https://pgpc-ai-chatbot.vercel.app/student')
+        self.assertEqual(links['coordinator'], 'https://pgpc-ai-chatbot.vercel.app/coordinator')
+        saved = client.put('/api/admin/public-url', json={'url': 'https://school.example.org/'}).json
+        self.assertEqual(saved['student'], 'https://school.example.org/student')
+        self.assertEqual(client.get('/api/admin/links').json['coordinator'], 'https://school.example.org/coordinator')
+        for bad in ('ftp://x.org', 'https://x.org/path', 'not a url'):
+            self.assertEqual(client.put('/api/admin/public-url', json={'url': bad}).status_code, 400)
+        self.assertEqual(client.put('/api/admin/public-url', json={'url': ''}).json['student'], 'https://pgpc-ai-chatbot.vercel.app/student')
+        self.assertEqual(self.app.test_client().put('/api/admin/public-url', json={'url': 'https://evil.example'}).status_code, 401)
+
+    def test_a_real_host_is_used_as_is(self):
+        client = self.start()
+        client.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'}, base_url='https://my-site.vercel.app')
+        links = client.get('/api/admin/links', base_url='https://my-site.vercel.app').json
+        self.assertEqual(links['student'], 'https://my-site.vercel.app/student')
