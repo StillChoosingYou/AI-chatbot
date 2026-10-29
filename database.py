@@ -174,6 +174,9 @@ UPGRADES = (
     "ALTER TABLE inventory ALTER COLUMN course SET DEFAULT ''",
     'ALTER TABLE incidents ADD COLUMN IF NOT EXISTS false_statement BOOLEAN NOT NULL DEFAULT FALSE',
     'ALTER TABLE incidents ADD COLUMN IF NOT EXISTS penalty INTEGER NOT NULL DEFAULT 0',
+    "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS pin_hash TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE inventory ADD COLUMN IF NOT EXISTS pin_failures INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE inventory ADD COLUMN IF NOT EXISTS pin_locked_until DOUBLE PRECISION NOT NULL DEFAULT 0',
     'CREATE INDEX IF NOT EXISTS idx_incidents_student ON incidents (LOWER(student_id))',
     *(f"UPDATE inventory SET status = '{new}' WHERE status = '{old}'" for old, new in STATUS_RENAMES.items()),
 )

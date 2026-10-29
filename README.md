@@ -408,6 +408,24 @@ given two different topics, never overwrites a file unless you add `--force`, an
 there are too few questions (under 30) to quote as an accuracy figure. Report counts and
 examples, and say that the questions come from this app's own users.
 
+## Student sign-in and separate addresses
+
+Everything here is **off until you set the variables**, so the app keeps working as before.
+
+| Variable | Effect |
+|---|---|
+| `STUDENT_LOGIN=1` | Students must sign in with **Student ID + 6-digit PIN**. Signed in, the chat shows only their own record and files requests only for themselves. |
+| `STUDENT_HOST=pgpc-student.vercel.app` | That address serves only the student side (`/` goes to `/student`; the coordinator pages and API return 404). |
+| `COORDINATOR_HOST=pgpc-coordinator.vercel.app` | That address serves only the coordinator side (`/student` returns 404). |
+
+Both hosts are the same deployment and the same database: add the two domains to the Vercel project (Settings → Domains). Any other address (a preview URL, localhost) is not restricted.
+
+**PINs.** The coordinator opens a student's row menu and picks **Issue sign-in PIN**; the PIN is shown once and only a salted hash is stored. A new PIN replaces the old one and lifts a lock. Five wrong tries lock that account for 15 minutes (counted in the database, so it holds on Vercel); one device is also limited across accounts. The first deploy adds three columns to `inventory` (`pin_hash`, `pin_failures`, `pin_locked_until`); it is additive and safe to repeat.
+
+**Coordinator layers** (always on): idle sign-out after 30 minutes (students 20), a write must come from this site (Origin check), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, a camera-only permissions policy, HSTS on Vercel, `no-store` on records and pages, and sign-in / failed sign-in / PIN issuing are written to the Activity log.
+
+Not covered yet, and worth doing next: a second factor for the coordinator, a Content-Security-Policy, and a shared (database-backed) lock for coordinator sign-in.
+
 ## The page a QR scan opens
 
 Scanning a student's QR sticker opens `/student/<token>`: the school ID, front and back, in the PGPC colours (seal,

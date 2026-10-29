@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <title>Student sign in · School ID</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <img class="brand-logo" src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="42" height="42">
+    <p class="eyebrow">SCHOOL ID · STUDENT</p>
+    <h1>Sign in</h1>
+    <p class="subtle">Use your student ID and the 6-digit PIN from the Property Management Office.</p>
+    {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/student/login" autocomplete="off">
+      <label>Student ID<input name="student_id" inputmode="text" autocapitalize="characters" placeholder="P202400230" required autofocus maxlength="40"></label>
+      <label>PIN<input name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="20" autocomplete="one-time-code" required></label>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+    <p class="subtle">No PIN yet, or forgot it? Ask the office to issue a new one. Never share your PIN.</p>
+  </main>
+</body>
+</html>
