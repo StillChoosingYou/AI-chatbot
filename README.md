@@ -408,17 +408,21 @@ examples, and say that the questions come from this app's own users.
 
 ## Student sign-in and separate addresses
 
-Everything here is **off until you set the variables**, so the app keeps working as before.
+Student sign-in is **always required**. The two addresses are off until you set their variables.
 
 | Variable | Effect |
 |---|---|
-| `STUDENT_LOGIN=1` | Students must sign in with **Student ID + 6-digit PIN**. Signed in, the chat shows only their own record and files requests only for themselves. |
+| `STUDENT_LOGIN=0` | Local demos only: switches the student sign-in **off**. By default students must sign in with **Student ID + 6-digit PIN** (from the admin panel). Signed in, the chat shows only their own record and files requests only for themselves. |
 | `STUDENT_HOST=pgpc-student.vercel.app` | That address serves only the student side (`/` goes to `/student`; the coordinator pages and API return 404). |
 | `COORDINATOR_HOST=pgpc-coordinator.vercel.app` | That address serves only the coordinator side (`/student` returns 404). |
 
 Both hosts are the same deployment and the same database: add the two domains to the Vercel project (Settings → Domains). Any other address (a preview URL, localhost) is not restricted.
 
-**PINs.** The coordinator opens a student's row menu and picks **Issue sign-in PIN**; the PIN is shown once and only a salted hash is stored. A new PIN replaces the old one and lifts a lock. Five wrong tries lock that account for 15 minutes (counted in the database, so it holds on Vercel); one device is also limited across accounts. The first deploy adds three columns to `inventory` (`pin_hash`, `pin_failures`, `pin_locked_until`); it is additive and safe to repeat.
+**PINs.** The coordinator opens a student's row menu and picks **Issue sign-in PIN**; the PIN is shown once and only a salted hash is stored. A new PIN replaces the old one and lifts a lock. Five wrong tries lock that account for 15 minutes (counted in the database, so it holds on Vercel); one device is also limited across accounts. The admin issues PINs in bulk (**Admin panel → Access & PINs**) and sees every student's last sign-in, number of sign-ins, wrong tries and PIN changes there; each is also written to the Security log (a PIN itself is never logged). The first deploy adds columns to `inventory` (`pin_hash`, `pin_failures`, `pin_locked_until`, `last_signin`, `signin_count`, `pin_changed`, `pin_version`); it is additive and safe to repeat.
+
+**Student Settings** (sidebar, after sign-in): account details, **change my PIN** (current PIN checked first, 6 digits, no repeated digit or run; it signs the student's other devices out, and a wrong current PIN counts toward the lock), appearance (theme, text size, reduce motion, ticker), clear chat, download my data (JSON) and sign out. An office PIN reset also signs that student out within seconds.
+
+**Live updates.** Every change moves one counter in `app_settings` (`live_rev`). The student, coordinator and admin pages ask `GET /api/live?role=…` every 4 seconds (not while the tab is hidden) and reload only what is on screen when it moved; a student also gets their own status back and is told in the chat when the office changes it. It is plain polling, so it works on Vercel without a socket server.
 
 **Coordinator layers** (always on): idle sign-out after 30 minutes (students 20), a write must come from this site (Origin check), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, a camera-only permissions policy, HSTS on Vercel, `no-store` on records and pages, and sign-in / failed sign-in / PIN issuing are written to the Activity log.
 

@@ -57,6 +57,7 @@ const NAV_ICONS = {
   incidents: '<path d="M12 3l10 17H2L12 3z"/><path d="M12 10v4.5M12 17.5v.01"/>',
   feedback: '<path d="M7 11v9H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3zM7 11l4-8a2.5 2.5 0 0 1 2.5 2.5V9H19a2 2 0 0 1 2 2.3l-1.2 6.6A2 2 0 0 1 17.8 19.5H7"/>',
   activity: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
 const navIcon = (id) => NAV_ICONS[id] ? `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">${NAV_ICONS[id]}</svg>` : '';
 const NAV = {
@@ -71,6 +72,7 @@ const NAV = {
   ],
   student: [
     { id: 'assistant', label: 'Assistant' },          // everything a student does happens in the chat
+    { id: 'settings', label: 'Settings' },            // PIN, appearance and the student's own data
   ],
 };
 
@@ -289,7 +291,8 @@ function setRole(role, { useHash = false } = {}) {
     selected = me;
     $('assistant-blurb').textContent = 'Ask about your ID status, requirements, office hours or a lost ID. Need the office’s help? Ask me, then tap Request help.';
     $('chat-input').placeholder = 'Type “my status” or ask a question…';
-    $('role-caption').innerHTML = `${escapeHtml(me.name)}<small>${escapeHtml(me.student_id)} · signed in</small>`;
+    renderCaption(me);
+    setupSettings();
     document.querySelector('#switch-role small').textContent = 'Sign out';
   }
   const sw = $('switch-role');                                        // nobody but the admin chooses a role now
@@ -310,6 +313,10 @@ function setRole(role, { useHash = false } = {}) {
   const items = NAV[role];
   const wanted = useHash ? location.hash.slice(1) : '';
   showView(items.some(item => item.id === wanted) ? wanted : items[0].id, { replay: true });
+}
+
+function renderCaption(me, status = '') {
+  $('role-caption').innerHTML = `${escapeHtml(me.name)}<small>${escapeHtml(me.student_id)} · ${escapeHtml(status || 'signed in')}</small>`;
 }
 
 function renderNav() {
@@ -2158,14 +2165,160 @@ document.addEventListener('keydown', event => {
   }
 });
 
-/* New requests, incidents, feedback and activity arrive from other people's browsers, so the coordinator's badges and
-   the ticker refresh every 20 seconds and whenever the tab becomes visible again. When the numbers show that the
-   student list changed as well, the Dashboard is loaded again. */
-function refreshLive() {
-  if (workspaceRole === 'coordinator' && !document.hidden) loadStats({ quiet: true, resync: currentView === 'dashboard' });
+/* ═══════════════ Live updates (all three workspaces) ═══════════════
+   Every change anywhere (a student signing in, the coordinator moving an ID, the admin issuing a PIN) moves one
+   counter on the server. Each page asks for that counter every few seconds (never while the tab is hidden) and, when it
+   moved, loads again only what is on screen. A page with an open form or a focused box waits for its next turn. */
+const LIVE_MS = 4000;
+let liveRev = null, liveBusy = false, liveMe = null, liveClosed = false;
+
+function setLiveChip(on) {
+  const chip = $('live-chip');
+  if (!chip) return;
+  chip.classList.toggle('off', !on);
+  chip.querySelector('span').textContent = on ? 'Live' : 'Reconnecting…';
 }
-setInterval(refreshLive, 20000);
-document.addEventListener('visibilitychange', refreshLive);
+
+function pageIsBusy() {
+  const active = document.activeElement;
+  return !!document.querySelector('dialog[open]') || !!(active && active.matches && active.matches('input, textarea, select') && active.closest('.workspace:not([hidden])') && active.id !== 'search');
+}
+
+async function coordinatorLive() {
+  if (pageIsBusy()) { liveRev = null; return; }              // asked again next time, so nothing is missed
+  await loadStats({ quiet: true });
+  const reload = { dashboard: () => load({ reuse: true }), queue: loadQueue, requests: loadRequests,
+                   incidents: loadIncidents, feedback: loadFeedback, activity: loadActivity }[currentView];
+  if (reload) await reload();
+}
+
+/* The student's own status, kept current. A change by the office is announced once in the chat and as a toast. */
+function studentLive(me) {
+  const key = JSON.stringify(me);
+  if (key === JSON.stringify(liveMe)) return;
+  const before = liveMe;
+  liveMe = me;
+  renderProfile(me);
+  renderCaption(me, me.status);
+  if (before && (before.status !== me.status || before.schedule_date !== me.schedule_date || before.schedule_time !== me.schedule_time
+                 || before.pending_reason !== me.pending_reason || before.request_type !== me.request_type)) {
+    const when = me.schedule_date ? ` Release schedule: ${me.schedule_date}${me.schedule_time ? ' at ' + me.schedule_time : ''}.` : '';
+    const reason = me.status === 'Pending' && me.pending_reason ? ` Reason: ${me.pending_reason}.` : '';
+    const text = `Update from the office: your ID is now “${me.status}”.${when}${reason}`;
+    addMessage(text, 'bot', { confidence: 0 });
+    notify(`Your ID status is now “${me.status}”.`, 6000);
+  }
+}
+
+async function pollLive() {
+  if (document.hidden || liveBusy || !workspaceRole || workspaceRole === 'student' && !signedStudent()) return;
+  liveBusy = true;
+  try {
+    const response = await fetch(`/api/live?role=${workspaceRole}`, { cache: 'no-store' });
+    if (response.status === 401) {
+      const body = await response.json().catch(() => ({}));
+      location.assign(body.sign_in || `/${workspaceRole}`);
+      return;
+    }
+    if (!response.ok) throw new Error('live');
+    const body = await response.json();
+    setLiveChip(true);
+    if (workspaceRole === 'student') {
+      if (body.portal_open === false && !liveClosed) { liveClosed = true; location.reload(); return; }   // the admin closed the portal
+      if (body.me) studentLive(body.me);
+      liveRev = body.rev;
+    } else {
+      const changed = liveRev !== null && body.rev !== liveRev;
+      liveRev = body.rev;
+      if (changed) await coordinatorLive();
+    }
+  } catch { setLiveChip(false); }
+  finally { liveBusy = false; }
+}
+setInterval(pollLive, LIVE_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollLive(); });
+
+/* ═══════════════ Student settings ═══════════════ */
+function renderProfile(me) {
+  const rows = [
+    ['Name', me.name], ['Student ID', me.student_id], ['Course', me.course || '—'], ['Year & section', me.year_section],
+    ['ID status', me.status], ['Request', me.request_type],
+    ...(me.status === 'Pending' && me.pending_reason ? [['Reason', me.pending_reason]] : []),
+    ...(me.schedule_date ? [['Release schedule', `${me.schedule_date}${me.schedule_time ? ' ' + me.schedule_time : ''}`]] : []),
+    ['Signed in at', me.last_signin || '—'], ['Times signed in', String(me.signin_count)],
+    ['PIN', me.pin_changed ? `Changed by you on ${me.pin_changed}` : 'Issued by the office'],
+  ];
+  const box = $('set-profile');
+  const html = rows.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${k === 'ID status' ? `<span class="status ${statusClass(v)}">${escapeHtml(v)}</span>` : escapeHtml(v)}</dd></div>`).join('');
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; if (box.dataset.shown) fx.flash && fx.flash(box); box.dataset.shown = '1'; }
+}
+
+function applyPrefs() {
+  const html = document.documentElement;
+  html.dataset.text = store.get('textSize') || 'normal';
+  document.body.classList.toggle('no-ticker', store.get('tickerHidden') === '1');
+}
+
+function setupSettings() {
+  if (setupSettings.done) return;
+  setupSettings.done = true;
+  const mark = (group, value) => $(group).querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === value)));
+  const themeValue = () => store.get('theme') || 'auto';
+  mark('seg-theme', themeValue()); mark('seg-text', store.get('textSize') || 'normal');
+  $('set-motion').checked = store.get('motion') === 'off';
+  $('set-ticker').checked = store.get('tickerHidden') !== '1';
+
+  $('seg-theme').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.v === 'auto') store.remove('theme'); else store.set('theme', b.dataset.v);
+    initTheme(); mark('seg-theme', b.dataset.v);
+  };
+  $('seg-text').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    store.set('textSize', b.dataset.v); applyPrefs(); mark('seg-text', b.dataset.v);
+  };
+  $('set-motion').onchange = (e) => {
+    if (e.target.checked) store.set('motion', 'off'); else store.remove('motion');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'motion' }));            // fx.js listens for this key
+    document.documentElement.classList.toggle('motion-off', e.target.checked);
+  };
+  document.documentElement.classList.toggle('motion-off', store.get('motion') === 'off');
+  $('set-ticker').onchange = (e) => { if (e.target.checked) store.remove('tickerHidden'); else store.set('tickerHidden', '1'); applyPrefs(); };
+
+  $('set-clear').onclick = async () => { await newChat(); showView('assistant'); notify('Your conversation was cleared.'); };
+  $('set-export').onclick = () => download('/api/student/export');
+  $('set-signout').onclick = () => fetch('/student/logout', { method: 'POST' }).then(() => location.assign('/student'), () => location.assign('/student'));
+
+  /* change PIN */
+  const fields = ['pin-current', 'pin-new', 'pin-confirm'].map($);
+  const [cur, nw, again] = fields;
+  const problem = (pin) => (!/^\d{6}$/.test(pin) ? 'len' : new Set(pin).size === 1 || '123456789012'.includes(pin) || '098765432109'.includes(pin) ? 'mix' : '');
+  const showError = (text, field) => {
+    const box = $('pin-error'); box.textContent = text; box.hidden = !text;
+    fields.forEach(f => f.classList.toggle('bad', !!text && (!field || f.id === `pin-${field}`)));
+    if (text) { fx.shake($('pin-form')); }
+  };
+  const rules = () => {
+    const v = nw.value;
+    const ok = { len: /^\d{6}$/.test(v), mix: /^\d{6}$/.test(v) && problem(v) === '', same: v.length > 0 && v === again.value };
+    document.querySelectorAll('#pin-rules li').forEach(li => li.classList.toggle('ok', ok[li.dataset.rule]));
+    return ok.len && ok.mix && ok.same && /^\d{6}$/.test(cur.value);
+  };
+  fields.forEach(f => f.addEventListener('input', () => { f.value = f.value.replace(/\D/g, '').slice(0, 6); showError(''); rules(); }));
+  $('pin-show').onchange = (e) => fields.forEach(f => { f.type = e.target.checked ? 'text' : 'password'; });
+  $('pin-form').onsubmit = async (event) => {
+    event.preventDefault();
+    if (!rules()) { showError('Fill in the current PIN and a new 6-digit PIN, typed twice.'); return; }
+    const button = $('pin-save');
+    button.disabled = true;
+    try {
+      await api('/api/student/pin', postJson({ current: cur.value, new: nw.value, confirm: again.value }));
+      fields.forEach(f => { f.value = ''; }); rules(); showError('');
+      notify('Your PIN was changed. Your other devices are signed out.', 5000);
+      liveMe = null; pollLive();
+    } catch (error) { showError(error.message); } finally { button.disabled = false; }
+  };
+}
 
 window.addEventListener('hashchange', () => {
   const view = location.hash.replace('#', '');
@@ -2173,6 +2326,7 @@ window.addEventListener('hashchange', () => {
 });
 
 /* ── Start ── */
+applyPrefs();
 initTheme();
 setTickerPaused(!!store.get('tickerPaused'));
 let tickerResize = 0;

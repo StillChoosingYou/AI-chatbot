@@ -27,7 +27,8 @@ MAX_NEWS = 20
 DEFAULT_PUBLIC_URL = 'https://pgpc-ai-chatbot.vercel.app'     # the live site: what the links show when the panel is opened on localhost
 LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]', '0.0.0.0')
 SECURITY_ACTIONS = ('sign in', 'failed sign in', 'pin issued', 'pins issued', 'pin unlocked',
-                    'admin sign in', 'admin failed sign in', 'portal', 'news', 'purge', 'backup', 'switch role')
+                    'admin sign in', 'admin failed sign in', 'portal', 'news', 'purge', 'backup', 'switch role',
+                    'student sign in', 'student failed sign in', 'student locked', 'student sign out', 'student pin changed')
 
 
 def register_admin(app, ctx):
@@ -130,11 +131,12 @@ def register_admin(app, ctx):
                 "SELECT COUNT(*) FILTER (WHERE role = 'bot'), COUNT(*) FILTER (WHERE role = 'bot' AND intent = 'out_of_scope') "
                 'FROM chat_history').fetchone()
             up, down = db.execute("SELECT COUNT(*) FILTER (WHERE rating = 'up'), COUNT(*) FILTER (WHERE rating = 'down') FROM chat_feedback").fetchone()
+            signed_today = db.execute('SELECT COUNT(*) FROM inventory WHERE last_signin >= %s', (datetime.now().strftime('%Y-%m-%d'),)).fetchone()[0]
         return jsonify(students=students, statuses=statuses, with_pin=with_pin, without_pin=students - with_pin,
                        locked=locked, open_requests=open_requests, open_incidents=open_incidents,
                        answers=turns, fallbacks=fallbacks, thumbs_up=up, thumbs_down=down,
                        portal_open=ctx.get_setting('student_portal_open', '1') == '1',
-                       student_login=ctx.student_login_on, links=links())
+                       student_login=ctx.student_login_on, signed_in_today=signed_today, links=links())
 
     @app.put('/api/admin/public-url')
     def admin_public_url():
@@ -226,11 +228,20 @@ def register_admin(app, ctx):
             return denied
         now = time.time()
         with connect() as db:
-            rows = db.execute("SELECT student_id, name, pin_hash <> '', pin_failures, pin_locked_until "
-                              'FROM inventory ORDER BY student_id').fetchall()
+            rows = db.execute("SELECT student_id, name, pin_hash <> '', pin_failures, pin_locked_until, last_signin, "
+                              'signin_count, pin_changed FROM inventory ORDER BY student_id').fetchall()
+            today = datetime.now().strftime('%Y-%m-%d')
+            recent = [{'time': r[0], 'action': r[1], 'detail': r[2]} for r in db.execute(
+                "SELECT timestamp, action, detail FROM activity_log WHERE actor_role = 'student' ORDER BY id DESC LIMIT 15")]
+            counts = dict(db.execute(
+                "SELECT action, COUNT(*) FROM activity_log WHERE actor_role = 'student' AND timestamp >= %s GROUP BY 1", (today,)).fetchall())
         return jsonify(students=[{'student_id': r[0], 'name': r[1], 'has_pin': bool(r[2]), 'failures': r[3],
-                                  'locked': r[4] > now, 'locked_minutes': max(0, int((r[4] - now) // 60) + 1) if r[4] > now else 0}
-                                 for r in rows])
+                                  'locked': r[4] > now, 'locked_minutes': max(0, int((r[4] - now) // 60) + 1) if r[4] > now else 0,
+                                  'last_signin': r[5], 'signins': r[6], 'pin_changed': r[7]}
+                                 for r in rows],
+                       recent=recent, today={'signed_in': counts.get('student sign in', 0),
+                                             'failed': counts.get('student failed sign in', 0) + counts.get('student locked', 0),
+                                             'pin_changes': counts.get('student pin changed', 0)})
 
     @app.post('/api/admin/pins/bulk')
     def admin_pins_bulk():
@@ -247,7 +258,8 @@ def register_admin(app, ctx):
                               + ("WHERE pin_hash = '' " if scope == 'missing' else '') + 'ORDER BY student_id').fetchall()
             for rid, student_id, name, year, section in rows:
                 pin = new_pin()
-                db.execute('UPDATE inventory SET pin_hash=%s, pin_failures=0, pin_locked_until=0 WHERE id=%s', (hash_pin(pin), rid))
+                db.execute("UPDATE inventory SET pin_hash=%s, pin_failures=0, pin_locked_until=0, pin_changed='', pin_version=pin_version+1 "
+                           'WHERE id=%s', (hash_pin(pin), rid))
                 issued.append({'student_id': student_id, 'name': name, 'year_section': f'{year}{section}', 'pin': pin})
         log('admin', 'pins issued', f'{len(issued)} PIN(s), scope {scope}')
         return jsonify(issued=issued, scope=scope)
@@ -320,7 +332,7 @@ def register_admin(app, ctx):
         with connect() as db:
             rows = db.execute('SELECT timestamp, actor_role, action, detail FROM activity_log WHERE action = ANY(%s) '
                               'ORDER BY id DESC LIMIT 120', (list(SECURITY_ACTIONS),)).fetchall()
-            failed_today = db.execute("SELECT COUNT(*) FROM activity_log WHERE action IN ('failed sign in','admin failed sign in') "
+            failed_today = db.execute("SELECT COUNT(*) FROM activity_log WHERE action IN ('failed sign in','admin failed sign in','student failed sign in','student locked') "
                                       'AND timestamp >= %s', (datetime.now().strftime('%Y-%m-%d'),)).fetchone()[0]
         return jsonify(events=[{'time': r[0], 'role': r[1], 'action': r[2], 'detail': r[3]} for r in rows],
                        failed_today=failed_today)

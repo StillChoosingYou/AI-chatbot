@@ -19,7 +19,7 @@ from werkzeug.routing import IntegerConverter
 from admin_panel import ADMIN_IDLE_SECONDS, register_admin
 from auth import AdminLogin, CoordinatorLogin
 from student_auth import FAILS_ALLOWED as PIN_FAILS_ALLOWED, LOCK_SECONDS as PIN_LOCK_SECONDS
-from student_auth import hash_pin, new_pin, pin_matches, seconds_locked
+from student_auth import hash_pin, new_pin, pin_matches, pin_problem, seconds_locked
 from avatars import avatar_svg
 from chat_support import (
     FEEDBACK_REASONS, asks_for_incidents, asks_for_my_requests, asks_for_records,
@@ -171,7 +171,7 @@ def create_app(database_url=None):
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
                       SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600)
 
-    student_login_on = os.environ.get('STUDENT_LOGIN', '').strip() == '1'
+    student_login_on = os.environ.get('STUDENT_LOGIN', '1').strip() != '0'      # always required; STUDENT_LOGIN=0 is for local demos
     student_host = os.environ.get('STUDENT_HOST', '').strip().lower()            # e.g. pgpc-student.vercel.app
     coordinator_host = os.environ.get('COORDINATOR_HOST', '').strip().lower()    # e.g. pgpc-coordinator.vercel.app
     admin_host = os.environ.get('ADMIN_HOST', '').strip().lower()                # e.g. pgpc-admin.vercel.app
@@ -354,6 +354,24 @@ def create_app(database_url=None):
                 'INSERT INTO activity_log (actor_role, action, detail, timestamp) VALUES (%s,%s,%s,%s)',
                 (actor_role, action, detail[:500], now_stamp()))
 
+    def bump_live():
+        """Every change moves one counter. The three workspaces ask for it every few seconds and reload when it moved."""
+        try:
+            with connect() as db:
+                db.execute("INSERT INTO app_settings (key, value, updated) VALUES ('live_rev', '1', %s) "
+                           "ON CONFLICT (key) DO UPDATE SET value = (app_settings.value::bigint + 1)::text, updated = EXCLUDED.updated",
+                           (now_stamp(),))
+        except Exception:                                  # a missed bump only delays a refresh; never fail the request
+            app.logger.exception('live counter')
+
+    @app.after_request
+    def live_changes(response):
+        path = request.path
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and (
+                (path.startswith('/api/') and response.status_code < 400) or path in ('/student/login', '/student/logout')):
+            bump_live()
+        return response
+
     def shape(row):
         """A record as the browser sees it: the stored columns plus year and section written as one ("3E")."""
         row = dict(row)
@@ -465,18 +483,21 @@ def create_app(database_url=None):
         if not clean_text(student_id) or not clean_text(pin):        # a NUL or a lone surrogate cannot be stored
             student_id, pin = '', ''
         with connect() as db:
-            row = db.execute('SELECT student_id, pin_hash, pin_failures, pin_locked_until FROM inventory '
+            row = db.execute('SELECT student_id, pin_hash, pin_failures, pin_locked_until, pin_version FROM inventory '
                              'WHERE LOWER(student_id)=LOWER(%s)', (student_id,)).fetchone()
             if row is not None and row['pin_locked_until'] > now:
                 wait = max(1, seconds_locked(row['pin_locked_until'], now) // 60 + 1)
+                log_activity('student', 'student failed sign in', f'{row["student_id"]} while locked · from {address}')
                 return render_template('student_login.html',
                                        error=f'Too many wrong tries. Try again in {wait} minute(s), or ask the office.'), 429
             if row is not None and pin_matches(pin, row['pin_hash']):
-                db.execute('UPDATE inventory SET pin_failures = 0, pin_locked_until = 0 WHERE LOWER(student_id)=LOWER(%s)',
-                           (student_id,))
+                db.execute('UPDATE inventory SET pin_failures = 0, pin_locked_until = 0, last_signin = %s, '
+                           'signin_count = signin_count + 1 WHERE LOWER(student_id)=LOWER(%s)', (now_stamp(), student_id))
                 student_attempts.pop(address, None)
                 session.clear()
                 session['student'] = row['student_id']
+                session['pv'] = row['pin_version']                 # a new PIN from the office or the student signs the old sessions out
+                log_activity('student', 'student sign in', f'{row["student_id"]} · from {address}')
                 session['seen'] = now
                 session.permanent = True
                 return redirect('/student')
@@ -486,11 +507,17 @@ def create_app(database_url=None):
                 locked = now + PIN_LOCK_SECONDS if failures >= PIN_FAILS_ALLOWED else 0
                 db.execute('UPDATE inventory SET pin_failures = %s, pin_locked_until = %s WHERE LOWER(student_id)=LOWER(%s)',
                            (0 if locked else failures, locked, student_id))
+                log_activity('student', 'student locked' if locked else 'student failed sign in',
+                             f'{row["student_id"]} · wrong PIN ({failures} of {PIN_FAILS_ALLOWED}) · from {address}')
+            else:
+                log_activity('student', 'student failed sign in', f'unknown ID {student_id[:30] or "(empty)"} · from {address}')
         student_attempts[address] = (tries + 1, now)
         return render_template('student_login.html', error='Wrong student ID or PIN. If you do not have a PIN yet, ask the office.'), 401
 
     @app.post('/student/logout')
     def student_logout():
+        if session.get('student'):
+            log_activity('student', 'student sign out', str(session.get('student')))
         session.clear()
         return redirect('/student' if student_login_on else '/')
 
@@ -500,10 +527,119 @@ def create_app(database_url=None):
         row = record(record_id)
         pin = new_pin()
         with connect() as db:
-            db.execute('UPDATE inventory SET pin_hash = %s, pin_failures = 0, pin_locked_until = 0 WHERE id = %s',
-                       (hash_pin(pin), record_id))
+            db.execute('UPDATE inventory SET pin_hash = %s, pin_failures = 0, pin_locked_until = 0, pin_changed = %s, '
+                       'pin_version = pin_version + 1 WHERE id = %s', (hash_pin(pin), '', record_id))
         log_activity('coordinator', 'pin issued', f'New PIN issued for {row["name"]} ({row["student_id"]})')
         return jsonify(pin=pin, student_id=row['student_id'], name=row['name'])
+
+    SUMMARY_COLUMNS = ('student_id', 'name', 'course', 'year_section', 'status', 'request_type', 'pending_reason',
+                       'schedule_type', 'schedule_date', 'schedule_time', 'last_signin', 'signin_count', 'pin_changed')
+
+    def own_row():
+        """The signed-in student's row, or None (also when an office PIN reset ended this session)."""
+        student_id = signed_student_id()
+        if not student_id:
+            return None
+        with connect() as db:
+            row = db.execute('SELECT * FROM inventory WHERE LOWER(student_id)=LOWER(%s)', (student_id,)).fetchone()
+        if row is None or row['pin_version'] != session.get('pv', 0) or row['pin_locked_until'] > time.time():
+            session.clear()
+            return None
+        return row
+
+    def signed_out_reply():
+        response = jsonify(error='Please sign in again with your student ID and PIN.', sign_in='/student')
+        response.status_code = 401
+        return response
+
+    def summary(row):
+        shaped = shape(row)
+        return {key: shaped[key] for key in SUMMARY_COLUMNS}
+
+    @app.get('/api/live')
+    def live():
+        """The change counter. A student also gets their own status back, so it updates without a reload."""
+        role = request.args.get('role', '')
+        if role == 'admin':
+            if session.get('admin') is not True:
+                return jsonify(error='Sign in first.', sign_in='/'), 401
+        elif role == 'coordinator':
+            if not coordinator_signed_in():
+                return jsonify(error='Sign in first.', sign_in='/coordinator'), 401
+        elif role != 'student':
+            return jsonify(error='Unknown role.'), 400
+        body = {'rev': int(get_setting('live_rev', '0')), 'portal_open': get_setting('student_portal_open', '1') == '1'}
+        if role == 'student' and student_login_on:
+            row = own_row()
+            if row is None:
+                return signed_out_reply()
+            body['me'] = summary(row)
+        return jsonify(body)
+
+    @app.get('/api/student/me')
+    def student_me():
+        row = own_row()
+        return jsonify(me=summary(row)) if row is not None else signed_out_reply()
+
+    @app.post('/api/student/pin')
+    def student_change_pin():
+        """A student changes their own PIN: the current one is checked first and a wrong one counts like at sign-in."""
+        if own_row() is None:
+            return signed_out_reply()
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='Send a JSON object.'), 400
+        current, new, again = (str(payload.get(key, ''))[:20] for key in ('current', 'new', 'confirm'))
+        if not all(clean_text(value) for value in (current, new, again)):
+            return jsonify(error='Fill in all three boxes.'), 400
+        student_id, now = signed_student_id(), time.time()
+        with connect() as db:
+            row = db.execute('SELECT * FROM inventory WHERE LOWER(student_id)=LOWER(%s) FOR UPDATE', (student_id,)).fetchone()
+            if not pin_matches(current, row['pin_hash']):
+                failures = row['pin_failures'] + 1
+                locked = now + PIN_LOCK_SECONDS if failures >= PIN_FAILS_ALLOWED else 0
+                db.execute('UPDATE inventory SET pin_failures = %s, pin_locked_until = %s WHERE id = %s',
+                           (0 if locked else failures, locked, row['id']))
+                log_activity('student', 'student locked' if locked else 'student failed sign in',
+                             f'{student_id} · wrong current PIN while changing it ({failures} of {PIN_FAILS_ALLOWED})')
+                if locked:
+                    session.clear()
+                    return jsonify(error='Too many wrong tries. You are signed out and locked for 15 minutes.', sign_in='/student'), 429
+                return jsonify(error='Your current PIN is not right.', field='current'), 403
+            if new != again:
+                return jsonify(error='The new PIN and the confirmation are not the same.', field='confirm'), 400
+            problem = pin_problem(new)
+            if problem:
+                return jsonify(error=problem, field='new'), 400
+            if new == current:
+                return jsonify(error='The new PIN must be different from the current one.', field='new'), 400
+            stamp = now_stamp()
+            version = db.execute('UPDATE inventory SET pin_hash = %s, pin_failures = 0, pin_locked_until = 0, pin_changed = %s, '
+                                 'pin_version = pin_version + 1 WHERE id = %s RETURNING pin_version',
+                                 (hash_pin(new), stamp, row['id'])).fetchone()[0]
+        session['pv'] = version                          # this device stays signed in; every other one is signed out
+        log_activity('student', 'student pin changed', f'{student_id} changed their own PIN')
+        return jsonify(changed=True, pin_changed=stamp)
+
+    @app.get('/api/student/export')
+    def student_export():
+        """Everything the system keeps about the signed-in student, as one JSON file (their right to a copy)."""
+        row = own_row()
+        if row is None:
+            return signed_out_reply()
+        with connect() as db:
+            requests = [dict(r) for r in db.execute(
+                'SELECT request_type, detail, status, timestamp FROM student_requests WHERE LOWER(student_id)=LOWER(%s) ORDER BY id',
+                (row['student_id'],))]
+            incidents = [dict(r) for r in db.execute(
+                'SELECT category, location, detail, status, timestamp FROM incidents WHERE LOWER(student_id)=LOWER(%s) ORDER BY id',
+                (row['student_id'],))]
+        shaped = shape(row)
+        for hidden in ('id', 'token'):
+            shaped.pop(hidden, None)
+        response = jsonify(student=shaped, requests=requests, incidents=incidents, exported=now_stamp())
+        response.headers['Content-Disposition'] = f'attachment; filename=my-school-id-data-{row["student_id"]}.json'
+        return response
 
     @app.get('/coordinator', strict_slashes=False)
     def coordinator_page():

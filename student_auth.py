@@ -1,6 +1,6 @@
 """Student sign-in: Student ID + a PIN the office issues.
 
-STUDENT_LOGIN=1    switches it on (off by default, so nothing locks out until the office has issued PINs).
+Sign-in is always required. STUDENT_LOGIN=0 switches it off (local demos only).
 
 The PIN is 6 digits, made by the coordinator's dashboard ("Issue PIN" in a student's row menu), shown once,
 and stored only as a salted hash. A wrong PIN is counted on the account itself in the database, so the lock
@@ -35,3 +35,16 @@ def pin_matches(pin, stored_hash):
 def seconds_locked(locked_until, now=None):
     now = time.time() if now is None else now
     return max(0, int(locked_until - now) + (1 if locked_until > now else 0))
+
+
+def pin_problem(pin):
+    """Why a PIN a student chose is not allowed, or '' when it is fine: 6 digits, not one repeated digit, not a run."""
+    pin = str(pin)
+    if len(pin) != PIN_LENGTH or not pin.isascii() or not pin.isdigit():
+        return f'The PIN must be exactly {PIN_LENGTH} digits.'
+    if len(set(pin)) == 1:
+        return 'Choose a PIN that is not one digit repeated.'
+    steps = {int(b) - int(a) for a, b in zip(pin, pin[1:])}
+    if steps in ({1}, {-1}):
+        return 'Choose a PIN that is not a run like 123456.'
+    return ''

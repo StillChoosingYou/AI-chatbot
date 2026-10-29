@@ -66,9 +66,8 @@ class StudentLoginTests(DatabaseTestCase):
         self.assertIn(b'name="pin"', page.data)
         self.assertEqual(self.ask(client, 'hello').status_code, 401)
 
-    def test_login_off_by_default_keeps_the_open_student_page(self):
-        with patch.dict(os.environ, {'COORDINATOR_PASSWORD': 'x'}):
-            os.environ.pop('STUDENT_LOGIN', None)
+    def test_login_is_required_unless_switched_off_with_zero(self):
+        with patch.dict(os.environ, {'COORDINATOR_PASSWORD': 'x', 'STUDENT_LOGIN': '0'}):
             client = self.make_app().test_client()
             self.assertNotIn(b'name="pin"', client.get('/student').data)
 

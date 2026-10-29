@@ -225,3 +225,15 @@
 .a-modal button.primary { background: var(--green); color: #fff; border-color: var(--green); font-weight: 700; }
 .a-modal button.danger { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 700; }
 .admin-tabs button { flex: none; }
+
+/* student activity feed, live state */
+.a-feed { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
+.a-feed li { display: grid; grid-template-columns: 150px 130px 1fr; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); font-size: 12.5px; animation: rise .4s var(--ease) both; }
+.a-feed li:last-child { border-bottom: 0; }
+.a-feed time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.a-feed li.bad b { color: var(--danger); }
+.a-feed span { overflow-wrap: anywhere; color: var(--muted); }
+.live-dot.off { background: var(--muted); animation: none; }
+.admin-main.still *, .admin-main.still { animation: none !important; transition: none !important; }
+.admin-main.still .a-bar { width: var(--w); }
+@media (max-width: 760px) { .a-feed li { grid-template-columns: 1fr; gap: 2px; } }

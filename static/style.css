@@ -636,3 +636,56 @@ html.fx .scan-frame.scanning .scan-line { opacity: 0.9; }
 }
 .assistant-page[hidden] { display: none; }
 .role-switch[hidden] { display: none; }
+
+/* ========= Live chip, student Settings ========= */
+.live-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); padding: 7px 12px; border-radius: 20px; background: var(--surface-alt); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #2fb36d; display: inline-block; animation: liveRing 2s infinite; }
+.live-chip.off .live-dot { background: var(--muted); animation: none; }
+@keyframes liveRing { 0% { box-shadow: 0 0 0 0 rgba(47, 179, 109, .55); } 70%, 100% { box-shadow: 0 0 0 7px rgba(47, 179, 109, 0); } }
+@media (max-width: 760px) { .topbar .live-chip span { display: none; } .topbar .live-chip { padding: 9px; } }
+
+.settings-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-top: 22px; align-items: start; }
+.set-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; box-shadow: var(--shadow-sm); transition: background var(--transition), border-color var(--transition), transform .25s, box-shadow .25s; }
+.set-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.set-card h2 { margin: 0 0 14px; font-size: 16px; }
+.set-list { margin: 0; display: grid; gap: 2px; }
+.set-list > div { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.set-list > div:last-child { border-bottom: 0; }
+.set-list dt { color: var(--muted); }
+.set-list dd { margin: 0; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.set-note { margin: 14px 0 0; font-size: 12px; color: var(--muted); line-height: 1.6; display: flex; gap: 8px; align-items: flex-start; }
+.set-note .live-dot { margin-top: 5px; flex: none; }
+#pin-form { display: grid; gap: 12px; }
+#pin-form label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
+#pin-form input[type="password"], #pin-form input[type="text"] { font: 600 18px ui-monospace, Menlo, monospace; letter-spacing: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-alt); color: var(--ink); transition: border-color .2s, box-shadow .2s; }
+#pin-form input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 28%, transparent); }
+#pin-form input.bad { border-color: var(--danger); }
+.set-check { display: flex !important; grid-template-columns: none; align-items: center; gap: 8px !important; }
+.pin-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.pin-rules li::before { content: '○'; margin-right: 8px; transition: color .2s; }
+.pin-rules li.ok { color: var(--ready-fg); }
+.pin-rules li.ok::before { content: '✓'; font-weight: 800; }
+.set-error { margin: 0; padding: 9px 12px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); font-size: 12.5px; animation: slideDown .25s both; }
+.set-error[hidden] { display: none; }
+.set-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.set-row:last-of-type { border-bottom: 0; }
+.set-row small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.set-row button { white-space: nowrap; }
+.set-card .danger { color: var(--danger); border-color: var(--danger); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--surface-alt); color: var(--muted); padding: 7px 12px; font-size: 12px; cursor: pointer; transition: background .2s, color .2s; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--green); color: #fff; font-weight: 700; }
+.set-switch input[type="checkbox"] { appearance: none; -webkit-appearance: none; flex: none; width: 40px; height: 22px; border-radius: 11px; background: var(--border); position: relative; cursor: pointer; transition: background .2s; }
+.set-switch input[type="checkbox"]::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .22s cubic-bezier(.2, .7, .2, 1); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.set-switch input[type="checkbox"]:checked { background: var(--green); }
+.set-switch input[type="checkbox"]:checked::after { transform: translateX(18px); }
+.set-switch input:focus-visible, .seg button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+html[data-text="small"] body { zoom: .92; }
+html[data-text="large"] body { zoom: 1.14; }
+html.motion-off *, html.motion-off *::before, html.motion-off *::after { animation: none !important; transition: none !important; }
+.no-ticker .ticker { display: none !important; }
+.no-ticker .assistant-page .ticker ~ .chat-card { height: clamp(520px, calc(100dvh - 270px), 860px); }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } .set-card:hover { transform: none; } }
+#pin-form .set-check input { width: auto; flex: none; margin: 0; }
