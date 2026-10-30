@@ -642,3 +642,13 @@ School dates/times are stored as local wall time, and the server's own clock dec
 can start it with `TZ=Asia/Manila`; Windows uses its time-zone setting), otherwise those
 labels shift by the difference. Office capacity, conflicts, holidays,
 notifications, fee payment and penalty payment are not implemented.
+
+## Interface tools (all three roles)
+
+- **Command palette**: `Ctrl/⌘ + K` on every page. Jump to a page, run an action (new student, import/export, report an incident, request help, change my PIN, switch theme, sign out) or find a student by ID or name (coordinator). `?` lists the shortcuts of the page.
+- **Dialogs**: delete, lost ID, bulk status, issue PIN and similar use a styled dialog with a focus trap instead of the browser's `confirm()`/`prompt()`. A new PIN is shown as big digits with a Copy button, once.
+- **Undo**: a status change on the Dashboard shows an Undo bar for 8 seconds.
+- **Chat**: copy an answer, **↓ Latest** button when scrolled up, **Save chat** (text file), `↑`/`↓` bring back messages you sent.
+- **Sign-in pages**: dark mode, show/hide password, Caps Lock hint, digits-only PIN, busy button, shake on a wrong try.
+- **Motion**: sliding sidebar marker, page cross-fade between pages (where the browser supports view transitions), the ID card comes in and lifts on hover, offline banner. Everything respects *reduce motion* (and the student Settings switch).
+- **Admin**: palette, a *Live activity* card on Overview (new events light up), Security log CSV.

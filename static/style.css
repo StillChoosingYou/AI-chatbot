@@ -689,3 +689,122 @@ html.motion-off *, html.motion-off *::before, html.motion-off *::after { animati
 .no-ticker .assistant-page .ticker ~ .chat-card { height: clamp(520px, calc(100dvh - 270px), 860px); }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } .set-card:hover { transform: none; } }
 #pin-form .set-check input { width: auto; flex: none; margin: 0; }
+
+/* ========= ux.js: dialogs, command palette, undo bar, offline banner ========= */
+.ux-back { position: fixed; inset: 0; z-index: 200; display: grid; place-items: start center; padding: 16px; background: rgba(8, 14, 34, 0); transition: background-color .2s, backdrop-filter .2s; }
+.ux-back:has(.ux-panel:not(.pal)) { place-items: center; }
+.ux-back.show { background: rgba(8, 14, 34, .5); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.ux-panel { width: min(430px, 100%); background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 14px; padding: 22px; box-shadow: var(--shadow-lg); opacity: 0; transform: translateY(16px) scale(.95); transition: opacity .2s, transform .3s cubic-bezier(.2, .7, .2, 1); }
+.ux-panel.wide { width: min(520px, 100%); }
+.ux-back.show .ux-panel { opacity: 1; transform: none; }
+.ux-panel h2 { margin: 0 0 8px; font-size: 17px; }
+.ux-panel p { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.6; white-space: pre-line; }
+.ux-panel .ux-subject { color: var(--ink); font-weight: 700; }
+.ux-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.ux-panel button { font: inherit; font-size: 12.5px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; transition: background-color .18s, transform .15s, box-shadow .2s; }
+.ux-panel button:hover { background: var(--surface-hover); transform: translateY(-1px); }
+.ux-panel button:active { transform: scale(.97); }
+.ux-panel button.primary { background: var(--green); color: #fff; border-color: var(--green); font-weight: 700; }
+.ux-panel button.danger { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 700; }
+.ux-panel button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ux-secret { display: flex; justify-content: center; gap: 8px; margin: 6px 0 14px; }
+.ux-secret span { width: 44px; height: 56px; display: grid; place-items: center; font: 800 28px ui-monospace, Menlo, monospace; background: var(--surface-alt); border: 1px solid var(--border); border-bottom: 3px solid var(--gold); border-radius: 9px; animation: uxDigit .5s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i) * 70ms + 120ms); }
+@keyframes uxDigit { from { opacity: 0; transform: translateY(14px) rotateX(70deg); } to { opacity: 1; transform: none; } }
+.ux-keys { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 14px; }
+.ux-keys td { padding: 7px 4px; border-bottom: 1px solid var(--border); }
+.ux-keys td:first-child { white-space: nowrap; width: 1%; padding-right: 18px; }
+.ux-keys span { color: var(--muted); margin: 0 3px; }
+kbd { display: inline-block; min-width: 20px; padding: 2px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px; background: var(--surface-alt); color: var(--ink); font: 600 11px ui-monospace, Menlo, monospace; text-align: center; }
+
+.ux-panel.pal { width: min(620px, 100%); padding: 0; margin-top: 11vh; overflow: hidden; }
+.pal-box { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.pal-icon { font-size: 18px; color: var(--muted); }
+.pal-input { flex: 1; border: 0; outline: 0; background: none; font: 500 16px 'DM Sans', system-ui, sans-serif; color: var(--ink); min-width: 0; }
+.pal-list { max-height: min(52vh, 420px); overflow: auto; padding: 6px; }
+.pal-group { padding: 10px 10px 4px; font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.ux-panel .pal-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; border-radius: 9px; padding: 10px; background: none; animation: palIn .22s both; animation-delay: calc(var(--i) * 18ms); }
+.ux-panel .pal-item[aria-selected="true"] { background: var(--surface-hover); box-shadow: inset 3px 0 0 var(--gold); transform: none; }
+.pal-ico { width: 24px; text-align: center; font-size: 15px; }
+.pal-label { flex: 1; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-item small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.pal-empty { padding: 22px; text-align: center; margin: 0 !important; }
+.pal-foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); background: var(--surface-alt); }
+.pal-foot kbd { margin-right: 4px; }
+@keyframes palIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+
+.ux-undo { position: fixed; left: 50%; bottom: 24px; z-index: 150; transform: translate(-50%, 24px); opacity: 0; display: flex; align-items: center; gap: 16px; padding: 12px 14px 14px 18px; border-radius: 12px; background: var(--green); color: #fff; font-size: 13px; box-shadow: var(--shadow-lg); overflow: hidden; max-width: min(92vw, 520px); transition: opacity .25s, transform .35s cubic-bezier(.2, .7, .2, 1); }
+.ux-undo.show { opacity: 1; transform: translate(-50%, 0); }
+.ux-undo button { font: inherit; font-weight: 800; color: var(--gold); background: none; border: 0; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+.ux-undo button:hover { background: rgba(255, 255, 255, .14); }
+.ux-undo i { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--gold); transform-origin: left; animation: uxCountdown linear forwards; }
+@keyframes uxCountdown { to { transform: scaleX(0); } }
+.ux-net { position: fixed; top: 0; left: 0; right: 0; z-index: 250; padding: 8px 16px; text-align: center; font-size: 12.5px; font-weight: 600; background: var(--danger); color: #fff; transform: translateY(-100%); transition: transform .3s cubic-bezier(.2, .7, .2, 1); }
+.ux-net.ok { background: #1f8f55; }
+.ux-net.show { transform: none; }
+@media (max-width: 760px) { .pal-foot { display: none; } .ux-panel.pal { margin-top: 4vh; } .ux-secret span { width: 38px; height: 50px; } }
+@media (prefers-reduced-motion: reduce) { .ux-panel, .ux-back, .ux-undo, .ux-net { transition: none; } .ux-secret span, .pal-item, .ux-undo i { animation: none; } }
+html.motion-off .ux-panel, html.motion-off .ux-undo { transition: none; }
+
+/* ========= Sign-in pages (auth.js): soft animated backdrop, themed, quick feedback ========= */
+.login-body { position: relative; overflow: hidden; background: var(--bg); color: var(--ink); isolation: isolate; }
+.login-body::before, .login-body::after { content: ''; position: absolute; z-index: -1; width: 46vmax; height: 46vmax; border-radius: 50%; filter: blur(70px); opacity: .5; animation: drift 18s ease-in-out infinite alternate; }
+.login-body::before { top: -18vmax; left: -14vmax; background: color-mix(in srgb, var(--green-light, #2f4fa0) 55%, transparent); }
+.login-body::after { bottom: -20vmax; right: -14vmax; background: color-mix(in srgb, var(--gold) 55%, transparent); animation-delay: -9s; }
+@keyframes drift { to { transform: translate(6vmax, 4vmax) scale(1.12); } }
+.login-card { background: var(--surface); border-color: var(--border); color: var(--ink); box-shadow: var(--shadow-lg); animation: cardRise .7s cubic-bezier(.2, .7, .2, 1) both; transition: background-color .3s, border-color .3s; }
+.login-card > * { animation: cardRise .6s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--n, 0) * 55ms + 120ms); }
+.login-card > :nth-child(1) { --n: 0; } .login-card > :nth-child(2) { --n: 1; } .login-card > :nth-child(3) { --n: 2; }
+.login-card > :nth-child(4) { --n: 3; } .login-card > :nth-child(5) { --n: 4; } .login-card > :nth-child(6) { --n: 5; } .login-card > :nth-child(7) { --n: 6; }
+@keyframes cardRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+.login-card .brand-logo { animation: cardRise .6s both, floaty 5s ease-in-out 1s infinite; }
+@keyframes floaty { 50% { transform: translateY(-4px); } }
+.login-card input { background: var(--surface-alt); border-color: var(--border); color: var(--ink); width: 100%; box-sizing: border-box; transition: border-color .2s, box-shadow .2s, background-color .3s; }
+.login-card input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 28%, transparent); }
+.login-card .notice.error { background: var(--danger-bg); color: var(--danger); animation: shakeX .5s both; }
+@keyframes shakeX { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+.login-card button.primary { position: relative; overflow: hidden; padding: 11px 14px; font-weight: 700; transition: transform .15s, box-shadow .2s, opacity .2s; }
+.login-card button.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(20, 40, 100, .22); }
+.login-card button.primary:active:not(:disabled) { transform: scale(.98); }
+.login-card button.busy { color: transparent !important; pointer-events: none; }
+.login-card button.busy::after { content: ''; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .45); border-top-color: #fff; animation: spinLogin .65s linear infinite; }
+@keyframes spinLogin { to { transform: rotate(360deg); } }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 44px; }
+.pw-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; padding: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--muted); transition: background-color .15s; }
+.pw-toggle:hover { background: var(--surface-hover); }
+.caps-note { margin: -4px 0 0; font-size: 12px; color: var(--pending-fg); animation: cardRise .25s both; }
+.caps-note[hidden] { display: none; }
+.auth-theme { position: fixed; top: 14px; right: 14px; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-size: 17px; display: grid; place-items: center; transition: transform .4s cubic-bezier(.2, .7, .2, 1), background-color .2s; }
+.auth-theme:hover { background: var(--surface-hover); }
+.auth-theme.turn { transform: rotate(360deg); }
+@media (prefers-reduced-motion: reduce) { .login-body::before, .login-body::after, .login-card, .login-card > *, .login-card .brand-logo, .notice.error { animation: none !important; } }
+
+/* The page a QR scan opens and the card preview: the ID comes in, tilts to the pointer, flips its two faces apart */
+.id-page .idcard { animation: cardRise .7s cubic-bezier(.2, .7, .2, 1) both; transition: transform .3s cubic-bezier(.2, .7, .2, 1), box-shadow .3s; will-change: transform; }
+.id-page .idcard-back { animation-delay: .12s; }
+.id-page .idcard:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+@media (prefers-reduced-motion: reduce) { .id-page .idcard { animation: none; } .id-page .idcard:hover { transform: none; } }
+
+/* Pages change with a short cross-fade where the browser supports it (sign-in to workspace, workspace to admin) */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: .18s ease both vtOut; }
+::view-transition-new(root) { animation: .28s ease both vtIn; }
+@keyframes vtOut { to { opacity: 0; } }
+@keyframes vtIn { from { opacity: 0; } }
+
+/* ========= Nav marker, chat tools ========= */
+#role-nav { position: relative; }
+#role-nav .nav { position: relative; z-index: 1; }
+#role-nav.has-ink .nav.active { background: transparent; box-shadow: none; }
+.nav-ink { position: absolute; left: 0; top: 0; width: 100%; border-radius: 8px; background: var(--green-bg); box-shadow: inset 3px 0 0 var(--gold); opacity: 0; transition: transform .38s cubic-bezier(.2, .7, .2, 1), height .38s cubic-bezier(.2, .7, .2, 1), opacity .2s; pointer-events: none; z-index: 0; }
+.message .msg-copy { position: absolute; top: 6px; right: 8px; border: 0; background: var(--surface-alt); color: var(--muted); border-radius: 6px; width: 24px; height: 24px; padding: 0; font-size: 13px; line-height: 1; cursor: pointer; opacity: 0; transform: scale(.85); transition: opacity .18s, transform .18s, background-color .18s; }
+.message:hover .msg-copy, .message .msg-copy:focus-visible { opacity: 1; transform: none; }
+.message .msg-copy:hover { background: var(--surface-hover); color: var(--ink); }
+@media (hover: none) { .message .msg-copy { opacity: .6; transform: none; } }
+.chat-card { position: relative; }
+.jump-latest { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 3; border: 1px solid var(--border); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-md); animation: jumpIn .25s cubic-bezier(.2, .7, .2, 1) both; }
+.jump-latest[hidden] { display: none; }
+.jump-latest:hover { background: var(--surface-hover); }
+@keyframes jumpIn { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { .nav-ink, .message .msg-copy { transition: none; } .jump-latest { animation: none; } }
+.login-card .subtle:first-of-type { margin: 0 0 16px; }

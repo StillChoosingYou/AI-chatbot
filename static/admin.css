@@ -237,3 +237,11 @@
 .admin-main.still *, .admin-main.still { animation: none !important; transition: none !important; }
 .admin-main.still .a-bar { width: var(--w); }
 @media (max-width: 760px) { .a-feed li { grid-template-columns: 1fr; gap: 2px; } }
+
+.a-feed.short { max-height: 230px; }
+.a-feed.short li { grid-template-columns: 140px 120px 1fr; }
+.a-feed li.fresh { animation: freshRow 2.4s ease; }
+@keyframes freshRow { 0% { background: color-mix(in srgb, var(--gold) 55%, transparent); transform: translateX(-10px); opacity: 0; } 12% { opacity: 1; transform: none; } 100% { background: transparent; } }
+@media (max-width: 760px) { .a-feed.short li { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .a-feed li.fresh { animation: none; } }
+.a-wide { grid-column: 1 / -1; }

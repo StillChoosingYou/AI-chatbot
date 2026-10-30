@@ -97,7 +97,7 @@ class PageLoadsMotionTests(AppTestCase):
     def test_scripts_load_in_order_and_only_from_this_app(self):
         page = self.client.get('/coordinator').get_data(as_text=True)
         scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"[^>]*>', page)
-        self.assertEqual(scripts, ['/static/vendor/motion.js', '/static/fx.js', '/static/app.js'])
+        self.assertEqual(scripts, ['/static/vendor/motion.js', '/static/fx.js', '/static/ux.js', '/static/app.js'])
         for tag in re.findall(r'<script\b[^>]*\bsrc="[^"]+"[^>]*>', page):
             self.assertIn(' defer', tag, tag)                  # deferred scripts run in this order, after the page is read
         self.assertNotRegex(page, r'(?:src|href)="https?://')

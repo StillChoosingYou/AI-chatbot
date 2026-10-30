@@ -349,6 +349,7 @@ function showView(viewId, { replay = false } = {}) {
     link.classList.toggle('active', active);
     if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
   });
+  moveNavInk();
   const dock = $('mobile-dock');                     // the dock scrolls when it has many tabs; keep the open one in view
   const current = dock && dock.querySelector('a.active');
   if (current && dock.clientWidth) dock.scrollTo({ left: current.offsetLeft - (dock.clientWidth - current.offsetWidth) / 2, behavior: 'smooth' });
@@ -598,7 +599,7 @@ async function bulkUpdateStatus() {
   const ids = [...bulkSelected];
   if (!status) { notify('Choose a status first.'); return; }
   if (!ids.length) { notify('Select at least one student.'); return; }
-  if (ids.length >= 10 && !confirm(`Set ${ids.length} students to “${status}”?`)) return;
+  if (ids.length >= 10 && !(await ux.confirm({ title: 'Change many students?', text: `Set ${ids.length} students to “${status}”?`, ok: 'Set status' }))) return;
   const button = $('bulk-apply');
   button.disabled = true;
   let updated = 0;
@@ -668,6 +669,20 @@ function showOnDashboard(studentId) {
 }
 
 /* ── Changing one student ── */
+/* A status change comes with an Undo bar for a few seconds: one click puts the old status back. */
+function undoable(message, id, previous) {
+  ux.undo({
+    text: message,
+    onUndo: async () => {
+      try {
+        replaceRecord(await api(`/api/inventory/${id}`, postJson({ status: previous }, 'PATCH')));
+        notify(`Put back to ${previous}.`);
+        render(); loadStats({ quiet: true }); refreshActivity();
+      } catch (error) { notify(error.message); load(); }
+    },
+  });
+}
+
 async function changeStatus(select) {
   const id = Number(select.dataset.statusSelect);
   const row = records.find(r => r.id === id);
@@ -676,7 +691,7 @@ async function changeStatus(select) {
   select.disabled = true;
   try {
     replaceRecord(await api(`/api/inventory/${id}`, postJson({ status: next }, 'PATCH')));
-    notify(`${row.name}: ${previous} → ${next}.`);
+    undoable(`${row.name}: ${previous} → ${next}.`, id, previous);
     render();
     loadStats({ quiet: true });
     refreshActivity();
@@ -689,8 +704,9 @@ async function changeStatus(select) {
 
 async function markReleased(row) {
   try {
+    const before = row.status;
     replaceRecord(await api(`/api/inventory/${row.id}`, postJson({ status: 'Released' }, 'PATCH')));
-    notify(`${row.name} is now marked as released.`);
+    undoable(`${row.name} is now marked as released.`, row.id, before);
     render();
     loadStats({ quiet: true });
     refreshActivity();
@@ -699,18 +715,19 @@ async function markReleased(row) {
 
 /* A new sign-in PIN for one student. It is shown once; the server keeps only a hash. */
 async function issuePin(row) {
-  if (!confirm(`Issue a new PIN for ${row.name}? Any PIN they had stops working.`)) return;
+  if (!(await ux.confirm({ title: 'Issue a new PIN?', text: `${row.name} will sign in with the new PIN. Any PIN they had stops working.`, ok: 'Issue PIN' }))) return;
   try {
     const result = await api(`/api/inventory/${row.id}/pin`, { method: 'POST' });
-    prompt(`PIN for ${result.name} (${result.student_id}). Give it to the student in person. It is shown only this once:`, result.pin);
     refreshActivity();
+    await ux.reveal({ title: 'New sign-in PIN', subject: `${result.name} · ${result.student_id}`, secret: result.pin,
+                      note: 'Give it to the student in person. It is shown only this once and the server keeps only a hash.' });
   } catch (error) { notify(error.message); }
 }
 
 /* A lost ID goes back to Pending (the server checks that it had been Released). */
 async function reportLost(row) {
-  const ok = confirm(`${row.name} lost the ID?\n\nThe status goes from Released back to Pending and the release appointment is cleared. ` +
-    'Send the student to the Cashier first to pay the replacement fee.');
+  const ok = await ux.confirm({ title: `${row.name} lost the ID?`, ok: 'Report lost ID',
+    text: 'The status goes from Released back to Pending and the release appointment is cleared.\nSend the student to the Cashier first to pay the replacement fee.' });
   if (!ok) return;
   try {
     replaceRecord(await api(`/api/inventory/${row.id}/lost`, { method: 'POST' }));
@@ -725,7 +742,7 @@ async function reportLost(row) {
 }
 
 async function deleteRecord(row) {
-  if (!confirm(`Delete ${row.name} (${row.student_id})? This cannot be undone.`)) return;
+  if (!(await ux.confirm({ title: `Delete ${row.name}?`, text: `${row.student_id} and their record are removed. This cannot be undone.`, ok: 'Delete', danger: true }))) return;
   try {
     await api(`/api/inventory/${row.id}`, { method: 'DELETE' });
     bulkSelected.delete(row.id);
@@ -1101,6 +1118,9 @@ function addMessage(text, kind, meta = {}) {
       '<button type="button" class="emoji-btn" data-rate="down" aria-pressed="false" aria-label="This answer did not help" title="This answer did not help">👎</button>' +
       '<span class="feedback-note" role="status"></span></div>';
   }
+  node.dataset.raw = text;
+  node.dataset.time = meta.timestamp ? formatTime(meta.timestamp) : formatNow();
+  if (kind === 'bot') html += '<button type="button" class="msg-copy" data-copy aria-label="Copy this answer" title="Copy this answer">⧉</button>';
   node.innerHTML = html;
   if (kind === 'bot' && meta.messageId) {
     node.dataset.messageId = meta.messageId;
@@ -1998,7 +2018,7 @@ $('chat-input').addEventListener('input', updateChatCount);
 $('chat-form').onsubmit = event => {
   event.preventDefault();
   const text = $('chat-input').value.trim();
-  if (text && !sending) { $('chat-input').value = ''; updateChatCount(); send(text); }
+  if (text && !sending) { rememberSent(text); $('chat-input').value = ''; updateChatCount(); send(text); }
 };
 $('new-chat').onclick = newChat;
 $('clear-selected').onclick = () => setSelected(null);
@@ -2042,7 +2062,7 @@ $('role-dialog').addEventListener('cancel', event => {
 });
 
 /* ── Everything that is drawn later: one listener, buttons found by their data- attributes ── */
-document.addEventListener('click', event => {
+document.addEventListener('click', async event => {
   if (!event.target.closest('#row-menu') && !event.target.closest('[data-row-menu]')) closeRowMenu();
 
   const nav = event.target.closest('[data-view]');
@@ -2106,7 +2126,7 @@ document.addEventListener('click', event => {
   const flagButton = event.target.closest('[data-incident-flag]');
   if (flagButton) {
     const withdraw = flagButton.dataset.flag === 'false';
-    if (withdraw && !confirm('Withdraw this false statement? The penalty is recalculated for the student’s other incidents.')) return;
+    if (withdraw && !(await ux.confirm({ title: 'Withdraw this false statement?', text: 'The penalty is recalculated for the student’s other incidents.', ok: 'Withdraw' }))) return;
     flagButton.disabled = true;
     api(`/api/incidents/${flagButton.dataset.incidentFlag}`, postJson({ false_statement: !withdraw }, 'PATCH'))
       .then(() => {
@@ -2144,11 +2164,6 @@ $('ticker-toggle').onclick = () => { setTickerPaused(!$('ticker').classList.cont
 document.addEventListener('keydown', event => {
   const ctrl = event.ctrlKey || event.metaKey;
   const key = event.key.toLowerCase();
-  if (ctrl && key === 'k') {
-    event.preventDefault();
-    if (workspaceRole === 'coordinator') { showView('dashboard'); $('search').focus(); $('search').select(); }
-    else { showView('assistant'); $('chat-input').focus(); }
-  }
   if (ctrl && key === 'n') {
     event.preventDefault();
     if (workspaceRole === 'coordinator') { showView('dashboard'); openDialog(); }
@@ -2324,6 +2339,133 @@ window.addEventListener('hashchange', () => {
   const view = location.hash.replace('#', '');
   if (view && workspaceRole) showView(view);
 });
+
+/* ═══════════════ Interface tools: nav indicator, chat tools, command palette ═══════════════ */
+/* One gold marker slides to the page you opened instead of jumping. */
+function moveNavInk() {
+  const nav = $('role-nav');
+  const on = nav && nav.querySelector('.nav.active');
+  let ink = nav && nav.querySelector('.nav-ink');
+  if (!on) { if (ink) ink.style.opacity = '0'; nav && nav.classList.remove('has-ink'); return; }
+  if (!ink) {
+    ink = document.createElement('span');
+    ink.className = 'nav-ink'; ink.setAttribute('aria-hidden', 'true');
+    nav.prepend(ink);
+  }
+  nav.classList.add('has-ink');
+  ink.style.height = `${on.offsetHeight}px`;
+  ink.style.transform = `translateY(${on.offsetTop}px)`;
+  ink.style.opacity = '1';
+}
+window.addEventListener('resize', moveNavInk);
+if (document.fonts) document.fonts.ready.then(moveNavInk);
+
+/* The messages you sent, so ↑ brings one back (kept in memory only: a shared computer forgets it on reload). */
+const sentTexts = [];
+let sentAt = -1;
+function rememberSent(text) {
+  if (sentTexts[sentTexts.length - 1] !== text) sentTexts.push(text);
+  if (sentTexts.length > 30) sentTexts.shift();
+  sentAt = -1;
+}
+$('chat-input').addEventListener('keydown', event => {
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+  const input = event.target;
+  if (input.value && sentAt === -1) return;                        // typing something new: the arrows are left alone
+  if (!sentTexts.length) return;
+  event.preventDefault();
+  sentAt = event.key === 'ArrowUp' ? Math.max(0, (sentAt === -1 ? sentTexts.length : sentAt) - 1)
+                                   : (sentAt === -1 ? -1 : sentAt + 1 >= sentTexts.length ? -1 : sentAt + 1);
+  input.value = sentAt === -1 ? '' : sentTexts[sentAt];
+  updateChatCount();
+});
+
+/* Copy an answer, jump back to the latest message, save the conversation as a text file. */
+$('messages').addEventListener('click', async event => {
+  const button = event.target.closest('.msg-copy');
+  if (!button) return;
+  const node = button.closest('.message');
+  try { await navigator.clipboard.writeText(node.dataset.raw || node.innerText); button.textContent = '✓'; notify('Copied'); }
+  catch { notify('Copy failed. Select the text and copy it.'); }
+  setTimeout(() => { button.textContent = '⧉'; }, 1400);
+});
+
+const jump = document.createElement('button');
+jump.type = 'button'; jump.id = 'jump-latest'; jump.className = 'jump-latest'; jump.hidden = true; jump.textContent = '↓ Latest';
+$('messages').after(jump);
+const syncJump = () => {
+  const log = $('messages');
+  jump.hidden = log.scrollHeight - log.scrollTop - log.clientHeight < 140;
+};
+$('messages').addEventListener('scroll', syncJump, { passive: true });
+new MutationObserver(syncJump).observe($('messages'), { childList: true });
+jump.onclick = () => $('messages').scrollTo({ top: $('messages').scrollHeight, behavior: 'smooth' });
+
+function saveChat() {
+  const nodes = [...$('messages').querySelectorAll('.message[data-raw]')];
+  if (nodes.length < 2) { notify('There is no conversation to save yet.'); return; }
+  const who = signedStudent() ? signedStudent().name : workspaceRole === 'coordinator' ? 'Coordinator' : 'Student';
+  const lines = nodes.map(n => `[${n.dataset.time}] ${n.classList.contains('user') ? who : 'Assistant'}: ${n.dataset.raw}`);
+  const blob = new Blob([`School ID assistant · ${new Date().toLocaleString()}\n\n${lines.join('\n\n')}\n`], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  clickLink({ href: url, download: `chat-${new Date().toISOString().slice(0, 10)}.txt` });
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+const saveButton = document.createElement('button');
+saveButton.type = 'button'; saveButton.id = 'save-chat'; saveButton.className = 'export-btn'; saveButton.title = 'Save this conversation as a text file';
+saveButton.textContent = '⬇ Save chat';
+saveButton.onclick = saveChat;
+$('new-chat').before(saveButton);
+
+/* The command palette (Ctrl or ⌘ + K). Each role gets the commands of its own pages. */
+function roleCommands(query) {
+  const q = fold(query);
+  const out = [];
+  (NAV[workspaceRole] || []).forEach(item => out.push({
+    group: 'Go to', icon: '↗', label: plainLabel(item.label), keywords: 'open page view', run: () => showView(item.id),
+  }));
+  if (workspaceRole === 'coordinator') {
+    out.push(
+      { group: 'Actions', icon: '＋', label: 'New student', hint: 'Ctrl+N', keywords: 'add create record', run: () => { showView('dashboard'); openDialog(); } },
+      { group: 'Actions', icon: '⇪', label: 'Import students from CSV', keywords: 'upload bulk', run: () => { showView('dashboard'); openImport(); } },
+      { group: 'Actions', icon: '⇩', label: 'Export the student list (CSV)', hint: 'Ctrl+E', keywords: 'download', run: exportCSV },
+      { group: 'Actions', icon: '⚑', label: 'Report an incident', keywords: 'lost id no id', run: () => openIncident() },
+    );
+    if (q.length >= 1) {
+      out.push({ group: 'Dashboard', icon: '⌕', label: `Search the Dashboard for “${query.trim()}”`, always: true, rank: 2,
+                 run: () => { showView('dashboard'); $('search').value = query.trim(); render(); $('search').focus(); } });
+    }
+    if (q.length >= 2) {
+      records.filter(r => fold(`${r.name} ${r.student_id}`).includes(q)).slice(0, 6).forEach(r => out.push({
+        group: 'Students', icon: '👤', label: r.name, hint: `${r.student_id} · ${r.status}`, always: true, run: () => openInChat(r),
+      }));
+    }
+  } else {
+    out.push(
+      { group: 'Actions', icon: '✎', label: 'Request help from the office', keywords: 'ask office request', run: () => openStudentRequest() },
+      { group: 'Actions', icon: '🔑', label: 'Change my PIN', keywords: 'password security', run: () => { showView('settings'); setTimeout(() => $('pin-current').focus(), 350); } },
+      { group: 'Actions', icon: '⇩', label: 'Download my data', keywords: 'export privacy', run: () => download('/api/student/export') },
+    );
+  }
+  out.push(
+    { group: 'Actions', icon: '＋', label: 'Start a new chat', keywords: 'clear conversation', run: () => { showView('assistant'); newChat(); } },
+    { group: 'Actions', icon: '⬇', label: 'Save this chat as a text file', keywords: 'download transcript', run: saveChat },
+    { group: 'Actions', icon: '◐', label: 'Switch light / dark theme', keywords: 'appearance mode', run: toggleTheme },
+    { group: 'Help', icon: '?', label: 'Keyboard shortcuts', hint: '?', keywords: 'keys help', run: () => ux.help.open() },
+  );
+  if (workspaceRole === 'coordinator' || signedStudent()) {
+    out.push({ group: 'Account', icon: '⎋', label: 'Sign out', keywords: 'log out', run: () => $('switch-role').click() });
+  }
+  return out;
+}
+ux.palette.register(roleCommands);
+ux.help.register(() => [
+  ['Ctrl+K', 'Command palette: pages, actions and students'],
+  ['?', 'This list'],
+  ['↑ / ↓', 'In the chat box: bring back the messages you sent'],
+  ...(workspaceRole === 'coordinator' ? [['Ctrl+N', 'New student'], ['Ctrl+E', 'Export the student list']] : []),
+  ['Esc', 'Close a menu or dialog'],
+]);
 
 /* ── Start ── */
 applyPrefs();
