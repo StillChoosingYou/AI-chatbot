@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <title>{{ page_title or 'Coordinator sign in' }} · School ID</title>
+  <script>try{var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/auth.js" defer></script>
 </head>
 <body class="login-body">
   <main class="login-card">

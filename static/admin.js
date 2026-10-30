@@ -195,10 +195,24 @@ async function show(tab, { quiet = false } = {}) {
   }
 }
 
+/* the newest events; one that was not on screen a moment ago lights up once */
+const seenEvents = new Set();
+function feed(events) {
+  const first = seenEvents.size === 0;
+  const html = events.length ? `<ul class="a-feed short">${events.map((e) => {
+    const key = `${e.time}|${e.action}|${e.detail}`;
+    const fresh = !first && !seenEvents.has(key);
+    seenEvents.add(key);
+    return `<li class="${/fail|locked/.test(e.action) ? 'bad' : ''}${fresh ? ' fresh' : ''}"><time>${esc(e.time)}</time><b>${esc(e.action)}</b><span>${esc(e.role)} · ${esc(e.detail)}</span></li>`;
+  }).join('')}</ul>` : '<p>Nothing recorded yet.</p>';
+  return html;
+}
+
 /* ---------- views: each returns a function that paints once the data is here ---------- */
 const views = {
   async overview() {
-    const o = await api('/api/admin/overview');
+    const [o, sec] = await Promise.all([api('/api/admin/overview'), api('/api/admin/security')]);
+    const events = sec.events.slice(0, 7);
     paintBadges(o);
     const fallbackRate = o.answers ? Math.round((o.fallbacks / o.answers) * 100) : 0;
     const understood = 100 - fallbackRate;
@@ -214,6 +228,7 @@ const views = {
           const el = view.querySelector(`[data-key="${key}"] strong`); if (el) { el.dataset.count = v; countUp(el, v, Number(el.dataset.value || 0)); }
         });
         $('ov-attention').innerHTML = attention();
+        $('ov-events').innerHTML = feed(events);
         $('ov-ring').style.setProperty('--p', understood); $('ov-ring-n').textContent = `${understood}%`;
         live.querySelector('time').textContent = clock();
         return;
@@ -237,6 +252,8 @@ const views = {
           <div class="a-card a-quality"><div class="ring" id="ov-ring" style="--p:${understood}"><b id="ov-ring-n">${understood}%</b></div>
             <div><h2>Answer quality</h2><p>${o.answers ? `The bot placed ${understood}% of ${o.answers.toLocaleString()} question(s) into a topic.` : 'No questions yet.'}</p></div></div>
           <div class="a-card"><h2>Needs your attention</h2><div id="ov-attention">${attention()}</div></div>
+          <div class="a-card a-wide"><h2>Live activity</h2><div id="ov-events">${feed(events)}</div>
+            <p><a href="#security" data-go="security">Open the whole Security log</a></p></div>
         </div>`;
       $('ov-refresh').onclick = (e) => refreshOverview(e.currentTarget, true);
     };
@@ -425,7 +442,8 @@ const views = {
       view.innerHTML = `<h1>Security log</h1><p class="lead">Sign-ins, failed sign-ins, PIN changes and admin actions. ${d.failed_today ? `<b>${d.failed_today} failed sign-in(s) today.</b>` : 'No failed sign-ins today.'}</p>
         <div class="a-card"><div class="a-row"><input id="sec-search" type="search" placeholder="Search the log   ( / )" style="flex:1 1 220px;padding:8px 10px">
           <select id="sec-role" aria-label="Role"><option value="">All roles</option>${roles.map((r) => `<option>${esc(r)}</option>`).join('')}</select>
-          <label class="a-check"><input type="checkbox" id="sec-bad"> Problems only</label></div>
+          <label class="a-check"><input type="checkbox" id="sec-bad"> Problems only</label>
+          <button type="button" id="sec-csv">Download CSV</button></div>
           <div class="a-scroll"><table class="a-table"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead><tbody id="sec-rows"></tbody></table></div>
           <p class="a-count" id="sec-count"></p></div>`;
       const draw = () => {
@@ -435,6 +453,12 @@ const views = {
         $('sec-count').textContent = d.events.length ? `${Math.min(rows.length, 400)} of ${d.events.length} event(s)` : '';
       };
       draw(); ['input', 'change'].forEach((ev) => view.querySelector('.a-card').addEventListener(ev, draw));
+      $('sec-csv').onclick = () => {
+        const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const csv = ['when,who,what,detail', ...d.events.map((e) => [e.time, e.role, e.action, e.detail].map(cell).join(','))].join('\n');
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        a.download = 'security_log.csv'; a.click(); toast('Security log downloaded');
+      };
     };
   },
 
@@ -534,6 +558,20 @@ $('theme').onclick = (e) => {
   try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch { /* not kept */ }
 };
 try { const saved = localStorage.getItem('theme'); document.documentElement.dataset.theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch { /* default */ }
+ux.palette.register((q) => [
+  ...TABS.map(([id, label], n) => ({ group: 'Go to', icon: '↗', label, hint: String(n + 1), keywords: 'open tab page', run: () => show(id) })),
+  { group: 'Actions', icon: '↻', label: 'Refresh now', keywords: 'reload update', run: () => refreshOverview(null, true) },
+  { group: 'Actions', icon: '⇩', label: 'Download a full backup', keywords: 'export json', run: () => { location.href = '/api/admin/backup'; } },
+  { group: 'Actions', icon: '⇩', label: 'Download the missed questions (CSV)', keywords: 'dataset chatbot', run: () => { location.href = '/api/admin/missed.csv'; } },
+  { group: 'Actions', icon: '◐', label: 'Switch light / dark theme', keywords: 'appearance mode', run: () => $('theme').click() },
+  { group: 'Actions', icon: '↗', label: 'Open the coordinator workspace', keywords: 'switch role', run: () => document.querySelector('form[action="/admin/switch"] button').click() },
+  { group: 'Help', icon: '?', label: 'Keyboard shortcuts', hint: '?', keywords: 'keys help', run: () => ux.help.open() },
+  { group: 'Account', icon: '⎋', label: 'Sign out', keywords: 'log out', run: () => document.querySelector('form[action="/admin/logout"] button').click() },
+]);
+ux.help.register(() => [
+  ['Ctrl+K', 'Command palette: tabs and actions'], ['?', 'This list'], ['1 – 8', 'Open a tab'], ['/', 'Focus the search box of the tab'],
+  ['← / →', 'Between tabs (while a tab is focused)'], ['Esc', 'Close a dialog'],
+]);
 buildTabs();
 show(TABS.some(([id]) => id === location.hash.slice(1)) ? location.hash.slice(1) : 'overview');
 if (!location.hash || location.hash === '#overview') { /* badges come with the overview itself */ } else api('/api/admin/overview').then(paintBadges).catch(() => {});

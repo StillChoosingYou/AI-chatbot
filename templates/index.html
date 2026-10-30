@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/vendor/motion.js" defer></script>
   <script src="/static/fx.js" defer></script>
+  <script src="/static/ux.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body data-page-role="{{ page_role }}"{% if is_admin %} data-admin="1"{% endif %}{% if signed_student %} data-student="{{ signed_student|tojson|forceescape }}"{% endif %}>
