@@ -178,7 +178,7 @@ class AdminTests(DatabaseTestCase):
         client.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
         self.assertEqual(client.get('/api/admin/overview').status_code, 200)
         with client.session_transaction() as s:
-            s['seen'] = time.time() - 16 * 60
+            s['seen_admin'] = time.time() - 16 * 60
         self.assertEqual(client.get('/api/admin/overview').status_code, 401)
 
     def test_links_use_the_live_site_on_localhost_and_the_admin_can_change_the_address(self):

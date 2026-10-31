@@ -129,7 +129,7 @@ class StudentLoginTests(DatabaseTestCase):
         self.login(client, ALEX, self.pin_for(ALEX))
         self.assertEqual(self.ask(client, 'hello').status_code, 200)
         with client.session_transaction() as s:
-            s['seen'] = time.time() - 21 * 60
+            s['seen_student'] = time.time() - 21 * 60
         self.assertEqual(self.ask(client, 'hello').status_code, 401)
         self.login(client, ALEX, self.pin_for(ALEX))
         client.post('/student/logout')
@@ -175,5 +175,5 @@ class HostAndHeaderTests(DatabaseTestCase):
         client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'x'})
         self.assertEqual(client.get('/api/stats').status_code, 200)
         with client.session_transaction() as s:
-            s['seen'] = time.time() - 31 * 60
+            s['seen_coordinator'] = time.time() - 31 * 60
         self.assertEqual(client.get('/api/stats').status_code, 401)

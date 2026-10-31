@@ -144,3 +144,51 @@ class StudentSettingsTests(DatabaseTestCase):
         self.assertNotIn(pin, str(self.admin.get('/api/admin/pins').json))               # never listed
         self.assertNotIn(pin, str(self.admin.get('/api/admin/security').json))
         self.assertEqual(self.admin.post('/api/admin/pins/issue', json={'student_id': 'P0'}).status_code, 404)
+
+
+    # The admin, coordinator and student pages are often open side by side in one browser: one cookie, three roles.
+
+    def test_signing_in_as_one_role_keeps_the_others_signed_in(self):
+        browser = self.app.test_client()
+        browser.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
+        browser.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
+        pin = self.pin_for(ALEX)
+        browser.post('/student/login', data={'student_id': ALEX, 'pin': pin})
+        self.assertEqual(browser.get('/api/live?role=admin').status_code, 200)
+        self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 200)
+        self.assertEqual(browser.get('/api/live?role=student').status_code, 200)
+        browser.post('/student/logout')                                   # one role leaves, the others stay
+        self.assertEqual(browser.get('/api/live?role=student').status_code, 401)
+        self.assertEqual(browser.get('/api/live?role=admin').status_code, 200)
+        self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 200)
+        browser.post('/coordinator/logout')
+        self.assertEqual(browser.get('/api/live?role=admin').status_code, 200)
+
+    def test_each_role_has_its_own_idle_clock(self):
+        browser = self.app.test_client()
+        browser.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
+        browser.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
+        with browser.session_transaction() as s:
+            s['seen_admin'] = __import__('time').time() - 16 * 60          # the admin tab sat idle past 15 minutes
+        self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 200)   # the coordinator tab is still fine
+        self.assertEqual(browser.get('/api/live?role=admin').status_code, 401)
+        self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 200)
+
+    def test_working_in_another_tab_does_not_keep_an_idle_role_alive(self):
+        browser = self.app.test_client()
+        browser.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
+        browser.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
+        with browser.session_transaction() as s:
+            s['seen_admin'] = __import__('time').time() - 14 * 60
+        browser.get('/api/live?role=coordinator')                          # coordinator activity only
+        with browser.session_transaction() as s:
+            self.assertLess(__import__('time').time() - s['seen_admin'], 14 * 60 + 30)
+            self.assertGreater(__import__('time').time() - s['seen_admin'], 13 * 60)
+
+    def test_admin_sign_out_also_ends_the_coordinator_workspace_it_opened(self):
+        browser = self.app.test_client()
+        browser.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
+        browser.post('/admin/switch', data={'to': 'coordinator'})
+        self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 200)
+        browser.post('/admin/logout')
+        self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 401)

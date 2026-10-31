@@ -175,6 +175,37 @@ def create_app(database_url=None):
     student_host = os.environ.get('STUDENT_HOST', '').strip().lower()            # e.g. pgpc-student.vercel.app
     coordinator_host = os.environ.get('COORDINATOR_HOST', '').strip().lower()    # e.g. pgpc-coordinator.vercel.app
     admin_host = os.environ.get('ADMIN_HOST', '').strip().lower()                # e.g. pgpc-admin.vercel.app
+    def sign_in(role, value=True, **extra):
+        """Sign one role in. The browser keeps one cookie, and the admin, coordinator and student pages are often open
+        side by side, so signing in as one role must not sign out the others."""
+        sign_out(role)
+        session[role] = value
+        session.update(extra)
+        session[f'seen_{role}'] = time.time()
+        session.permanent = True
+
+    def sign_out(role):
+        for key in (role, f'seen_{role}', *(('pv',) if role == 'student' else ()), *(('via_admin',) if role == 'coordinator' else ())):
+            session.pop(key, None)
+
+    def request_role():
+        """Which role this request is for, so only that role's idle clock restarts."""
+        path = request.path
+        if path == '/' or path.startswith(('/admin', '/api/admin')):
+            return 'admin'
+        if path.startswith('/coordinator') or coordinator_only(path, request.method):
+            return 'coordinator'
+        if path.startswith(('/student', '/me/', '/api/student')):
+            return 'student'
+        if path == '/api/live':
+            return request.args.get('role')
+        if request.method == 'POST' and path == '/api/chat/request':
+            return 'student'
+        if request.method == 'POST' and path == '/api/chat':
+            payload = request.get_json(silent=True)
+            return payload.get('workspace_role') if isinstance(payload, dict) else None
+        return None
+
     IDLE_SECONDS = {'admin': ADMIN_IDLE_SECONDS, 'coordinator': 30 * 60, 'student': 20 * 60}                  # signed out after this long without a request
 
     def coordinator_signed_in():
@@ -230,15 +261,13 @@ def create_app(database_url=None):
         """A signed-in session ends after a stretch with no requests (30 minutes coordinator, 20 minutes student)."""
         if request.path.startswith('/static/'):
             return
-        who = ('admin' if session.get('admin') else 'coordinator' if session.get('coordinator')
-               else 'student' if session.get('student') else None)
-        if who is None:
-            return
         now = time.time()
-        if now - session.get('seen', now) > IDLE_SECONDS[who]:
-            session.clear()
-            return
-        session['seen'] = now
+        for role, limit in IDLE_SECONDS.items():                      # each role runs its own clock
+            if session.get(role) and now - session.get(f'seen_{role}', now) > limit:
+                sign_out(role)
+        active = request_role()
+        if active in IDLE_SECONDS and session.get(active):
+            session[f'seen_{active}'] = now
 
     @app.after_request
     def security_headers(response):
@@ -494,12 +523,8 @@ def create_app(database_url=None):
                 db.execute('UPDATE inventory SET pin_failures = 0, pin_locked_until = 0, last_signin = %s, '
                            'signin_count = signin_count + 1 WHERE LOWER(student_id)=LOWER(%s)', (now_stamp(), student_id))
                 student_attempts.pop(address, None)
-                session.clear()
-                session['student'] = row['student_id']
-                session['pv'] = row['pin_version']                 # a new PIN from the office or the student signs the old sessions out
+                sign_in('student', row['student_id'], pv=row['pin_version'])   # a new PIN from the office or the student signs the old sessions out
                 log_activity('student', 'student sign in', f'{row["student_id"]} · from {address}')
-                session['seen'] = now
-                session.permanent = True
                 return redirect('/student')
             pin_matches(pin, '')                              # an unknown ID costs the same time as a wrong PIN
             if row is not None:
@@ -518,7 +543,7 @@ def create_app(database_url=None):
     def student_logout():
         if session.get('student'):
             log_activity('student', 'student sign out', str(session.get('student')))
-        session.clear()
+        sign_out('student')
         return redirect('/student' if student_login_on else '/')
 
     @app.post('/api/inventory/<rowid:record_id>/pin')
@@ -543,7 +568,7 @@ def create_app(database_url=None):
         with connect() as db:
             row = db.execute('SELECT * FROM inventory WHERE LOWER(student_id)=LOWER(%s)', (student_id,)).fetchone()
         if row is None or row['pin_version'] != session.get('pv', 0) or row['pin_locked_until'] > time.time():
-            session.clear()
+            sign_out('student')
             return None
         return row
 
@@ -603,7 +628,7 @@ def create_app(database_url=None):
                 log_activity('student', 'student locked' if locked else 'student failed sign in',
                              f'{student_id} · wrong current PIN while changing it ({failures} of {PIN_FAILS_ALLOWED})')
                 if locked:
-                    session.clear()
+                    sign_out('student')
                     return jsonify(error='Too many wrong tries. You are signed out and locked for 15 minutes.', sign_in='/student'), 429
                 return jsonify(error='Your current PIN is not right.', field='current'), 403
             if new != again:
@@ -651,10 +676,7 @@ def create_app(database_url=None):
     def coordinator_login():
         address = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
         if login.check(request.form.get('username', ''), request.form.get('password', ''), address):
-            session.clear()
-            session['coordinator'] = True
-            session['seen'] = time.time()
-            session.permanent = True
+            sign_in('coordinator')
             log_activity('coordinator', 'sign in', f'from {address}'[:120])
             return redirect('/coordinator')
         log_activity('coordinator', 'failed sign in', f'from {address}'[:120])
@@ -664,7 +686,7 @@ def create_app(database_url=None):
 
     @app.post('/coordinator/logout')
     def coordinator_logout():
-        session.clear()
+        sign_out('coordinator')
         return redirect('/')
 
     @app.get('/student/<token>')
@@ -1646,7 +1668,7 @@ def create_app(database_url=None):
                 mine = db.execute('SELECT * FROM inventory WHERE LOWER(student_id)=LOWER(%s)',
                                   (signed_student_id() or '',)).fetchone()
             if mine is None:
-                session.pop('student', None)
+                sign_out('student')
                 response = jsonify(error='Sign in with your student ID and PIN first.', sign_in='/student')
                 response.status_code = 401
                 return response
@@ -2123,7 +2145,7 @@ def create_app(database_url=None):
         set_setting=set_setting, delete_setting=delete_setting, news_items=news_items, clean_news=clean_news,
         matcher=matcher, build=BUILD, student_login_on=student_login_on, student_host=student_host,
         coordinator_host=coordinator_host, admin_host=admin_host, public_base=public_base, on_vercel=login.on_vercel,
-        coordinator_configured=login.configured))
+        coordinator_configured=login.configured, sign_in=sign_in, sign_out=sign_out))
 
     return app
 

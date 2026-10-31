@@ -85,10 +85,7 @@ def register_admin(app, ctx):
     def admin_login_post():
         who = address()
         if login.check(request.form.get('username', ''), request.form.get('password', ''), who):
-            session.clear()
-            session['admin'] = True
-            session['seen'] = time.time()
-            session.permanent = True
+            ctx.sign_in('admin')
             log('admin', 'admin sign in', f'from {who}'[:120])
             return redirect('/')
         log('admin', 'admin failed sign in', f'from {who}'[:120])
@@ -99,7 +96,9 @@ def register_admin(app, ctx):
 
     @app.post('/admin/logout')
     def admin_logout():
-        session.clear()
+        if session.get('via_admin'):                       # the coordinator workspace opened from here ends with it
+            ctx.sign_out('coordinator')
+        ctx.sign_out('admin')
         return redirect('/')
 
     @app.post('/admin/switch')
@@ -108,8 +107,9 @@ def register_admin(app, ctx):
         if not admin_signed_in():
             return redirect('/')
         if request.form.get('to') == 'coordinator':
-            session['coordinator'] = True
-            session['seen'] = time.time()
+            if not session.get('coordinator'):
+                ctx.sign_in('coordinator')
+                session['via_admin'] = True
             log('admin', 'switch role', 'admin opened the coordinator workspace')
             return redirect('/coordinator')
         return redirect('/')
