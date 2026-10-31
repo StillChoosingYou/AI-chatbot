@@ -101,27 +101,29 @@ def copy_rows(have, rows, columns, invent_token, stats):
     return copied
 
 
+def prepare_table(pg, table, have, rows, stats, notes):
+    """(columns, rows) of one table ready to insert: only columns PostgreSQL has, NUL characters removed."""
+    want, required = table_columns(pg, table)
+    columns = [name for name in want if name in have]
+    lacking = sorted(required - set(columns))
+    invent_token = table == 'inventory' and lacking == ['token']      # the very first versions had none
+    if lacking and not invent_token:
+        raise MigrationError(f'The SQLite table {table} has no {", ".join(lacking)} column, which '
+                             f'PostgreSQL needs. The file is older than this script supports.')
+    copied = copy_rows(have, rows, columns, invent_token, stats)
+    if invent_token:
+        columns.append('token')
+        notes.append('inventory: the SQLite file has no QR tokens, so new ones were made.')
+    if table == 'inventory' and 'status' in columns:        # a status that has since been renamed
+        rename_statuses(columns, copied, notes)
+    if ignored := [name for name in have if name not in want]:
+        notes.append(f'{table}: ignored columns that PostgreSQL does not have: {", ".join(ignored)}.')
+    return columns, copied
+
+
 def prepare(pg, tables, stats, notes):
-    """{table: (columns, rows)} ready to insert: only columns PostgreSQL has, NUL characters removed."""
-    plan = {}
-    for table, (have, rows) in tables.items():
-        want, required = table_columns(pg, table)
-        columns = [name for name in want if name in have]
-        lacking = sorted(required - set(columns))
-        invent_token = table == 'inventory' and lacking == ['token']      # the very first versions had none
-        if lacking and not invent_token:
-            raise MigrationError(f'The SQLite table {table} has no {", ".join(lacking)} column, which '
-                                 f'PostgreSQL needs. The file is older than this script supports.')
-        copied = copy_rows(have, rows, columns, invent_token, stats)
-        if invent_token:
-            columns.append('token')
-            notes.append('inventory: the SQLite file has no QR tokens, so new ones were made.')
-        if table == 'inventory' and 'status' in columns:        # a status that has since been renamed
-            rename_statuses(columns, copied, notes)
-        if ignored := [name for name in have if name not in want]:
-            notes.append(f'{table}: ignored columns that PostgreSQL does not have: {", ".join(ignored)}.')
-        plan[table] = (columns, copied)
-    return plan
+    """{table: (columns, rows)} ready to insert."""
+    return {table: prepare_table(pg, table, have, rows, stats, notes) for table, (have, rows) in tables.items()}
 
 
 def check_student_ids(plan):
