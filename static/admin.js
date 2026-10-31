@@ -291,7 +291,7 @@ const views = {
     const list = data.students;
     const missing = list.filter((s) => !s.has_pin).length, locked = list.filter((s) => s.locked).length;
     return () => {
-      view.innerHTML = `<h1>Access & PINs</h1><p class="lead">Student sign-in is Student ID + a 6-digit PIN. PINs are shown once and stored only as a hash.</p>
+      view.innerHTML = `<h1>Access & PINs</h1><p class="lead">Student sign-in is Student ID + a 6-digit PIN. A PIN is shown once when it is issued; after that only a one-way hash exists, so use <b>Reset PIN</b> to give a student a new one.</p>
         <div class="a-grid">${stat('Students', list.length)}${stat('Without a PIN', missing)}${stat('Locked now', locked)}${stat('Signed in today', data.today.signed_in)}${stat('Failed tries today', data.today.failed)}${stat('PIN changes today', data.today.pin_changes)}</div>
         <div class="a-card"><h2>Issue PINs in bulk</h2>
           <p>Make PINs for everyone who has none (safe), or reset everyone's PIN (every old PIN stops working). The new PINs appear below once: print them as slips or download the CSV, then hand each one over in person.</p>
@@ -318,7 +318,7 @@ const views = {
           `<tr class="rise fast" style="--i:${Math.min(i, 10)}" data-row="${esc(s.student_id)}"><td>${esc(s.student_id)}</td><td>${esc(s.name)}</td><td>${badge(s.has_pin, 'Issued', 'None')}${s.pin_changed ? ' <small title="Changed by the student">own PIN</small>' : ''}</td>
            <td>${s.last_signin ? esc(s.last_signin) : '<small>never</small>'}</td><td>${s.signins || 0}</td>
            <td>${s.locked ? `<span class="a-badge warn">Locked ${s.locked_minutes} min</span>` : s.failures ? `${s.failures} wrong try(s)` : ''}</td>
-           <td>${s.locked || s.failures ? `<button type="button" data-unlock="${esc(s.student_id)}">Unlock</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7">No match.</td></tr>';
+           <td class="a-actions">${s.locked || s.failures ? `<button type="button" data-unlock="${esc(s.student_id)}">Unlock</button>` : ''}<button type="button" data-newpin="${esc(s.student_id)}" data-name="${esc(s.name)}" data-has="${s.has_pin ? 1 : 0}">${s.has_pin ? 'Reset PIN' : 'Issue PIN'}</button></td></tr>`).join('') || '<tr><td colspan="7">No match.</td></tr>';
         $('pin-count').textContent = rows.length > 300 ? `Showing the first 300 of ${rows.length}. Search to narrow it down.` : `${rows.length} of ${list.length} student(s)`;
       };
       draw(); $('pin-search').oninput = draw;
@@ -327,6 +327,17 @@ const views = {
         $('pin-chips').querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b === c)); draw();
       };
       $('pin-rows').onclick = (e) => {
+        const np = e.target.closest('[data-newpin]');
+        if (np) {
+          busy(np, async () => {
+            const had = np.dataset.has === '1';
+            if (!(await ux.confirm({ title: had ? 'Reset this PIN?' : 'Issue a PIN?', text: `${np.dataset.name} (${np.dataset.newpin})${had ? ': the current PIN stops working and the student is signed out.' : ''}`, ok: had ? 'Reset PIN' : 'Issue PIN', danger: had }))) return;
+            const r = await api('/api/admin/pins/issue', send('POST', { student_id: np.dataset.newpin }));
+            show('access', { quiet: true });
+            await ux.reveal({ title: 'New sign-in PIN', subject: `${r.name} · ${r.student_id}`, secret: r.pin, note: 'Give it to the student in person. It is shown only this once. PINs are stored as a one-way hash, so an existing PIN can never be read back.' });
+          });
+          return;
+        }
         const b = e.target.closest('[data-unlock]'); if (!b) return;
         busy(b, async () => {
           await api('/api/admin/pins/unlock', send('POST', { student_id: b.dataset.unlock }));

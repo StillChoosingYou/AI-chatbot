@@ -129,3 +129,18 @@ class StudentSettingsTests(DatabaseTestCase):
         page = client.get('/student').get_data(as_text=True)
         for needle in ('id="view-settings"', 'id="pin-form"', 'id="seg-theme"', 'id="live-chip"'):
             self.assertIn(needle, page)
+
+    def test_admin_issues_a_pin_for_one_student_and_it_is_shown_only_in_that_reply(self):
+        client, old = self.signed_in()
+        self.assertEqual(self.app.test_client().post('/api/admin/pins/issue', json={'student_id': ALEX}).status_code, 401)
+        reply = self.admin.post('/api/admin/pins/issue', json={'student_id': ALEX.lower()})
+        self.assertEqual(reply.status_code, 200)
+        pin = reply.json['pin']
+        self.assertRegex(pin, r'^\d{6}$')
+        self.assertEqual(client.get('/api/live?role=student').status_code, 401)          # the old session ends
+        fresh = self.app.test_client()
+        self.assertEqual(fresh.post('/student/login', data={'student_id': ALEX, 'pin': old}).status_code, 401)
+        self.assertEqual(fresh.post('/student/login', data={'student_id': ALEX, 'pin': pin}).status_code, 302)
+        self.assertNotIn(pin, str(self.admin.get('/api/admin/pins').json))               # never listed
+        self.assertNotIn(pin, str(self.admin.get('/api/admin/security').json))
+        self.assertEqual(self.admin.post('/api/admin/pins/issue', json={'student_id': 'P0'}).status_code, 404)
