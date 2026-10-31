@@ -463,11 +463,11 @@ because the chatbot has to work offline. The PGPC seal is `static/pgpc-logo.png`
 
 ## Dataset and intents
 
-- `property_management_dataset.csv`: 165 synthetic utterances, 15 for each of the 11 school ID
-  intents, with `id,text,intent,language,author` columns. Only school ID questions are in it
-  (ids start at `S076`; the removed chit-chat rows `S001`-`S075` are not renumbered).
-- `property_management_intent.csv`: the intent catalog and staff actions: the 11 ID intents,
-  the `out_of_scope` fallback (no training rows), and nothing else. Hello, thanks, "what can you
+- `property_management_dataset.csv`: 195 synthetic utterances, 15 for each of the 12 school ID
+  intents and for `greeting` (`S001`-`S015`), with `id,text,intent,language,author` columns. The other
+  chit-chat rows (`S016`-`S075`: thanks, help, talk to a person) stay removed and are not renumbered.
+- `property_management_intent.csv`: the intent catalog and staff actions: the 12 ID intents,
+  `greeting`, and the `out_of_scope` fallback (no training rows). Hello is also caught by `small_talk.py` first; thanks, "what can you
   do" and "talk to a person" are answered by the rules in `small_talk.py`, not by the ANN.
 - `property_management_dataset.tab`: Orange version with `intent` as the class,
   `text` as a string meta, and identifiers/language/author as metadata.
@@ -476,7 +476,7 @@ because the chatbot has to work offline. The PGPC seal is `static/pgpc-logo.png`
 
 The guide allows a locally trained Artificial Neural Network. `train_model.py` builds
 TF-IDF word/bigram features and a scikit-learn `MLPClassifier`: one 32-neuron ReLU
-hidden layer and 11 output intents (the school ID topics). It uses L-BFGS, L2 regularization (`alpha=0.1`),
+hidden layer and 13 output intents (the 12 school ID topics and greeting). It uses L-BFGS, L2 regularization (`alpha=0.1`),
 seed 42, and at most 600 iterations. No external AI service or pretrained model is used.
 
 ```bash
@@ -485,7 +485,7 @@ seed 42, and at most 600 iterations. No external AI service or pretrained model 
 ```
 
 The script evaluates a stratified 80/20 split (132 training, 33 test examples), fitting
-vocabulary and IDF only on the training partition. It then refits on all 165 source
+vocabulary and IDF only on the training partition. It then refits on all 195 source
 examples and saves `data/intent_model.joblib`. `Chatbot.py` loads that model. Train before
 starting the app; retrain and restart after changing either CSV or scikit-learn version.
 Only load model files produced by your own training script: joblib uses Python pickle.

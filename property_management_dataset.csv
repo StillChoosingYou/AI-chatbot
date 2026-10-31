@@ -1,4 +1,19 @@
 id,text,intent,language,author
+S001,Hello,greeting,en,ai_seed
+S002,Hi there,greeting,en,ai_seed
+S003,Good morning,greeting,en,ai_seed
+S004,"Hey, are you there?",greeting,en,ai_seed
+S005,Good evening,greeting,en,ai_seed
+S006,Hello po,greeting,taglish,ai_seed
+S007,"Hi po, good morning",greeting,taglish,ai_seed
+S008,"Hey, musta?",greeting,taglish,ai_seed
+S009,gud am po,greeting,taglish,ai_seed
+S010,"Hi bot, kumusta",greeting,taglish,ai_seed
+S011,Magandang umaga po,greeting,fil,ai_seed
+S012,Magandang hapon po,greeting,fil,ai_seed
+S013,Kumusta po,greeting,fil,ai_seed
+S014,Magandang gabi po,greeting,fil,ai_seed
+S015,Mabuhay po,greeting,fil,ai_seed
 S076,When can I collect my school ID?,id_release_schedule,en,ai_seed
 S077,What is my ID release date?,id_release_schedule,en,ai_seed
 S078,What time is ID pickup?,id_release_schedule,en,ai_seed

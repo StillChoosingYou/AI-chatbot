@@ -126,7 +126,7 @@ class ChatFeedbackTests(AppTestCase):
         self.assertEqual(self.client.get('/api/stats').json['new_feedback'], 1)
         self.assertEqual(len(self.client.get('/api/feedback', query_string={'status': 'New', 'rating': 'down'}).json['items']), 1)
         self.assertEqual(self.client.patch(f'/api/feedback/{target}', json={'correct_intent': 'out_of_scope'}).status_code, 200)
-        for body in ({}, {'status': 'Done'}, {'correct_intent': 'made_up'}, {'correct_intent': 'greeting'}, {'correct_intent': 3}, {'other': 1}):
+        for body in ({}, {'status': 'Done'}, {'correct_intent': 'made_up'}, {'correct_intent': 'thanks_goodbye'}, {'correct_intent': 3}, {'other': 1}):
             self.assertEqual(self.client.patch(f'/api/feedback/{target}', json=body).status_code, 400)
         self.assertEqual(self.client.patch('/api/feedback/9999', json={'status': 'Reviewed'}).status_code, 404)
         self.assertEqual(self.client.patch(f'/api/feedback/{target}', json={'correct_intent': ''}).json['correct_intent'], '')
