@@ -4,3 +4,4 @@ scikit-learn==1.6.1
 joblib==1.5.1
 psycopg[binary]==3.2.13
 psycopg-pool==3.2.8
+cryptography==50.0.2

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <title>Security check · School ID</title>
+  <script>try{var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/auth.js" defer></script>
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <img class="brand-logo" src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="42" height="42">
+    <p class="eyebrow">SCHOOL ID · ADMIN · STEP 2 OF 2</p>
+    <h1>Security check</h1>
+    <p class="subtle">Type the letters in the picture to open the admin panel. Capital or small letters both work.</p>
+    {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/admin/verify" autocomplete="off">
+      <div class="captcha-box">
+        <img id="cap-img" src="/admin/captcha.png" width="230" height="84" alt="Distorted letters to copy">
+        <button type="button" id="cap-refresh" class="icon-btn" aria-label="Show another picture" title="Show another picture">↻</button>
+      </div>
+      <label>Letters in the picture<input name="captcha" id="cap-input" maxlength="8" required autofocus autocapitalize="characters" spellcheck="false" inputmode="text"></label>
+      <button type="submit" class="primary">Verify and continue</button>
+    </form>
+    <p class="subtle"><a href="/admin/cancel">Back to sign in</a></p>
+  </main>
+</body>
+</html>

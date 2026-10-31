@@ -7,8 +7,13 @@ and stored only as a salted hash. A wrong PIN is counted on the account itself i
 holds across server instances: 5 wrong tries lock that account for 15 minutes. Whoever is signed in can see
 only their own record in the chat.
 """
+import base64
+import hashlib
+import os
 import secrets
 import time
+
+from cryptography.fernet import Fernet, InvalidToken
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -48,3 +53,26 @@ def pin_problem(pin):
     if steps in ({1}, {-1}):
         return 'Choose a PIN that is not a run like 123456.'
     return ''
+
+
+# ─── the PIN vault ───
+# The office can see the PIN it issued (admin Accounts table). It is kept encrypted, separate from the sign-in hash,
+# and cleared the moment the student chooses their own PIN: a PIN a student picked is never readable by anyone.
+
+def _vault(secret):
+    key = os.environ.get('PIN_VAULT_KEY', '') or str(secret)
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(('pin-vault|' + key).encode()).digest()))
+
+
+def seal_pin(pin, secret):
+    return _vault(secret).encrypt(str(pin).encode()).decode()
+
+
+def open_pin(token, secret):
+    """The issued PIN, or '' when there is none (empty, cleared by the student, or the key changed)."""
+    if not token:
+        return ''
+    try:
+        return _vault(secret).decrypt(str(token).encode()).decode()
+    except (InvalidToken, ValueError):
+        return ''

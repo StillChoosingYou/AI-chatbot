@@ -44,6 +44,15 @@
     }
   });
 
+  const picture = document.getElementById('cap-img'), again = document.getElementById('cap-refresh');
+  if (picture && again) {                                                          // admin captcha: another picture
+    again.onclick = () => {
+      picture.src = `/admin/captcha.png?${Date.now()}`;
+      const input = document.getElementById('cap-input'); input.value = ''; input.focus();
+      again.classList.remove('spin'); void again.offsetWidth; again.classList.add('spin');
+    };
+  }
+
   document.querySelectorAll('form').forEach((form) => {
     form.addEventListener('submit', () => {
       const submit = form.querySelector('button[type="submit"]');

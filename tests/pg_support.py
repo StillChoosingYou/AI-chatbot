@@ -18,7 +18,8 @@ from psycopg.conninfo import make_conninfo
 
 from Chatbot import create_app
 
-os.environ.setdefault('STUDENT_LOGIN', '0')      # the app asks students to sign in; most tests are about something else (test_student_login turns it on)
+os.environ.setdefault('STUDENT_LOGIN', '0')
+os.environ.setdefault('ADMIN_CAPTCHA', '0')      # the app asks students to sign in; most tests are about something else (test_student_login turns it on)
 
 TEST_DATABASE_URL = os.environ.get('TEST_DATABASE_URL', '').strip()
 SKIP_MESSAGE = 'TEST_DATABASE_URL is not set, so this database test was skipped (see "Verification" in README.md)'

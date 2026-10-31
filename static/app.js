@@ -2302,6 +2302,7 @@ function setupSettings() {
 
   $('set-clear').onclick = async () => { await newChat(); showView('assistant'); notify('Your conversation was cleared.'); };
   $('set-export').onclick = () => download('/api/student/export');
+  $('set-report').onclick = () => window.open('/me/data', '_blank', 'noopener');
   $('set-signout').onclick = () => fetch('/student/logout', { method: 'POST' }).then(() => location.assign('/student'), () => location.assign('/student'));
 
   /* change PIN */
@@ -2444,7 +2445,7 @@ function roleCommands(query) {
     out.push(
       { group: 'Actions', icon: '✎', label: 'Request help from the office', keywords: 'ask office request', run: () => openStudentRequest() },
       { group: 'Actions', icon: '🔑', label: 'Change my PIN', keywords: 'password security', run: () => { showView('settings'); setTimeout(() => $('pin-current').focus(), 350); } },
-      { group: 'Actions', icon: '⇩', label: 'Download my data', keywords: 'export privacy', run: () => download('/api/student/export') },
+      { group: 'Actions', icon: '⇩', label: 'Download my data (printable report)', keywords: 'export privacy pdf print', run: () => window.open('/me/data', '_blank', 'noopener') },
     );
   }
   out.push(

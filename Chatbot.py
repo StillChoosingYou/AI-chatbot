@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 import psycopg
 import qrcode
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
 from psycopg import errors as pg_errors
 from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
@@ -19,7 +19,7 @@ from werkzeug.routing import IntegerConverter
 from admin_panel import ADMIN_IDLE_SECONDS, register_admin
 from auth import AdminLogin, CoordinatorLogin
 from student_auth import FAILS_ALLOWED as PIN_FAILS_ALLOWED, LOCK_SECONDS as PIN_LOCK_SECONDS
-from student_auth import hash_pin, new_pin, pin_matches, pin_problem, seconds_locked
+from student_auth import hash_pin, new_pin, pin_matches, pin_problem, seal_pin, seconds_locked
 from avatars import avatar_svg
 from chat_support import (
     FEEDBACK_REASONS, asks_for_incidents, asks_for_my_requests, asks_for_records,
@@ -404,7 +404,7 @@ def create_app(database_url=None):
     def shape(row):
         """A record as the browser sees it: the stored columns plus year and section written as one ("3E")."""
         row = dict(row)
-        for secret in ('pin_hash', 'pin_failures', 'pin_locked_until'):
+        for secret in ('pin_hash', 'pin_failures', 'pin_locked_until', 'pin_vault'):
             row.pop(secret, None)                      # the PIN hash and its lock never leave the server
         row['year_section'] = format_year_section(row['year_level'], row['section'])
         return row
@@ -553,7 +553,8 @@ def create_app(database_url=None):
         pin = new_pin()
         with connect() as db:
             db.execute('UPDATE inventory SET pin_hash = %s, pin_failures = 0, pin_locked_until = 0, pin_changed = %s, '
-                       'pin_version = pin_version + 1 WHERE id = %s', (hash_pin(pin), '', record_id))
+                       'pin_version = pin_version + 1, pin_vault = %s WHERE id = %s',
+                       (hash_pin(pin), '', seal_pin(pin, app.secret_key), record_id))
         log_activity('coordinator', 'pin issued', f'New PIN issued for {row["name"]} ({row["student_id"]})')
         return jsonify(pin=pin, student_id=row['student_id'], name=row['name'])
 
@@ -640,11 +641,43 @@ def create_app(database_url=None):
                 return jsonify(error='The new PIN must be different from the current one.', field='new'), 400
             stamp = now_stamp()
             version = db.execute('UPDATE inventory SET pin_hash = %s, pin_failures = 0, pin_locked_until = 0, pin_changed = %s, '
-                                 'pin_version = pin_version + 1 WHERE id = %s RETURNING pin_version',
-                                 (hash_pin(new), stamp, row['id'])).fetchone()[0]
+                                 'pin_version = pin_version + 1, pin_vault = %s WHERE id = %s RETURNING pin_version',
+                                 (hash_pin(new), stamp, '', row['id'])).fetchone()[0]
         session['pv'] = version                          # this device stays signed in; every other one is signed out
         log_activity('student', 'student pin changed', f'{student_id} changed their own PIN')
         return jsonify(changed=True, pin_changed=stamp)
+
+    def own_export(row):
+        shaped = shape(row)
+        for hidden in ('id', 'token'):
+            shaped.pop(hidden, None)
+        return shaped
+
+    @app.get('/me/data')
+    def student_data_report():
+        """The same copy as a printable page (Print → Save as PDF). The PIN is never part of it."""
+        row = own_row()
+        if row is None:
+            return redirect('/student' if student_login_on else '/')
+        with connect() as db:
+            requests = [dict(r) for r in db.execute(
+                'SELECT request_type, detail, status, timestamp FROM student_requests WHERE LOWER(student_id)=LOWER(%s) ORDER BY id',
+                (row['student_id'],))]
+            incidents = [dict(r) for r in db.execute(
+                'SELECT category, location, detail, status, timestamp FROM incidents WHERE LOWER(student_id)=LOWER(%s) ORDER BY id',
+                (row['student_id'],))]
+        shaped = own_export(row)
+        fields = [(label, shaped.get(key)) for label, key in (
+            ('Student ID', 'student_id'), ('Name', 'name'), ('Course', 'course'), ('Year & section', 'year_section'),
+            ('ID status', 'status'), ('Request type', 'request_type'), ('Pending reason', 'pending_reason'),
+            ('Schedule', ' '.join(str(shaped.get(k) or '') for k in ('schedule_type', 'schedule_date', 'schedule_time')).strip()),
+            ('Address', 'address'), ('Contact number', 'contact_number'), ('Notes', 'notes'),
+            ('Last sign-in', 'last_signin'), ('Sign-ins', 'signin_count'), ('PIN last changed', 'pin_changed'))]
+        fields = [(a, shaped.get(b) if b in shaped else b) for a, b in fields]
+        response = make_response(render_template('my_data.html', fields=[(a, b) for a, b in fields if b not in (None, '')],
+                                                 requests=requests, incidents=incidents, exported=now_stamp(), student=shaped))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.get('/api/student/export')
     def student_export():
@@ -659,9 +692,7 @@ def create_app(database_url=None):
             incidents = [dict(r) for r in db.execute(
                 'SELECT category, location, detail, status, timestamp FROM incidents WHERE LOWER(student_id)=LOWER(%s) ORDER BY id',
                 (row['student_id'],))]
-        shaped = shape(row)
-        for hidden in ('id', 'token'):
-            shaped.pop(hidden, None)
+        shaped = own_export(row)
         response = jsonify(student=shaped, requests=requests, incidents=incidents, exported=now_stamp())
         response.headers['Content-Disposition'] = f'attachment; filename=my-school-id-data-{row["student_id"]}.json'
         return response

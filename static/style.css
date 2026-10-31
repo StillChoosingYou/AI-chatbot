@@ -808,3 +808,12 @@ html.motion-off .ux-panel, html.motion-off .ux-undo { transition: none; }
 @keyframes jumpIn { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @media (prefers-reduced-motion: reduce) { .nav-ink, .message .msg-copy { transition: none; } .jump-latest { animation: none; } }
 .login-card .subtle:first-of-type { margin: 0 0 16px; }
+
+/* Admin captcha */
+.captcha-box { margin: 14px 0 12px; display: flex; align-items: center; gap: 10px; }
+.captcha-box img { border: 1px solid var(--border); border-radius: 10px; background: #f4f6fc; max-width: calc(100% - 46px); height: auto; animation: cardRise .45s cubic-bezier(.2, .7, .2, 1) both; }
+.captcha-box .icon-btn { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-alt); color: var(--ink); font-size: 17px; cursor: pointer; transition: transform .4s cubic-bezier(.2, .7, .2, 1), background-color .2s; }
+.captcha-box .icon-btn:hover { background: var(--surface-hover); }
+.captcha-box .icon-btn.spin { transform: rotate(360deg); }
+#cap-input { text-transform: uppercase; letter-spacing: 6px; font: 700 20px ui-monospace, Menlo, monospace; text-align: center; }
+.set-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
