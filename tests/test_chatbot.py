@@ -17,7 +17,7 @@ class DatasetTests(unittest.TestCase):
             rows = list(csv.DictReader(f))
         with (ROOT/'property_management_intent.csv').open() as f:
             intents = {r['intent'] for r in csv.DictReader(f)}
-        self.assertEqual(len(rows),180)
+        self.assertEqual(len(rows),195)
         self.assertEqual(len({r['id'] for r in rows}),len(rows))
         self.assertEqual(len({r['text'].lower() for r in rows}),len(rows))
         self.assertEqual({r['intent'] for r in rows},intents-{'out_of_scope'})   # the fallback has no examples
@@ -25,13 +25,13 @@ class DatasetTests(unittest.TestCase):
         ElementTree.parse(ROOT/'chatbot.ows')
 
     def test_dataset_is_about_school_ids_only(self):
-        not_ids={'greeting','thanks_goodbye','bot_help','talk_to_human','out_of_scope'}
+        not_ids={'thanks_goodbye','bot_help','talk_to_human','out_of_scope'}      # greeting is the one chit-chat topic the dataset keeps
         with (ROOT/'property_management_dataset.csv').open() as f:
             rows=list(csv.DictReader(f))
         with (ROOT/'property_management_intent.csv').open() as f:
             intents={r['intent'] for r in csv.DictReader(f)}
         self.assertFalse({r['intent'] for r in rows} & not_ids)
-        self.assertEqual(intents & not_ids,{'out_of_scope'})        # the catalog keeps only the fallback label
+        self.assertEqual(intents & not_ids,{'out_of_scope'})        # the catalog keeps the fallback label and greeting
         with (ROOT/'property_management_dataset.tab').open() as f:   # the Orange copy holds the same rows
             tab=[line.rstrip('\n').split('\t') for line in f][3:]
         self.assertEqual(tab,[[r[k] for k in ('id','text','intent','language','author')] for r in rows])

@@ -1,4 +1,5 @@
 intent,type,description,route_to,default_priority,bot_action
+greeting,conversation,Opens a school ID assistance conversation,none,none,answer
 out_of_scope,fallback,Requests outside the school ID workflow,none,none,fallback_reply
 id_release_schedule,info,Asks for the date and time an ID can be released,Property Management Office,low,lookup
 id_processing_status,info,Asks for the current processing status of an ID,Property Management Office,low,lookup

@@ -22,7 +22,7 @@ who whom whose which what when where why how
 am is are was were be been being do does did done have has had having can could will would shall should may might must
 of to in on at by for from with about into onto over under up down out off as than then so too very just also only
 again here there but and or if because while until
-not yes please pls plz kindly thanks thank hi hello hey ok okay bot chatbot assistant
+not yes please pls plz kindly thanks thank ok okay bot chatbot assistant
 tell show give get want need like know let lets see look find check help ask question questions say
 now today tomorrow tonight yesterday later soon
 ang ng sa na at ay ba po opo ho naman lang pa din rin daw raw nga pala kasi kaya yung yong iyong mga si ni kay kina
