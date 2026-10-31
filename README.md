@@ -652,3 +652,8 @@ notifications, fee payment and penalty payment are not implemented.
 - **Sign-in pages**: dark mode, show/hide password, Caps Lock hint, digits-only PIN, busy button, shake on a wrong try.
 - **Motion**: sliding sidebar marker, page cross-fade between pages (where the browser supports view transitions), the ID card comes in and lifts on hover, offline banner. Everything respects *reduce motion* (and the student Settings switch).
 - **Admin**: palette, a *Live activity* card on Overview (new events light up), Security log CSV.
+
+## Admin captcha, PIN vault, data report
+- **Admin sign-in is two steps**: username + password, then a picture of distorted letters (made by `captcha.py`, no outside service). The answer is never sent to the browser; 5 wrong pictures or 5 minutes send you back to step 1. Set `ADMIN_CAPTCHA=0` only for local tests.
+- **PIN vault**: the PIN the office issues is kept encrypted (Fernet) in `inventory.pin_vault` and shown in the admin Accounts table. The key comes from `PIN_VAULT_KEY` (optional) or else `SECRET_KEY`/the admin login secret; changing it makes old PINs show "Reset to view". When a student sets their own PIN the vault entry is erased, so a PIN a student chose can never be read by anyone.
+- **Download my data**: Settings → *Report (PDF)* opens `/me/data`, a printable page (Print → Save as PDF); *JSON* is still there. Neither ever contains the PIN.

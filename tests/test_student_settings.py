@@ -130,7 +130,7 @@ class StudentSettingsTests(DatabaseTestCase):
         for needle in ('id="view-settings"', 'id="pin-form"', 'id="seg-theme"', 'id="live-chip"'):
             self.assertIn(needle, page)
 
-    def test_admin_issues_a_pin_for_one_student_and_it_is_shown_only_in_that_reply(self):
+    def test_admin_issues_a_pin_for_one_student_and_it_is_listed_for_the_admin_only(self):
         client, old = self.signed_in()
         self.assertEqual(self.app.test_client().post('/api/admin/pins/issue', json={'student_id': ALEX}).status_code, 401)
         reply = self.admin.post('/api/admin/pins/issue', json={'student_id': ALEX.lower()})
@@ -141,7 +141,7 @@ class StudentSettingsTests(DatabaseTestCase):
         fresh = self.app.test_client()
         self.assertEqual(fresh.post('/student/login', data={'student_id': ALEX, 'pin': old}).status_code, 401)
         self.assertEqual(fresh.post('/student/login', data={'student_id': ALEX, 'pin': pin}).status_code, 302)
-        self.assertNotIn(pin, str(self.admin.get('/api/admin/pins').json))               # never listed
+        self.assertIn(pin, str(self.admin.get('/api/admin/pins').json))                  # the admin's Accounts table shows it
         self.assertNotIn(pin, str(self.admin.get('/api/admin/security').json))
         self.assertEqual(self.admin.post('/api/admin/pins/issue', json={'student_id': 'P0'}).status_code, 404)
 

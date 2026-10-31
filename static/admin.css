@@ -246,3 +246,7 @@
 @media (prefers-reduced-motion: reduce) { .a-feed li.fresh { animation: none; } }
 .a-wide { grid-column: 1 / -1; }
 .a-actions { white-space: nowrap; } .a-actions button + button { margin-left: 6px; }
+
+/* PIN column */
+.pin-code { font: 700 14px ui-monospace, Menlo, monospace; letter-spacing: 2px; padding: 2px 8px; border-radius: 6px; background: var(--a-chip, rgba(120,130,170,.14)); }
+.pin-eye { margin-left: 6px; font-size: 11px; padding: 1px 8px; border-radius: 999px; cursor: pointer; border: 1px solid var(--a-line, rgba(120,130,170,.35)); background: transparent; color: inherit; }

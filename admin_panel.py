@@ -8,6 +8,8 @@ Switch role          "Open the coordinator workspace" signs the admin in as the 
                      session, so one click leads back to the panel.
 """
 import csv
+import os
+import secrets
 import io
 import json
 import platform
@@ -20,14 +22,17 @@ import qrcode
 import sklearn
 from flask import Response, abort, jsonify, redirect, render_template, request, send_file, session
 
-from student_auth import hash_pin, new_pin
+import captcha
+from student_auth import hash_pin, new_pin, open_pin, seal_pin
 
 ADMIN_IDLE_SECONDS = 15 * 60
+CAPTCHA_SECONDS = 5 * 60          # time allowed between the password step and the picture step
+CAPTCHA_TRIES = 5
 MAX_NEWS = 20
 DEFAULT_PUBLIC_URL = 'https://pgpc-ai-chatbot.vercel.app'     # the live site: what the links show when the panel is opened on localhost
 LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]', '0.0.0.0')
 SECURITY_ACTIONS = ('sign in', 'failed sign in', 'pin issued', 'pins issued', 'pin unlocked',
-                    'admin sign in', 'admin failed sign in', 'portal', 'news', 'purge', 'backup', 'switch role',
+                    'admin sign in', 'admin failed sign in', 'admin failed captcha', 'portal', 'news', 'purge', 'backup', 'switch role',
                     'student sign in', 'student failed sign in', 'student locked', 'student sign out', 'student pin changed')
 
 
@@ -81,18 +86,79 @@ def register_admin(app, ctx):
                                    action='/admin/login', page_title='Admin sign in', back=False)
         return render_template('admin.html', signed_in_as=login.username if login.enabled else 'local admin')
 
+    captcha_on = os.environ.get('ADMIN_CAPTCHA', '1').strip() != '0'
+
+    def login_page(error, status=200):
+        return render_template('login.html', configured=login.configured, error=error, role_title='ADMIN',
+                               action='/admin/login', page_title='Admin sign in', back=False), status
+
+    def clear_captcha():
+        for key in ('cap_until', 'cap_nonce', 'cap_seal', 'cap_tries'):
+            session.pop(key, None)
+
+    def captcha_pending():
+        return captcha_on and time.time() < session.get('cap_until', 0)
+
     @app.post('/admin/login')
     def admin_login_post():
         who = address()
         if login.check(request.form.get('username', ''), request.form.get('password', ''), who):
+            if captcha_on:                                  # step 2 of 2: the picture, before the panel opens
+                clear_captcha()
+                session['cap_until'] = time.time() + CAPTCHA_SECONDS
+                session['cap_tries'] = 0
+                return redirect('/admin/verify')
             ctx.sign_in('admin')
             log('admin', 'admin sign in', f'from {who}'[:120])
             return redirect('/')
         log('admin', 'admin failed sign in', f'from {who}'[:120])
         error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(who)
                  else 'Wrong username or password.')
-        return render_template('login.html', configured=login.configured, error=error, role_title='ADMIN',
-                               action='/admin/login', page_title='Admin sign in', back=False), 401
+        return login_page(error, 401)
+
+    @app.get('/admin/verify')
+    def admin_verify_page():
+        if not captcha_pending():
+            clear_captcha()
+            return redirect('/')
+        return render_template('admin_captcha.html', error='')
+
+    @app.get('/admin/captcha.png')
+    def admin_captcha_image():
+        if not captcha_pending():
+            abort(404)
+        code = captcha.new_code()
+        nonce = secrets.token_hex(8)
+        session['cap_nonce'] = nonce
+        session['cap_seal'] = captcha.seal(code, nonce, app.secret_key)
+        response = Response(captcha.render(code), mimetype='image/png')
+        response.headers['Cache-Control'] = 'no-store, max-age=0'
+        return response
+
+    @app.post('/admin/verify')
+    def admin_verify_post():
+        who = address()
+        if not captcha_pending():
+            clear_captcha()
+            return redirect('/')
+        if captcha.matches(request.form.get('captcha', ''), session.get('cap_seal'), session.get('cap_nonce', ''), app.secret_key):
+            clear_captcha()
+            ctx.sign_in('admin')
+            log('admin', 'admin sign in', f'from {who}, captcha passed'[:120])
+            return redirect('/')
+        tries = session.get('cap_tries', 0) + 1
+        session['cap_tries'] = tries
+        session.pop('cap_seal', None)                       # a guess burns the picture: a new one must be fetched
+        log('admin', 'admin failed captcha', f'from {who}, try {tries}'[:120])
+        if tries >= CAPTCHA_TRIES:
+            clear_captcha()
+            return login_page('Too many wrong pictures. Sign in again.', 401)
+        return render_template('admin_captcha.html', error='Those letters did not match. Here is a new picture.'), 401
+
+    @app.get('/admin/cancel')
+    def admin_verify_cancel():
+        clear_captcha()
+        return redirect('/')
 
     @app.post('/admin/logout')
     def admin_logout():
@@ -229,7 +295,7 @@ def register_admin(app, ctx):
         now = time.time()
         with connect() as db:
             rows = db.execute("SELECT student_id, name, pin_hash <> '', pin_failures, pin_locked_until, last_signin, "
-                              'signin_count, pin_changed FROM inventory ORDER BY student_id').fetchall()
+                              'signin_count, pin_changed, pin_vault FROM inventory ORDER BY student_id').fetchall()
             today = datetime.now().strftime('%Y-%m-%d')
             recent = [{'time': r[0], 'action': r[1], 'detail': r[2]} for r in db.execute(
                 "SELECT timestamp, action, detail FROM activity_log WHERE actor_role = 'student' ORDER BY id DESC LIMIT 15")]
@@ -237,7 +303,8 @@ def register_admin(app, ctx):
                 "SELECT action, COUNT(*) FROM activity_log WHERE actor_role = 'student' AND timestamp >= %s GROUP BY 1", (today,)).fetchall())
         return jsonify(students=[{'student_id': r[0], 'name': r[1], 'has_pin': bool(r[2]), 'failures': r[3],
                                   'locked': r[4] > now, 'locked_minutes': max(0, int((r[4] - now) // 60) + 1) if r[4] > now else 0,
-                                  'last_signin': r[5], 'signins': r[6], 'pin_changed': r[7]}
+                                  'last_signin': r[5], 'signins': r[6], 'pin_changed': r[7],
+                                  'pin': open_pin(r[8], app.secret_key)}
                                  for r in rows],
                        recent=recent, today={'signed_in': counts.get('student sign in', 0),
                                              'failed': counts.get('student failed sign in', 0) + counts.get('student locked', 0),
@@ -258,8 +325,8 @@ def register_admin(app, ctx):
                               + ("WHERE pin_hash = '' " if scope == 'missing' else '') + 'ORDER BY student_id').fetchall()
             for rid, student_id, name, year, section in rows:
                 pin = new_pin()
-                db.execute("UPDATE inventory SET pin_hash=%s, pin_failures=0, pin_locked_until=0, pin_changed='', pin_version=pin_version+1 "
-                           'WHERE id=%s', (hash_pin(pin), rid))
+                db.execute("UPDATE inventory SET pin_hash=%s, pin_failures=0, pin_locked_until=0, pin_changed='', pin_version=pin_version+1, "
+                           'pin_vault=%s WHERE id=%s', (hash_pin(pin), seal_pin(pin, app.secret_key), rid))
                 issued.append({'student_id': student_id, 'name': name, 'year_section': f'{year}{section}', 'pin': pin})
         log('admin', 'pins issued', f'{len(issued)} PIN(s), scope {scope}')
         return jsonify(issued=issued, scope=scope)
@@ -273,8 +340,9 @@ def register_admin(app, ctx):
         student_id = str((request.get_json(silent=True) or {}).get('student_id', '')).strip()
         pin = new_pin()
         with connect() as db:
-            row = db.execute("UPDATE inventory SET pin_hash=%s, pin_failures=0, pin_locked_until=0, pin_changed='', pin_version=pin_version+1 "
-                             'WHERE LOWER(student_id)=LOWER(%s) RETURNING student_id, name', (hash_pin(pin), student_id)).fetchone()
+            row = db.execute("UPDATE inventory SET pin_hash=%s, pin_failures=0, pin_locked_until=0, pin_changed='', pin_version=pin_version+1, "
+                             'pin_vault=%s WHERE LOWER(student_id)=LOWER(%s) RETURNING student_id, name',
+                             (hash_pin(pin), seal_pin(pin, app.secret_key), student_id)).fetchone()
         if row is None:
             return jsonify(error='No student with that ID.'), 404
         log('admin', 'pins issued', f'1 PIN for {row[0]}'[:120])
