@@ -245,3 +245,4 @@
 @media (max-width: 760px) { .a-feed.short li { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .a-feed li.fresh { animation: none; } }
 .a-wide { grid-column: 1 / -1; }
+.a-actions { white-space: nowrap; } .a-actions button + button { margin-left: 6px; }

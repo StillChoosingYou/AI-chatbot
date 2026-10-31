@@ -264,6 +264,22 @@ def register_admin(app, ctx):
         log('admin', 'pins issued', f'{len(issued)} PIN(s), scope {scope}')
         return jsonify(issued=issued, scope=scope)
 
+    @app.post('/api/admin/pins/issue')
+    def admin_pin_issue():
+        """A new PIN for one student. Shown once in this reply: only a hash is kept, so an existing PIN cannot be read back."""
+        denied = need_admin()
+        if denied:
+            return denied
+        student_id = str((request.get_json(silent=True) or {}).get('student_id', '')).strip()
+        pin = new_pin()
+        with connect() as db:
+            row = db.execute("UPDATE inventory SET pin_hash=%s, pin_failures=0, pin_locked_until=0, pin_changed='', pin_version=pin_version+1 "
+                             'WHERE LOWER(student_id)=LOWER(%s) RETURNING student_id, name', (hash_pin(pin), student_id)).fetchone()
+        if row is None:
+            return jsonify(error='No student with that ID.'), 404
+        log('admin', 'pins issued', f'1 PIN for {row[0]}'[:120])
+        return jsonify(pin=pin, student_id=row[0], name=row[1])
+
     @app.post('/api/admin/pins/unlock')
     def admin_pins_unlock():
         denied = need_admin()
