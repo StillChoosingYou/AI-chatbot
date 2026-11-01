@@ -261,7 +261,21 @@ def register_admin(app, ctx):
         denied = need_admin()
         if denied:
             return denied
-        return jsonify(news=ctx.news_items(), from_database=ctx.get_setting('news', None) is not None, max=MAX_NEWS)
+        return jsonify(news=ctx.manual_news(), from_database=ctx.get_setting('news', None) is not None, max=MAX_NEWS,
+                       auto=ctx.auto_news(), auto_on=ctx.auto_news_on(),
+                       auto_forced_off=os.environ.get('AUTO_NEWS', '1').strip() == '0')
+
+    @app.put('/api/admin/news/auto')
+    def admin_news_auto():
+        denied = need_admin()
+        if denied:
+            return denied
+        on = (request.get_json(silent=True) or {}).get('on')
+        if not isinstance(on, bool):
+            return jsonify(error='Send {"on": true} or {"on": false}.'), 400
+        ctx.set_setting('news_auto', '1' if on else '0')
+        log('admin', 'news', 'calendar announcements ' + ('on' if on else 'off'))
+        return jsonify(auto_on=on, auto=ctx.auto_news())
 
     @app.put('/api/admin/news')
     def admin_news_put():
@@ -284,7 +298,7 @@ def register_admin(app, ctx):
             return denied
         ctx.delete_setting('news')
         log('admin', 'news', 'ticker back to data/pgpc_news.json')
-        return jsonify(news=ctx.news_items())
+        return jsonify(news=ctx.manual_news())
 
     # ─── PIN tools ───
     @app.get('/api/admin/pins')
