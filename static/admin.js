@@ -585,6 +585,25 @@ ux.help.register(() => [
   ['Ctrl+K', 'Command palette: tabs and actions'], ['?', 'This list'], ['1 – 8', 'Open a tab'], ['/', 'Focus the search box of the tab'],
   ['← / →', 'Between tabs (while a tab is focused)'], ['Esc', 'Close a dialog'],
 ]);
+
+/* ---------- tutorial for a new admin (tour.js) ---------- */
+const tourSteps = () => [
+  { title: 'Welcome to the Admin panel 👋', text: 'A one-minute tour of the sections you will use most. A hand will show you where to click. Press Esc any time to stop.' },
+  { target: '#tabs', title: 'Your sections', text: 'Eight tabs run the whole system. Press 1 to 8, or use the ← and → keys while a tab is focused.' },
+  { target: '#tab-access', mode: 'click', title: 'Try it: open Access & PINs', text: 'Students sign in with their Student ID and a 6-digit PIN. You issue the PINs here.' },
+  { wait: '#pin-chips', target: '#pins-missing', title: 'Issue PINs in one go', text: 'Make a PIN for everyone who has none. The new PINs show once: print the slips or download the CSV.' },
+  { target: '#pin-eye', title: 'See the issued PIN', text: 'The PIN the office issued is shown in the Accounts table. Hide or show them here. A PIN a student chose themselves stays private.' },
+  { target: '#tab-news', mode: 'click', title: 'Try it: open Announcements', text: 'The PGPC NEWS ticker that every student and coordinator sees.' },
+  { wait: '#news-auto', target: '#news-auto', title: 'Automatic monthly announcements', text: 'The ticker adds this month’s events and a look at next month’s by itself. Switch it off here if you prefer.' },
+  { target: '#news-add', title: 'Add your own', text: 'Write an announcement with an emoji icon, then press “Save to the ticker”. Yours always come first.' },
+  { target: '#tab-security', mode: 'click', title: 'Try it: open the Security log', text: 'Every sign-in, failed try, PIN change and admin action is recorded.' },
+  { wait: '#view h1', target: '#view h1', title: 'Your audit trail', text: 'Check this after anything unusual. You can download it as a CSV.' },
+  { target: '.admin-actions form[action="/admin/switch"] button', title: 'Work as the coordinator', text: 'One click opens the coordinator workspace. You stay signed in and can return from there.' },
+  { target: '#tour-btn', title: 'You are ready! 🎉', text: 'Replay this tutorial any time with this button. Ctrl+K opens a quick command search and ? lists the shortcuts.' },
+];
+$('tour-btn').onclick = () => tour.start(tourSteps(), { key: 'admin' });
+ux.palette.register(() => [{ group: 'Help', icon: '🎓', label: 'Take the tutorial', keywords: 'tour guide help new', run: () => $('tour-btn').click() }]);
 buildTabs();
 show(TABS.some(([id]) => id === location.hash.slice(1)) ? location.hash.slice(1) : 'overview');
 if (!location.hash || location.hash === '#overview') { /* badges come with the overview itself */ } else api('/api/admin/overview').then(paintBadges).catch(() => {});
+tour.auto('admin', tourSteps());

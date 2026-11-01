@@ -10,6 +10,7 @@
   <script src="/static/vendor/motion.js" defer></script>
   <script src="/static/fx.js" defer></script>
   <script src="/static/ux.js" defer></script>
+  <script src="/static/tour.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body data-page-role="{{ page_role }}"{% if is_admin %} data-admin="1"{% endif %}{% if signed_student %} data-student="{{ signed_student|tojson|forceescape }}"{% endif %}>
@@ -33,6 +34,7 @@
     <div class="topbar-right">
       <span class="live-chip off" id="live-chip" title="Updates by itself"><i class="live-dot"></i><span>Live</span></span>
       <span class="demo-dot">Sample data</span>
+      <button class="tour-btn" id="tour-btn" type="button" title="A guided tour of this page">? Tutorial</button>
       <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
     </div>
   </header>

@@ -836,3 +836,43 @@ html.motion-off .ux-panel, html.motion-off .ux-undo { transition: none; }
 @keyframes toastPop { 0% { transform: scale(.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
 @media (max-width: 560px) { .ux-toasts { left: 12px; right: 12px; bottom: 12px; align-items: stretch; max-width: none; } }
 @media (prefers-reduced-motion: reduce) { .ux-toast, .ux-toast-ico, .ux-toast i { animation: none !important; transition: opacity .15s; transform: none; } }
+
+/* Guided tour (tour.js) */
+.tour { position: fixed; inset: 0; z-index: 300; opacity: 0; transition: opacity .3s; pointer-events: none; }
+.tour.on { opacity: 1; } .tour.leaving { opacity: 0; pointer-events: none; }
+.tour-block { position: absolute; inset: 0; background: transparent; pointer-events: auto; }
+.tour-hole { position: absolute; left: 0; top: 0; border-radius: 14px; pointer-events: none; box-shadow: 0 0 0 100vmax rgba(8, 14, 34, .66), 0 0 0 3px var(--gold, #e6b422), 0 0 26px 4px rgba(230, 180, 34, .5);
+  transition: transform .55s cubic-bezier(.65, 0, .25, 1), width .55s cubic-bezier(.65, 0, .25, 1), height .55s cubic-bezier(.65, 0, .25, 1), opacity .3s; animation: tourGlow 1.8s ease-in-out infinite; }
+@keyframes tourGlow { 50% { box-shadow: 0 0 0 100vmax rgba(8, 14, 34, .66), 0 0 0 3px var(--gold, #e6b422), 0 0 40px 10px rgba(230, 180, 34, .65); } }
+.tour-card { position: absolute; left: 0; top: 0; box-sizing: border-box; padding: 16px 18px 16px; border-radius: 16px; background: var(--surface, #fff); color: var(--ink, #16213d); border: 1px solid var(--border, #e0e5f0);
+  box-shadow: 0 24px 60px rgba(8, 14, 34, .45); outline: none; pointer-events: auto; transition: transform .55s cubic-bezier(.65, 0, .25, 1), width .3s; }
+.tour-card.swap > * { animation: tourIn .45s cubic-bezier(.2, .7, .2, 1) both; } .tour-card.swap > :nth-child(2) { animation-delay: .04s; } .tour-card.swap > :nth-child(3) { animation-delay: .08s; } .tour-card.swap > :nth-child(4) { animation-delay: .12s; } .tour-card.swap > :nth-child(5) { animation-delay: .16s; }
+@keyframes tourIn { from { opacity: 0; transform: translateY(8px); } }
+.tour-top { display: flex; justify-content: space-between; align-items: center; }
+.tour-count { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--green, #14367f); }
+.tour-x { font: inherit; font-size: 12px; background: none; border: 0; color: var(--muted, #6b7794); cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.tour-x:hover { background: var(--surface-hover, #edf1fa); }
+.tour-dots { display: flex; gap: 5px; margin: 8px 0 10px; } .tour-dots i { height: 4px; flex: 1; border-radius: 4px; background: var(--border, #e0e5f0); transition: background .4s; }
+.tour-dots i.done { background: var(--green-light, #3a68c9); } .tour-dots i.now { background: var(--gold, #e6b422); }
+.tour-card h3 { margin: 0 0 6px; font-size: 18px; line-height: 1.25; } .tour-card p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-soft, var(--ink, #16213d)); }
+.tour-card .tour-do { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--gold-bg, #fdf3d0); font-weight: 600; font-size: 13px; color: var(--ink, #16213d); }
+.tour-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.tour-btns button { font: inherit; font-size: 13px; font-weight: 700; padding: 8px 16px; border-radius: 10px; cursor: pointer; border: 1px solid var(--border, #e0e5f0); background: var(--surface-alt, #f8f9fd); color: var(--ink, #16213d); transition: transform .15s, background-color .2s; }
+.tour-btns button:hover { transform: translateY(-1px); } .tour-btns .primary { background: var(--green, #14367f); border-color: var(--green, #14367f); color: #fff; }
+html[data-theme="dark"] .tour-btns .primary { color: #0b1228; }
+.tour-arrow { position: absolute; width: 14px; height: 14px; background: var(--surface, #fff); border: 1px solid var(--border, #e0e5f0); transform: rotate(45deg); display: none; }
+.tour-card[data-side="below"] .tour-arrow { display: block; top: -8px; left: calc(var(--arrow) - 7px); border-right: 0; border-bottom: 0; }
+.tour-card[data-side="above"] .tour-arrow { display: block; bottom: -8px; left: calc(var(--arrow) - 7px); border-left: 0; border-top: 0; }
+.tour-hand { position: absolute; left: 0; top: 0; width: 44px; height: 44px; opacity: 0; pointer-events: none; filter: drop-shadow(0 6px 8px rgba(0, 0, 0, .35)); transition: transform .9s cubic-bezier(.65, 0, .25, 1), opacity .3s; will-change: transform; }
+.tour-hand.show { opacity: 1; } .tour-hand svg { width: 100%; height: 100%; display: block; transform-origin: 11px 4px; }
+.tour-hand.tap svg { animation: tourTap 1.6s ease-in-out infinite; } .tour-hand.press svg { animation: tourPress .42s ease-in-out both; }
+@keyframes tourTap { 0%, 55%, 100% { transform: translateY(0) scale(1); } 65% { transform: translateY(5px) scale(.9); } 78% { transform: translateY(0) scale(1); } }
+@keyframes tourPress { 0% { transform: scale(1); } 45% { transform: translateY(6px) scale(.84); } 100% { transform: scale(1); } }
+.tour-ripple { position: absolute; left: 11px; top: 4px; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; border: 2px solid var(--gold, #e6b422); opacity: 0; }
+.tour-hand.tap .tour-ripple { animation: tourRipple 1.6s ease-out infinite; } .tour-hand.press .tour-ripple { animation: tourRipple .5s ease-out both; }
+@keyframes tourRipple { 0%, 60% { transform: scale(.4); opacity: 0; } 65% { opacity: .9; } 100% { transform: scale(4.5); opacity: 0; } }
+.tour.still .tour-hole, .tour.still .tour-card, .tour.still .tour-hand { transition: none; animation: none; } .tour.still * { animation: none !important; }
+body.touring { overflow: hidden; }
+.tour-btn { font: inherit; font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px; cursor: pointer; border: 1px solid var(--border, #e0e5f0); background: var(--surface, #fff); color: var(--ink, #16213d); }
+.tour-btn:hover { background: var(--surface-hover, #edf1fa); }
+@media (max-width: 640px) { .tour-arrow { display: none !important; } .tour-card { padding: 14px; } }

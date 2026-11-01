@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/admin.css">
   <script src="/static/ux.js" defer></script>
+  <script src="/static/tour.js" defer></script>
   <script src="/static/admin.js" defer></script>
 </head>
 <body class="admin-body">
@@ -21,6 +22,7 @@
   <div class="admin-actions">
     <span class="admin-who">Signed in as <b>{{ signed_in_as }}</b></span>
     <form method="post" action="/admin/switch"><input type="hidden" name="to" value="coordinator"><button class="primary" type="submit" title="Open the coordinator workspace. You stay signed in here and can come back with one click.">Open coordinator workspace →</button></form>
+    <button type="button" id="tour-btn" class="tour-btn" title="A guided tour of the admin panel">? Tutorial</button>
     <button type="button" id="theme" class="theme-toggle" aria-label="Toggle dark mode">🌙</button>
     <form method="post" action="/admin/logout"><button type="submit">Sign out</button></form>
   </div>
