@@ -32,6 +32,26 @@ class UxAssetTests(AppTestCase):
             scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', client.get('/').get_data(as_text=True))
             self.assertLess(scripts.index('/static/ux.js'), scripts.index('/static/admin.js'))
 
+    def test_the_tutorial_is_loaded_everywhere_with_a_replay_button(self):
+        page = self.client.get('/coordinator').get_data(as_text=True)
+        scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', page)
+        self.assertLess(scripts.index('/static/tour.js'), scripts.index('/static/app.js'))
+        self.assertIn('id="tour-btn"', page)
+        with patch.dict(os.environ, {'ADMIN_PASSWORD': 'y'}):
+            client = self.make_app().test_client()
+            client.post('/admin/login', data={'username': 'Admin', 'password': 'y'})
+            admin = client.get('/').get_data(as_text=True)
+            self.assertIn('id="tour-btn"', admin)
+            scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', admin)
+            self.assertLess(scripts.index('/static/tour.js'), scripts.index('/static/admin.js'))
+        for path, needles in (('/static/tour.js', ('tour-hand', "mode === 'click'", 'Escape', 'prefers-reduced-motion')),
+                              ('/static/app.js', ('tourSteps', 'tour.auto')), ('/static/admin.js', ('tourSteps', "tour.auto('admin'")),
+                              ('/static/style.css', ('.tour-hand', '.tour-hole', '.tour-card'))):
+            body = self.client.get(path).get_data(as_text=True)
+            for needle in needles:
+                with self.subTest(path=path, needle=needle):
+                    self.assertIn(needle, body)
+
     def test_one_shared_toast_serves_the_workspace_and_the_admin_panel(self):
         script = self.client.get('/static/ux.js').get_data(as_text=True)
         self.assertIn('toast,', script)

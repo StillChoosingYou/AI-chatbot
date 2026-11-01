@@ -660,3 +660,6 @@ notifications, fee payment and penalty payment are not implemented.
 
 ## Automatic ticker announcements
 `seasonal_news.py` builds calendar announcements from today's date (Philippine time): this month's events and a look at next month's (Halloween now, Christmas next), counting the days down. Nothing is stored; the ticker changes by itself each month. They appear after the admin's own announcements. Admin → Announcements has a switch to turn them off, and *+ Add announcement* still adds your own. `AUTO_NEWS=0` turns the feature off for a whole server. Only fixed dates are used (no Holy Week or Eid).
+
+## Tutorial for new users
+`static/tour.js` is one guided tour for the admin panel, the coordinator workspace and the student page. It starts by itself the first time someone uses their role on a device (the admin and coordinator once per device, a student once per Student ID per device, remembered in `localStorage`), and any time from the **? Tutorial** button or Ctrl+K → *Take the tutorial*. An animated hand glides to each spot and taps it; *Guided Click* steps dim everything except the target and move on when the user clicks it (or the hand does it for them with *Show me*). A step whose target is not on screen is skipped, Esc ends the tour, and "reduce motion" turns the animation off. The steps are `tourSteps()` in `admin.js` and `app.js`.

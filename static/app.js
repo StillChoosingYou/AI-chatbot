@@ -2462,6 +2462,43 @@ ux.help.register(() => [
   ['Esc', 'Close a menu or dialog'],
 ]);
 
+
+/* ── Tutorial for a new user (tour.js): a hand points, and the user clicks where it taps ── */
+const nav = (id) => [`#role-nav [data-view="${id}"]`, `#mobile-dock [data-view="${id}"]`];
+function tourSteps() {
+  const me = signedStudent();
+  const open = (id) => async () => { if (currentView !== id) { showView(id); await new Promise(r => setTimeout(r, 350)); } };
+  if (workspaceRole === 'student') {
+    return [
+      { title: `Welcome${me ? `, ${me.name.split(' ')[0]}` : ''}! 👋`, text: 'A one-minute tour of your ID assistant. A hand will show you where things are. Press Esc any time to stop.' },
+      { before: open('assistant'), target: '#chat-input', title: 'Ask me anything about your ID', text: 'Type “my status”, “when can I claim my ID?” or “lost ID”. English and Tagalog both work.' },
+      { target: '.suggestions', title: 'Or tap a suggestion', text: 'These buttons are the most common questions. One tap sends it.' },
+      { target: nav('settings'), mode: 'click', title: 'Try it: open Settings', text: 'Your PIN, appearance and your data are in Settings.' },
+      { wait: '#pin-form', target: '#pin-form', title: 'Change your PIN here', text: 'The office gave you a first PIN. Choose your own 6 digits: nobody, not even the office, can read it afterwards.' },
+      { target: '#set-report', title: 'Your data is yours', text: 'Download a printable report (save it as PDF) or a JSON copy of everything the system keeps about you.' },
+      { target: '#seg-theme', title: 'Make it comfortable', text: 'Light, dark or automatic, plus text size and a “reduce motion” switch.' },
+      { target: nav('assistant'), mode: 'click', title: 'Back to the assistant', text: 'Click Assistant to go back to the chat.' },
+      { target: '#tour-btn', title: 'That is it! 🎉', text: 'You can replay this tutorial any time with this button. Ctrl+K opens a quick command search.' },
+    ];
+  }
+  return [
+    { title: 'Welcome to the Coordinator workspace 👋', text: 'A one-minute tour: where the students, requests and the assistant are. A hand will show you. Press Esc any time to stop.' },
+    { before: open('dashboard'), target: ['#role-nav', '#mobile-dock'], title: 'Your pages', text: 'Dashboard, Assistant, Appointments, Requests, Incidents, Feedback and Activity. The numbers beside them show what is waiting.' },
+    { target: '#ticker:not([hidden])', title: 'PGPC NEWS ticker', text: 'Announcements from the admin scroll here for everyone. This month’s school events appear by themselves.' },
+    { target: '#dashboard-tiles', title: 'Today at a glance', text: 'How many IDs are not yet made, ready for release, released or overdue, and today’s appointments.' },
+    { target: '#new-record', title: 'Add a student', text: 'Create one record here. Ctrl+N does the same from anywhere.' },
+    { target: '#import-btn', title: 'Many students at once', text: 'Import a CSV file, or export the whole list with the button beside it.' },
+    { target: '#records .row-more', title: 'Each row has actions', text: 'Open a row’s menu to update the status, issue a sign-in PIN, print a sticker or open the ID card.' },
+    { target: nav('assistant'), mode: 'click', title: 'Try it: open the Assistant', text: 'The same assistant students use, with extra tools for staff.' },
+    { wait: '#chat-input', target: '#chat-input', title: 'Type an ID or a name', text: 'Type a student ID like the example and I show that student. Then use the buttons under the answer.' },
+    { target: '#live-chip', title: 'Always up to date', text: 'This page refreshes by itself every few seconds when the admin, a student or another coordinator changes something.' },
+    { target: '#tour-btn', title: 'You are ready! 🎉', text: 'Replay this tutorial any time with this button. Ctrl+K opens a quick command search.' },
+  ];
+}
+$('tour-btn').onclick = () => tour.start(tourSteps(), { key: tourKey() });
+const tourKey = () => `${workspaceRole}${signedStudent() ? ':' + signedStudent().student_id : ''}`;
+ux.palette.register(() => [{ group: 'Help', icon: '🎓', label: 'Take the tutorial', keywords: 'tour guide help new', run: () => $('tour-btn').click() }]);
+
 /* ── Start ── */
 applyPrefs();
 initTheme();
@@ -2471,6 +2508,7 @@ window.addEventListener('resize', () => { clearTimeout(tickerResize); tickerResi
 if (document.fonts) document.fonts.ready.then(fitTicker);        // the strip is measured again once the fonts are in
 if (workspaceRole && ROLE_META[workspaceRole]) {
   setRole(workspaceRole, { useHash: true });
+  tour.auto(tourKey(), tourSteps());
 } else {
   workspaceRole = '';
   renderNav();
