@@ -2297,6 +2297,23 @@ function setupSettings() {
   $('set-clear').onclick = async () => { await newChat(); showView('assistant'); notify('Your conversation was cleared.'); };
   $('set-export').onclick = () => download('/api/student/export');
   $('set-report').onclick = () => window.open('/me/data', '_blank', 'noopener');
+  $('set-survey').onclick = async () => {                       // System Usability Scale: ten statements, 1 (disagree) to 5 (agree)
+    const { items, answered } = await api('/api/student/survey');
+    let answers = null;
+    const body = `<p class="sus-scale"><span>1 = strongly disagree</span><span>5 = strongly agree</span></p><ol class="sus">${items.map((text, i) =>
+      `<li><span>${escapeHtml(text)}</span><span class="sus-pick" role="radiogroup" aria-label="Statement ${i + 1}">${[1, 2, 3, 4, 5].map(n =>
+        `<label><input type="radio" name="sus${i}" value="${n}"><b>${n}</b></label>`).join('')}</span></li>`).join('')}</ol><p class="set-error" id="sus-error" hidden>Please answer every statement.</p>`;
+    const sent = await ux.dialog({ title: 'Rate this assistant', text: answered ? 'You answered before. Sending again replaces your answers.' : 'How much do you agree with each statement?', ok: 'Send', cancel: 'Not now', body,
+      read: (panel) => {
+        const picked = items.map((_, i) => panel.querySelector(`input[name="sus${i}"]:checked`));
+        panel.querySelector('#sus-error').hidden = picked.every(Boolean);
+        if (!picked.every(Boolean)) return false;
+        answers = picked.map(input => Number(input.value));
+      } });
+    if (!sent || !answers) return;
+    try { await api('/api/student/survey', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers }) }); notify('Thank you! Your answers were saved.'); }
+    catch (error) { notify(error.message); }
+  };
   $('set-signout').onclick = () => fetch('/student/logout', { method: 'POST' }).then(() => location.assign('/student'), () => location.assign('/student'));
 
   /* change PIN */

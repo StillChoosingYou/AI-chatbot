@@ -18,6 +18,8 @@ from werkzeug.routing import IntegerConverter
 
 from admin_panel import ADMIN_IDLE_SECONDS, register_admin
 from auth import AdminLogin, CoordinatorLogin
+from metrics import Metrics
+from quality import SUS_ITEMS, sus_score, who_answered
 from seasonal_news import auto_news
 from student_auth import FAILS_ALLOWED as PIN_FAILS_ALLOWED, LOCK_SECONDS as PIN_LOCK_SECONDS
 from student_auth import hash_pin, new_pin, pin_matches, pin_problem, seal_pin, seconds_locked
@@ -270,8 +272,48 @@ def create_app(database_url=None):
         if active in IDLE_SECONDS and session.get(active):
             session[f'seen_{active}'] = now
 
+    metrics = Metrics()
+    app.extensions['metrics'] = metrics
+
+    @app.before_request
+    def start_timer():
+        request.environ['school_id.t0'] = time.perf_counter()
+
+    @app.after_request
+    def time_request(response):
+        start = request.environ.get('school_id.t0')
+        path = request.path
+        if start is not None and not path.startswith('/static/') and path not in ('/healthz', '/api/live'):
+            group = 'chat' if request.method == 'POST' and path == '/api/chat' else 'api' if path.startswith('/api/') else 'page'
+            metrics.record(group, (time.perf_counter() - start) * 1000, response.status_code)
+        return response
+
+    @app.get('/healthz')
+    def healthz():
+        """For uptime monitors and the Quality Scorecard: is the database answering and is the model loaded?"""
+        began = time.perf_counter()
+        try:
+            with connect() as db:
+                db.execute('SELECT 1')
+            database = True
+        except psycopg.Error:
+            database = False
+        body = {'status': 'ok' if database and matcher is not None else 'degraded', 'database': database,
+                'model': matcher is not None, 'build': BUILD, 'uptime_seconds': int(time.time() - metrics.started),
+                'db_ms': round((time.perf_counter() - began) * 1000, 1)}
+        response = jsonify(body)
+        response.status_code = 200 if body['status'] == 'ok' else 503
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+           "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; "
+           "worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+
     @app.after_request
     def security_headers(response):
+        response.headers.setdefault('Content-Security-Policy', CSP)
+        response.headers.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'DENY')
         response.headers.setdefault('Referrer-Policy', 'no-referrer')
@@ -647,6 +689,33 @@ def create_app(database_url=None):
         session['pv'] = version                          # this device stays signed in; every other one is signed out
         log_activity('student', 'student pin changed', f'{student_id} changed their own PIN')
         return jsonify(changed=True, pin_changed=stamp)
+
+    @app.get('/api/student/survey')
+    def student_survey_get():
+        """The ten System Usability Scale statements, and whether this student already answered."""
+        row = own_row()
+        if row is None:
+            return signed_out_reply()
+        with connect() as db:
+            done = db.execute('SELECT score FROM sus_responses WHERE who = %s', (who_answered(row['student_id'], app.secret_key),)).fetchone()
+        return jsonify(items=list(SUS_ITEMS), answered=done is not None)
+
+    @app.post('/api/student/survey')
+    def student_survey_post():
+        """Save (or replace) this student's answers. Only a keyed hash of the student ID is kept with them."""
+        row = own_row()
+        if row is None:
+            return signed_out_reply()
+        answers = (request.get_json(silent=True) or {}).get('answers')
+        try:
+            score = sus_score(answers)
+        except ValueError as problem:
+            return jsonify(error=str(problem)), 400
+        with connect() as db:
+            db.execute('INSERT INTO sus_responses (who, answers, score, timestamp) VALUES (%s,%s,%s,%s) '
+                       'ON CONFLICT (who) DO UPDATE SET answers = EXCLUDED.answers, score = EXCLUDED.score, timestamp = EXCLUDED.timestamp',
+                       (who_answered(row['student_id'], app.secret_key), json.dumps(answers), score, now_stamp()))
+        return jsonify(saved=True)
 
     def own_export(row):
         shaped = shape(row)

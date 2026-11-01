@@ -876,3 +876,14 @@ body.touring { overflow: hidden; }
 .tour-btn { font: inherit; font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px; cursor: pointer; border: 1px solid var(--border, #e0e5f0); background: var(--surface, #fff); color: var(--ink, #16213d); }
 .tour-btn:hover { background: var(--surface-hover, #edf1fa); }
 @media (max-width: 640px) { .tour-arrow { display: none !important; } .tour-card { padding: 14px; } }
+
+/* Usability survey (System Usability Scale) */
+.sus-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin: 0 0 6px; }
+.sus { list-style: decimal inside; margin: 0; padding: 0; max-height: 48vh; overflow: auto; }
+.sus li { padding: 9px 2px; border-top: 1px solid var(--border); font-size: 13px; }
+.sus li > span:first-child { display: inline; }
+.sus-pick { display: flex; gap: 6px; margin-top: 6px; }
+.sus-pick label { position: relative; cursor: pointer; } .sus-pick input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.sus-pick b { display: grid; place-items: center; width: 38px; height: 34px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-alt); font-size: 13px; transition: background-color .15s, color .15s, transform .15s; }
+.sus-pick label:hover b { transform: translateY(-1px); } .sus-pick input:checked + b { background: var(--green); border-color: var(--green); color: #fff; } .sus-pick input:focus-visible + b { outline: 2px solid var(--gold); outline-offset: 2px; }
+html[data-theme="dark"] .sus-pick input:checked + b { color: #0b1228; }
