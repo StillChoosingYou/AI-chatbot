@@ -663,3 +663,12 @@ notifications, fee payment and penalty payment are not implemented.
 
 ## Tutorial for new users
 `static/tour.js` is one guided tour for the admin panel, the coordinator workspace and the student page. It starts by itself the first time someone uses their role on a device (the admin and coordinator once per device, a student once per Student ID per device, remembered in `localStorage`), and any time from the **? Tutorial** button or Ctrl+K → *Take the tutorial*. An animated hand glides to each spot and taps it; *Guided Click* steps dim everything except the target and move on when the user clicks it (or the hand does it for them with *Show me*). A step whose target is not on screen is skipped, Esc ends the tour, and "reduce motion" turns the animation off. The steps are `tourSteps()` in `admin.js` and `app.js`.
+
+## Quality Scorecard (ISO/IEC 25010)
+Admin → **Quality** measures the system against the eight characteristics: Functional Suitability, Performance Efficiency, Compatibility, Interaction Capability, Reliability, Security, Maintainability and Flexibility. `quality.py` runs the checks; **Printable report (PDF)** (`/admin/quality-report`) is the page to show at the defense.
+- Every check is labelled *measured* (worked out now: model and database timings, response headers, error rate, database contents), *inspected* (read from the project files: tests, docs, settings), *declared* (a design fact) or *gap* (not built yet: it scores zero, so the number stays honest). A check with too little data (fewer than 5 survey answers, for example) is shown as "–" and left out of the average.
+- `GET /healthz` (public, no secrets) says whether the database answers and the model is loaded; `503` when not. Use it with any uptime monitor.
+- Live timings (`metrics.py`) are kept in memory per server instance since it started.
+- **Rate this assistant** in a student's Settings is the 10-statement System Usability Scale. Only a keyed hash of the student ID is stored with the answers (one answer per student). The score feeds Interaction Capability once 5 students have answered (68 = average, 80.3 = excellent).
+- Every response now carries a Content-Security-Policy (no outside sources, no framing, `object-src 'none'`), `Cross-Origin-Opener-Policy` and the older headers. Inline scripts are still allowed, and the scorecard says so as a gap.
+- `.github/workflows/ci.yml` runs the Python and JavaScript lint and the whole test suite on every pull request, against a PostgreSQL service.

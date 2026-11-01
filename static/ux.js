@@ -49,13 +49,13 @@
     return { back, panel, close };
   }
 
-  function dialog({ title, text = '', ok = 'OK', cancel = 'Cancel', danger = false, body = '' }) {
+  function dialog({ title, text = '', ok = 'OK', cancel = 'Cancel', danger = false, body = '', read = null }) {
     return new Promise((resolve) => {
       const l = layer(`<h2>${esc(title)}</h2>${text ? `<p>${esc(text)}</p>` : ''}${body}
         <div class="ux-actions">${cancel ? `<button type="button" data-no>${esc(cancel)}</button>` : ''}<button type="button" data-yes class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div>`,
       { label: title, onClose: (v) => resolve(v === true) });
       l.panel.addEventListener('click', (e) => {
-        if (e.target.closest('[data-yes]')) l.close(true);
+        if (e.target.closest('[data-yes]')) { if (read && read(l.panel) === false) return; l.close(true); }     // read() may keep the box open (a form that is not complete)
         else if (e.target.closest('[data-no]')) l.close(false);
       });
       (l.panel.querySelector(danger ? '[data-no]' : '[data-yes]') || l.panel.querySelector('[data-yes]')).focus();

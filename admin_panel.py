@@ -23,6 +23,7 @@ import sklearn
 from flask import Response, abort, jsonify, redirect, render_template, request, send_file, session
 
 import captcha
+import quality
 from student_auth import hash_pin, new_pin, open_pin, seal_pin
 
 ADMIN_IDLE_SECONDS = 15 * 60
@@ -32,7 +33,7 @@ MAX_NEWS = 20
 DEFAULT_PUBLIC_URL = 'https://pgpc-ai-chatbot.vercel.app'     # the live site: what the links show when the panel is opened on localhost
 LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]', '0.0.0.0')
 SECURITY_ACTIONS = ('sign in', 'failed sign in', 'pin issued', 'pins issued', 'pin unlocked',
-                    'admin sign in', 'admin failed sign in', 'admin failed captcha', 'portal', 'news', 'purge', 'backup', 'switch role',
+                    'admin sign in', 'admin failed sign in', 'admin failed captcha', 'quality', 'portal', 'news', 'purge', 'backup', 'switch role',
                     'student sign in', 'student failed sign in', 'student locked', 'student sign out', 'student pin changed')
 
 
@@ -254,6 +255,34 @@ def register_admin(app, ctx):
         ctx.set_setting('student_portal_open', '1' if payload['open'] else '0')
         log('admin', 'portal', 'student portal opened' if payload['open'] else 'student portal closed')
         return jsonify(open=payload['open'])
+
+    # ─── quality scorecard (ISO/IEC 25010) ───
+    def quality_report(deep=False):
+        return quality.evaluate({
+            'app': app, 'connect': connect, 'matcher': ctx.matcher, 'metrics': app.extensions['metrics'], 'on_vercel': ctx.on_vercel,
+            'admin_configured': login.configured, 'captcha_on': captcha_on, 'student_login_on': ctx.student_login_on,
+            'coordinator_configured': ctx.coordinator_configured, 'secret_key_env': os.environ.get('SECRET_KEY', ''), 'build': ctx.build,
+        }, samples=120 if deep else 30)
+
+    @app.get('/api/admin/quality')
+    def admin_quality():
+        denied = need_admin()
+        if denied:
+            return denied
+        deep = request.args.get('deep') == '1'
+        report = quality_report(deep)
+        if deep:
+            log('admin', 'quality', f'scorecard measured: {report["overall"]}')
+        return jsonify(report)
+
+    @app.get('/admin/quality-report')
+    def admin_quality_page():
+        if not admin_signed_in():
+            return redirect('/')
+        response = app.make_response(render_template('quality_report.html', report=quality_report(True)))
+        response.headers['Cache-Control'] = 'no-store'
+        log('admin', 'quality', 'printable report opened')
+        return response
 
     # ─── ticker news ───
     @app.get('/api/admin/news')

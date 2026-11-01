@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const view = $('view');
 const TABS = [['overview', 'Overview'], ['portal', 'Student portal'], ['access', 'Access & PINs'], ['insights', 'Chatbot insights'],
-  ['news', 'Announcements'], ['data', 'Data & backup'], ['security', 'Security log'], ['system', 'System']];
+  ['news', 'Announcements'], ['data', 'Data & backup'], ['security', 'Security log'], ['system', 'System'], ['quality', 'Quality']];
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const REFRESH_MS = 30000;
 let current = 'overview';
@@ -389,6 +389,23 @@ const views = {
     };
   },
 
+  async quality() {
+    const d = await api(`/api/admin/quality${quality.deep ? '?deep=1' : ''}`); quality.deep = false;
+    return () => {
+      const tone = (p) => (p === null ? 'na' : p >= 0.9 ? 'ok' : p >= 0.5 ? 'part' : 'no');
+      const mark = (p) => (p === null ? '–' : p >= 0.9 ? '✓' : p >= 0.5 ? '◐' : '✗');
+      view.innerHTML = `<h1>Quality scorecard</h1><p class="lead">The system measured against the eight quality characteristics of ${esc(d.standard)}. Every check says how it is known: <b>measured</b> now, <b>inspected</b> in the files, <b>declared</b> by design, or a <b>gap</b> that still scores zero.</p>
+        <div class="a-card q-top"><div class="q-ring" style="--p:${d.overall || 0}"><b>${d.overall ?? '–'}</b><small>${esc(d.grade)}</small></div>
+          <div class="q-sum">${d.characteristics.map((c) => `<a href="#q-${c.id}" class="q-row" data-q="${c.id}"><span>${esc(c.name)}</span><span class="q-meter"><i style="width:${c.score || 0}%"></i></span><b>${c.score ?? '–'}</b></a>`).join('')}</div>
+          <div class="q-actions"><button type="button" class="primary" id="q-deep">Measure again (deeper)</button><a class="q-link" href="/admin/quality-report" target="_blank" rel="noopener">Printable report (PDF) ↗</a>
+            <small>Model ${d.benchmark.inference_p95} ms · database ${d.benchmark.db_p95} ms (95th percentile)<br>Server up ${Math.round(d.live.uptime_seconds / 60)} min · ${d.live.requests} requests · ${d.live.errors} errors</small></div></div>
+        <div class="q-grid">${d.characteristics.map((c) => `<div class="a-card q-card" id="q-${c.id}"><div class="q-head"><h2>${esc(c.name)}</h2><b class="q-score ${c.score >= 90 ? 'ok' : c.score >= 60 ? 'part' : 'no'}">${c.score ?? '–'}</b></div><p class="q-ask">${esc(c.question)}</p>
+          <ul class="q-checks">${c.checks.map((k) => `<li class="${tone(k.points)}"><span class="q-mark">${mark(k.points)}</span><span><b>${esc(k.name)}</b><br><small>${esc(k.detail)}</small></span><em class="a-badge">${esc(k.kind)}</em></li>`).join('')}</ul></div>`).join('')}</div>`;
+      $('q-deep').onclick = (e) => busy(e.currentTarget, async () => { quality.deep = true; await show('quality'); toast('Measured again'); });
+      view.querySelectorAll('[data-q]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); $('q-' + a.dataset.q).scrollIntoView({ behavior: 'smooth', block: 'start' }); }; });
+    };
+  },
+
   async news() {
     const d = await api('/api/admin/news');
     let items = d.news.map((n) => ({ ...n }));
@@ -495,6 +512,7 @@ const views = {
 /* ---------- live: one change counter, asked every 4 seconds; the page reloads what it shows when it moves ---------- */
 const LIVE_MS = 4000;
 let rev = null;
+const quality = { deep: false };                   // set by "Measure again": one deeper measurement
 const liveSafe = {                                   // a tab whose text boxes hold something is left alone
   overview: () => true,
   security: () => !$('sec-search')?.value && !$('sec-role')?.value && !$('sec-bad')?.checked,
@@ -556,7 +574,7 @@ document.addEventListener('keydown', (e) => {
   const typing = /^(input|textarea|select)$/i.test(e.target.tagName);
   if (e.key === '/' && !typing) {
     const box = view.querySelector('input[type="search"]'); if (box) { e.preventDefault(); box.focus(); }
-  } else if (!typing && /^[1-8]$/.test(e.key)) show(TABS[+e.key - 1][0]);
+  } else if (!typing && /^[1-9]$/.test(e.key)) show(TABS[+e.key - 1][0]);
   else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     if (e.target.closest && e.target.closest('#tabs')) {
       const at = TABS.findIndex(([id]) => id === current), next = TABS[(at + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length][0];
@@ -582,7 +600,7 @@ ux.palette.register((q) => [
   { group: 'Account', icon: '⎋', label: 'Sign out', keywords: 'log out', run: () => document.querySelector('form[action="/admin/logout"] button').click() },
 ]);
 ux.help.register(() => [
-  ['Ctrl+K', 'Command palette: tabs and actions'], ['?', 'This list'], ['1 – 8', 'Open a tab'], ['/', 'Focus the search box of the tab'],
+  ['Ctrl+K', 'Command palette: tabs and actions'], ['?', 'This list'], ['1 – 9', 'Open a tab'], ['/', 'Focus the search box of the tab'],
   ['← / →', 'Between tabs (while a tab is focused)'], ['Esc', 'Close a dialog'],
 ]);
 
