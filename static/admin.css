@@ -14,7 +14,8 @@
 .admin-main { max-width: 1180px; margin: 0 auto; padding: 28px 32px 60px; }
 .admin-main h1 { font-size: 24px; margin: 0 0 4px; }
 .admin-main .lead { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
-.a-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 20px; }
+.a-grid { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
+.a-grid > * { flex: 1 1 max(170px, calc(25% - 11px)); min-width: 0; }   /* a short last row stretches to fill the width instead of leaving a hole */
 .a-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; box-shadow: var(--shadow-sm); }
 .a-card h2 { font-size: 15px; margin: 0 0 10px; }
 .a-card p { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
