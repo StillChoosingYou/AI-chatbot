@@ -2,6 +2,7 @@
    - ux.confirm / ux.reveal / ux.modal   styled dialogs that replace the browser's confirm() and prompt()
    - ux.palette                          Ctrl/⌘+K command palette (each page registers its own commands)
    - ux.help                             "?" lists the keyboard shortcuts of the page
+   - ux.toast(text, kind | {kind, ms, action})  stacked notices: ok, err, warn, info
    - ux.undo                             a bar with an Undo button after a change
    - the offline banner
    Everything is plain DOM, keyboard friendly and switched off by "reduce motion". */
@@ -181,6 +182,43 @@
     undoTimer = setTimeout(hide, ms);
   }
 
+  /* ---------- toasts: small stacked notices, bottom right ---------- */
+  const TOAST_ICON = { ok: '✓', err: '!', warn: '!', info: 'i' };
+  let toastBox = null;
+  function toast(text, opts = {}) {
+    const { kind = 'ok', ms = kind === 'err' ? 6000 : 3500, action = null } = typeof opts === 'string' ? { kind: opts } : opts;
+    if (!toastBox) {
+      toastBox = document.createElement('div');
+      toastBox.className = 'ux-toasts'; toastBox.setAttribute('aria-live', 'polite');
+      document.body.appendChild(toastBox);
+    }
+    for (const old of [...toastBox.children]) {                       // the same message again: restart it instead of stacking
+      if (old.dataset.text === String(text)) old.remove();
+    }
+    while (toastBox.children.length >= 4) toastBox.firstChild.remove();
+    const el = document.createElement('div');
+    el.className = `ux-toast ${kind}`; el.dataset.text = String(text);
+    el.setAttribute('role', kind === 'err' ? 'alert' : 'status');
+    el.innerHTML = `<span class="ux-toast-ico" aria-hidden="true">${TOAST_ICON[kind] || '✓'}</span><span class="ux-toast-text"></span>`
+      + `${action ? '<button type="button" class="ux-toast-act"></button>' : ''}<button type="button" class="ux-toast-x" aria-label="Dismiss">×</button><i style="animation-duration:${ms}ms"></i>`;
+    el.querySelector('.ux-toast-text').textContent = text;
+    toastBox.appendChild(el);
+    let timer = 0;
+    const close = () => { clearTimeout(timer); el.classList.remove('show'); setTimeout(() => el.remove(), 260); };
+    const arm = (left) => { clearTimeout(timer); timer = setTimeout(close, left); };
+    el.querySelector('.ux-toast-x').onclick = close;
+    if (action) {
+      const button = el.querySelector('.ux-toast-act');
+      button.textContent = action.label;
+      button.onclick = () => { close(); action.run(); };
+    }
+    el.onmouseenter = () => { clearTimeout(timer); el.classList.add('hold'); };      // reading it: it waits
+    el.onmouseleave = () => { el.classList.remove('hold'); arm(1500); };
+    void el.offsetWidth; el.classList.add('show');
+    arm(ms);
+    return close;
+  }
+
   /* ---------- offline banner ---------- */
   let banner = null;
   function netState(online) {
@@ -191,6 +229,7 @@
     }
     banner.classList.toggle('ok', online);
     banner.textContent = online ? 'Back online' : 'You are offline. Changes will not save until the connection returns.';
+    if (online) toast('Back online. Everything is saved again.', 'ok');
     void banner.offsetWidth; banner.classList.add('show');
     clearTimeout(netState.t);
     if (online) netState.t = setTimeout(() => banner.classList.remove('show'), 2200);
@@ -207,7 +246,7 @@
   }, true);
 
   window.ux = {
-    confirm: confirmBox, dialog, reveal, modal, undo,
+    confirm: confirmBox, dialog, reveal, modal, undo, toast,
     palette: { register(fn) { sources.push(fn); }, open: openPalette },
     help: { register(fn) { helpSources.push(fn); }, open: openHelp },
     get busy() { return layers > 0; },

@@ -56,21 +56,7 @@ function progressStop() {
 }
 
 /* ---------- toast ---------- */
-function toast(text, kind = 'ok') {
-  const t = $('toast');
-  t.className = `toast ${kind}`;
-  t.innerHTML = `<span class="toast-ico">${kind === 'err' ? '!' : '✓'}</span><span></span>`;
-  t.lastChild.textContent = text;
-  t.hidden = false;
-  void t.offsetWidth;                // restart the entrance
-  t.classList.add('show');
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => {
-    t.classList.remove('show');
-    toast.hide = setTimeout(() => { t.hidden = true; }, 260);
-  }, kind === 'err' ? 5000 : 3000);
-  clearTimeout(toast.hide);
-}
+function toast(text, kind = 'ok') { return ux.toast(text, { kind }); }
 
 /* ---------- confirm dialog (replaces the browser's confirm box) ---------- */
 function ask({ title, text, ok = 'Confirm', danger = false }) {

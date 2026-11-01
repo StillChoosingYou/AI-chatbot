@@ -170,16 +170,10 @@ function renderBadges() {
   });
 }
 
-let toastTimer = null, toastTurn = 0;
-function notify(message, duration = 3500) {
-  clearTimeout(toastTimer);
-  const toast = $('toast');
-  const turn = ++toastTurn;                          // a newer message must not be wiped by the older one's exit
-  toast.textContent = message;
-  fx.toast(toast);
-  toastTimer = setTimeout(() => {
-    fx.hide(toast).then(() => { if (turn === toastTurn) toast.textContent = ''; });
-  }, duration);
+/* A notice in the corner. The kind is read from the words unless it is given: a failure is red, the rest green. */
+const FAILURE_WORDS = /\b(fail|failed|error|could not|couldn't|cannot|can't|unable|not saved|denied|wrong|invalid|too many|expired|offline)\b/i;
+function notify(message, duration = 3500, kind = FAILURE_WORDS.test(message) ? 'err' : 'ok') {
+  if (window.ux) return ux.toast(message, { kind, ms: kind === 'err' ? Math.max(duration, 5000) : duration });
 }
 
 /* ── Theme and mobile navigation ── */

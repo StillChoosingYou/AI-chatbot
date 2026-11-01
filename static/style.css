@@ -817,3 +817,22 @@ html.motion-off .ux-panel, html.motion-off .ux-undo { transition: none; }
 .captcha-box .icon-btn.spin { transform: rotate(360deg); }
 #cap-input { text-transform: uppercase; letter-spacing: 6px; font: 700 20px ui-monospace, Menlo, monospace; text-align: center; }
 .set-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+
+/* Toasts (ux.toast): stacked at the bottom right, centred on small screens */
+.ux-toasts { position: fixed; right: 20px; bottom: 18px; z-index: 160; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; max-width: min(92vw, 420px); }
+.ux-toast { position: relative; overflow: hidden; pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 11px 8px 13px 12px; border-radius: 12px; background: var(--toast-bg, #1d2740); color: var(--toast-fg, #fff); font-size: 13px; line-height: 1.35; box-shadow: var(--shadow-lg); border-left: 4px solid #3bb273; opacity: 0; transform: translateX(26px) scale(.96); transition: opacity .25s, transform .35s cubic-bezier(.2, .7, .2, 1); }
+.ux-toast.show { opacity: 1; transform: none; }
+.ux-toast.err { border-left-color: #e5484d; } .ux-toast.warn { border-left-color: #f5a524; } .ux-toast.info { border-left-color: #4c7dff; }
+.ux-toast-ico { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; background: #3bb273; color: #fff; }
+.ux-toast.err .ux-toast-ico { background: #e5484d; } .ux-toast.warn .ux-toast-ico { background: #f5a524; } .ux-toast.info .ux-toast-ico { background: #4c7dff; }
+.ux-toast.show .ux-toast-ico { animation: toastPop .5s cubic-bezier(.2, .7, .2, 1) .1s both; }
+.ux-toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ux-toast button { font: inherit; background: none; border: 0; color: inherit; cursor: pointer; border-radius: 6px; }
+.ux-toast-act { font-weight: 800; color: var(--gold, #ffd166) !important; padding: 4px 8px; } .ux-toast-x { opacity: .6; font-size: 18px; line-height: 1; padding: 2px 7px; }
+.ux-toast button:hover { background: rgba(255, 255, 255, .14); } .ux-toast-x:hover { opacity: 1; }
+.ux-toast i { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: rgba(255, 255, 255, .45); transform-origin: left; animation: toastLife linear forwards; }
+.ux-toast.hold i { animation-play-state: paused; }
+@keyframes toastLife { to { transform: scaleX(0); } }
+@keyframes toastPop { 0% { transform: scale(.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+@media (max-width: 560px) { .ux-toasts { left: 12px; right: 12px; bottom: 12px; align-items: stretch; max-width: none; } }
+@media (prefers-reduced-motion: reduce) { .ux-toast, .ux-toast-ico, .ux-toast i { animation: none !important; transition: opacity .15s; transform: none; } }

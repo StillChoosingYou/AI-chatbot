@@ -32,6 +32,14 @@ class UxAssetTests(AppTestCase):
             scripts = re.findall(r'<script\b[^>]*\bsrc="([^"]+)"', client.get('/').get_data(as_text=True))
             self.assertLess(scripts.index('/static/ux.js'), scripts.index('/static/admin.js'))
 
+    def test_one_shared_toast_serves_the_workspace_and_the_admin_panel(self):
+        script = self.client.get('/static/ux.js').get_data(as_text=True)
+        self.assertIn('toast,', script)
+        self.assertIn("setAttribute('aria-live', 'polite')", script)
+        self.assertIn('ux.toast', self.client.get('/static/admin.js').get_data(as_text=True))
+        self.assertIn('ux.toast', self.client.get('/static/app.js').get_data(as_text=True))
+        self.assertIn('.ux-toast', self.client.get('/static/style.css').get_data(as_text=True))
+
     def test_the_student_pin_box_takes_six_digits(self):
         with patch.dict(os.environ, {'STUDENT_LOGIN': '1'}):
             page = self.make_app().test_client().get('/student').get_data(as_text=True)
