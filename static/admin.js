@@ -394,8 +394,12 @@ const views = {
     let items = d.news.map((n) => ({ ...n }));
     return () => {
       const draw = (fresh = -1, removed = -1) => {
-        view.innerHTML = `<h1>Announcements</h1><p class="lead">The PGPC NEWS ticker on both workspaces. ${d.from_database ? 'Saved here.' : 'Showing data/pgpc_news.json until you save.'} Up to ${d.max}.</p>
-          <div class="a-card"><div id="news-list">${items.map((n, i) => `<div class="a-news ${i === fresh ? 'pop' : ''}"><input data-i="${i}" data-k="icon" value="${esc(n.icon)}" maxlength="4" aria-label="Icon"><input data-i="${i}" data-k="text" value="${esc(n.text)}" maxlength="200" aria-label="Announcement"><button type="button" data-del="${i}">Remove</button></div>`).join('') || '<p>No announcements: the ticker is hidden.</p>'}</div>
+        view.innerHTML = `<h1>Announcements</h1><p class="lead">The PGPC NEWS ticker on both workspaces. ${d.from_database ? 'Saved here.' : 'Showing data/pgpc_news.json until you save.'} Up to ${d.max} of your own.</p>
+          <div class="a-card a-auto"><h2>Automatic monthly announcements</h2>
+            <p>The ticker adds this month's events and a look at next month's (for example Halloween now, Christmas next), by itself, every month. They come after your own announcements. ${d.auto_forced_off ? '<b>Switched off for this server (AUTO_NEWS=0).</b>' : ''}</p>
+            <label class="set-check"><input type="checkbox" id="news-auto" ${d.auto_on ? 'checked' : ''} ${d.auto_forced_off ? 'disabled' : ''}> Show them on the ticker</label>
+            <ul class="a-feed a-auto-list ${d.auto_on ? '' : 'off'}">${d.auto.map((a) => `<li><b>${esc(a.icon)}</b><span>${esc(a.text)}</span><em class="a-badge">auto</em></li>`).join('') || '<li>Nothing for this month.</li>'}</ul></div>
+          <div class="a-card" style="margin-top:14px"><h2>Your announcements</h2><div id="news-list">${items.map((n, i) => `<div class="a-news ${i === fresh ? 'pop' : ''}"><input data-i="${i}" data-k="icon" value="${esc(n.icon)}" maxlength="4" aria-label="Icon"><input data-i="${i}" data-k="text" value="${esc(n.text)}" maxlength="200" aria-label="Announcement"><button type="button" data-del="${i}">Remove</button></div>`).join('') || '<p>No announcements: the ticker is hidden.</p>'}</div>
           <div class="a-row"><button type="button" id="news-add" ${items.length >= d.max ? 'disabled' : ''}>+ Add announcement</button><button type="button" class="primary" id="news-save">Save to the ticker</button><button type="button" id="news-reset">Back to the file</button></div></div>`;
         if (fresh >= 0) document.querySelector(`[data-i="${fresh}"][data-k="text"]`)?.focus();
         $('news-list').oninput = (e) => { const i = e.target.dataset.i; if (i !== undefined) items[i][e.target.dataset.k] = e.target.value; };
@@ -404,6 +408,10 @@ const views = {
           const rowEl = b.closest('.a-news'); rowEl.classList.add('out'); await wait(220);
           items.splice(+b.dataset.del, 1); draw();
         };
+        $('news-auto').onchange = (e) => busy(e.currentTarget, async () => {
+          const r = await api('/api/admin/news/auto', send('PUT', { on: e.currentTarget.checked }));
+          d.auto_on = r.auto_on; d.auto = r.auto; toast(r.auto_on ? 'Automatic announcements on' : 'Automatic announcements off'); draw();
+        });
         $('news-add').onclick = () => { items.push({ icon: '📣', text: '' }); draw(items.length - 1); };
         $('news-save').onclick = (e) => busy(e.currentTarget, async () => { const r = await api('/api/admin/news', send('PUT', { news: items.filter((n) => n.text.trim()) })); items = r.news; toast('Ticker saved'); draw(); });
         $('news-reset').onclick = (e) => busy(e.currentTarget, async () => {

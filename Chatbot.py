@@ -18,6 +18,7 @@ from werkzeug.routing import IntegerConverter
 
 from admin_panel import ADMIN_IDLE_SECONDS, register_admin
 from auth import AdminLogin, CoordinatorLogin
+from seasonal_news import auto_news
 from student_auth import FAILS_ALLOWED as PIN_FAILS_ALLOWED, LOCK_SECONDS as PIN_LOCK_SECONDS
 from student_auth import hash_pin, new_pin, pin_matches, pin_problem, seal_pin, seconds_locked
 from avatars import avatar_svg
@@ -842,8 +843,22 @@ def create_app(database_url=None):
                 items.append({'icon': icon.strip()[:4] or '📣', 'text': text.strip()[:200]})
         return items[:MAX_NEWS]
 
+    def auto_news_on():
+        """Calendar announcements are on unless the admin switched them off (or AUTO_NEWS=0 turns the feature off)."""
+        if os.environ.get('AUTO_NEWS', '1').strip() == '0':
+            return False
+        try:
+            return get_setting('news_auto', '1') != '0'
+        except psycopg.Error:
+            return True
+
     def news_items():
-        """The ticker: what the admin saved in the database, else data/pgpc_news.json."""
+        """The ticker: the admin's own announcements, then the calendar ones (this month's events, next month's)."""
+        own = manual_news()
+        return own + [{'icon': a['icon'], 'text': a['text']} for a in auto_news()] if auto_news_on() else own
+
+    def manual_news():
+        """What the admin saved in the database, else data/pgpc_news.json."""
         try:
             saved = get_setting('news', None)
             if saved is not None:
@@ -2173,7 +2188,7 @@ def create_app(database_url=None):
     from types import SimpleNamespace
     register_admin(app, SimpleNamespace(
         admin_login=admin_login, connect=connect, log_activity=log_activity, get_setting=get_setting,
-        set_setting=set_setting, delete_setting=delete_setting, news_items=news_items, clean_news=clean_news,
+        set_setting=set_setting, delete_setting=delete_setting, news_items=news_items, manual_news=manual_news, auto_news=auto_news, auto_news_on=auto_news_on, clean_news=clean_news,
         matcher=matcher, build=BUILD, student_login_on=student_login_on, student_host=student_host,
         coordinator_host=coordinator_host, admin_host=admin_host, public_base=public_base, on_vercel=login.on_vercel,
         coordinator_configured=login.configured, sign_in=sign_in, sign_out=sign_out))
