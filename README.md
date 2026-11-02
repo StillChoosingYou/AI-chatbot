@@ -544,7 +544,7 @@ Install Orange3 with its Text add-on on your desktop, then open `chatbot.ows`.
 3. In **Preprocess Text**, lowercase and tokenize. Start without stopword removal:
    preserve Filipino words and distinctions such as pending/release/lost.
 4. In **Bag of Words** (wired after Preprocess Text; its output is the **Data** input of
-   Test and Score), choose TF-IDF in its weighting options. The Neural Network learner is connected to **Test and Score** too. Without the
+   Test and Score), it is saved as TF-IDF (Count + IDF, no normalisation). The Neural Network learner is connected to **Test and Score** too. Without the
    Bag of Words link, Test and Score has a learner but no data and shows nothing. Set one hidden layer of 32 neurons,
    then select stratified 5-fold cross
    validation and inspect macro F1, per-class recall, and **Confusion Matrix**.
