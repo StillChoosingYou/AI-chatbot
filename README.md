@@ -668,7 +668,7 @@ notifications, fee payment and penalty payment are not implemented.
 - **Undo**: a status change on the Dashboard shows an Undo bar for 8 seconds.
 - **Chat**: copy an answer, **↓ Latest** button when scrolled up, **Save chat** (text file), `↑`/`↓` bring back messages you sent.
 - **Sign-in pages**: dark mode, show/hide password, Caps Lock hint, digits-only PIN, busy button, shake on a wrong try.
-- **Motion**: sliding sidebar marker, page cross-fade between pages (where the browser supports view transitions), the ID card comes in and lifts on hover, offline banner. Everything respects *reduce motion* (and the student Settings switch).
+- **Motion**: sliding sidebar marker, the ID card comes in and lifts on hover, offline banner. Everything respects *reduce motion* (and the student Settings switch).
 - **Admin**: palette, a *Live activity* card on Overview (new events light up), Security log CSV.
 
 ## Admin captcha, PIN vault, data report
