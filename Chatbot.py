@@ -555,29 +555,45 @@ def create_app(database_url=None):
         pin = request.form.get('pin', '')[:20]
         if not clean_text(student_id) or not clean_text(pin):        # a NUL or a lone surrogate cannot be stored
             student_id, pin = '', ''
+
+        def too_many_tries(row):
+            wait = max(1, seconds_locked(row['pin_locked_until'], now) // 60 + 1)
+            log_activity('student', 'student failed sign in', f'{row["student_id"]} while locked · from {address}')
+            return render_template('student_login.html',
+                                   error=f'Too many wrong tries. Try again in {wait} minute(s), or ask the office.'), 429
+
+        columns = 'student_id, pin_hash, pin_failures, pin_locked_until, pin_version'
         with connect() as db:
-            row = db.execute('SELECT student_id, pin_hash, pin_failures, pin_locked_until, pin_version FROM inventory '
-                             'WHERE LOWER(student_id)=LOWER(%s)', (student_id,)).fetchone()
-            if row is not None and row['pin_locked_until'] > now:
-                wait = max(1, seconds_locked(row['pin_locked_until'], now) // 60 + 1)
-                log_activity('student', 'student failed sign in', f'{row["student_id"]} while locked · from {address}')
-                return render_template('student_login.html',
-                                       error=f'Too many wrong tries. Try again in {wait} minute(s), or ask the office.'), 429
-            if row is not None and pin_matches(pin, row['pin_hash']):
-                db.execute('UPDATE inventory SET pin_failures = 0, pin_locked_until = 0, last_signin = %s, '
-                           'signin_count = signin_count + 1 WHERE LOWER(student_id)=LOWER(%s)', (now_stamp(), student_id))
-                student_attempts.pop(address, None)
-                sign_in('student', row['student_id'], pv=row['pin_version'])   # a new PIN from the office or the student signs the old sessions out
-                log_activity('student', 'student sign in', f'{row["student_id"]} · from {address}')
-                return redirect('/student')
+            row = db.execute(f'SELECT {columns} FROM inventory WHERE LOWER(student_id)=LOWER(%s)', (student_id,)).fetchone()
+        if row is not None and row['pin_locked_until'] > now:
+            return too_many_tries(row)
+        # The slow PIN hashing happens here, with no lock and no connection held, so a flood of guesses cannot use
+        # up the connection pool. Only the counting below is locked, and it is short.
+        matched = row is not None and pin_matches(pin, row['pin_hash'])
+        if row is None:
             pin_matches(pin, '')                              # an unknown ID costs the same time as a wrong PIN
+        with connect() as db:
             if row is not None:
-                failures = row['pin_failures'] + 1
+                # FOR UPDATE: guesses made at the same moment are counted one by one against the latest numbers.
+                # Without it each reads the same "failures so far" and a script firing many at once never reaches
+                # the lockout.
+                fresh = db.execute(f'SELECT {columns} FROM inventory WHERE LOWER(student_id)=LOWER(%s) FOR UPDATE',
+                                   (student_id,)).fetchone()
+                if fresh is None or fresh['pin_locked_until'] > now:
+                    return too_many_tries(fresh or row)       # locked by a guess that finished while this one was hashing
+                if matched and fresh['pin_hash'] == row['pin_hash']:       # same PIN as when it was checked
+                    db.execute('UPDATE inventory SET pin_failures = 0, pin_locked_until = 0, last_signin = %s, '
+                               'signin_count = signin_count + 1 WHERE LOWER(student_id)=LOWER(%s)', (now_stamp(), student_id))
+                    student_attempts.pop(address, None)
+                    sign_in('student', fresh['student_id'], pv=fresh['pin_version'])   # a new PIN from the office or the student signs the old sessions out
+                    log_activity('student', 'student sign in', f'{fresh["student_id"]} · from {address}')
+                    return redirect('/student')
+                failures = fresh['pin_failures'] + 1
                 locked = now + PIN_LOCK_SECONDS if failures >= PIN_FAILS_ALLOWED else 0
                 db.execute('UPDATE inventory SET pin_failures = %s, pin_locked_until = %s WHERE LOWER(student_id)=LOWER(%s)',
                            (0 if locked else failures, locked, student_id))
                 log_activity('student', 'student locked' if locked else 'student failed sign in',
-                             f'{row["student_id"]} · wrong PIN ({failures} of {PIN_FAILS_ALLOWED}) · from {address}')
+                             f'{fresh["student_id"]} · wrong PIN ({failures} of {PIN_FAILS_ALLOWED}) · from {address}')
             else:
                 log_activity('student', 'student failed sign in', f'unknown ID {student_id[:30] or "(empty)"} · from {address}')
         student_attempts[address] = (tries + 1, now)

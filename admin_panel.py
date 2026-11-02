@@ -101,12 +101,15 @@ def register_admin(app, ctx):
             session.pop(key, None)
 
     # ─── two-factor (TOTP): the authenticator app's 6-digit code, asked on the same step as the picture ───
-    def totp_state():
+    def parse_totp(text):
         try:
-            data = json.loads(ctx.get_setting(TOTP_SETTING, '') or '{}')
+            data = json.loads(text or '{}')
         except ValueError:
             return {}
         return data if isinstance(data, dict) and data.get('secret') else {}
+
+    def totp_state():
+        return parse_totp(ctx.get_setting(TOTP_SETTING, ''))
 
     def totp_secret(state):
         return open_pin(state.get('secret', ''), app.secret_key)
@@ -118,22 +121,30 @@ def register_admin(app, ctx):
         ctx.set_setting(TOTP_SETTING, json.dumps(state))
 
     def check_second_factor(code):
-        """'code', 'recovery' or '' (refused). A code is good once: its time step is stored and never accepted again."""
-        state = totp_state()
-        secret = totp_secret(state)
-        if not secret:
-            return ''
-        step = totp.verify(secret, code, state.get('last', 0))
-        if step:
-            state['last'] = step
-            save_totp(state)
-            return 'code'
-        used, rest = totp.use_recovery(code, state.get('recovery', []), app.secret_key)
-        if used:
-            state['recovery'] = rest
-            save_totp(state)
-            return 'recovery'
-        return ''
+        """'code', 'recovery' or '' (refused). A code is good once: its time step is stored and never accepted again.
+
+        The record is read FOR UPDATE and written in the same transaction, so requests made at the same moment
+        are checked one after another: only the first can spend a code or a recovery code.
+        """
+        with ctx.connect() as db:
+            row = db.execute('SELECT value FROM app_settings WHERE key = %s FOR UPDATE', (TOTP_SETTING,)).fetchone()
+            state = parse_totp(row[0] if row else '')
+            secret = totp_secret(state)
+            if not secret:
+                return ''
+            step = totp.verify(secret, code, state.get('last', 0))
+            if step:
+                state['last'] = step
+                answer = 'code'
+            else:
+                used, rest = totp.use_recovery(code, state.get('recovery', []), app.secret_key)
+                if not used:
+                    return ''
+                state['recovery'] = rest
+                answer = 'recovery'
+            db.execute('UPDATE app_settings SET value = %s, updated = %s WHERE key = %s',
+                       (json.dumps(state), datetime.now().strftime('%Y-%m-%d %H:%M:%S'), TOTP_SETTING))
+            return answer
 
     def second_step():
         return captcha_on or totp_on()

@@ -135,6 +135,23 @@ checked the records in the app. If it is tracked by Git, `git rm --cached data/i
 - Verify lists exact ID or QR matches first, then name matches.
 - Two coordinators saving at the same moment no longer overwrite each other, and a request cannot be accepted twice.
 
+### Requests made at the same moment (pessimistic locking)
+
+When two people act on the same thing together, the second waits for the first (`SELECT … FOR UPDATE`) and then
+works on the latest data. This covers record edits, request approvals, incident changes, PIN changes, and two
+security counters that used to be read first and written later:
+
+| What | Without the lock | With it |
+|---|---|---|
+| Wrong student PINs | 12 guesses at once: 9 were counted as plain wrong tries, the limit is 5 | exactly 5 counted, the rest meet the lock-out |
+| Admin authenticator code | the same code could be spent by 5 requests at once | spent once |
+| Admin recovery code | one code signed in 6 people | signs in one person |
+
+The PIN is hashed outside the lock (hashing is slow); only the short count is locked, so a flood of guesses cannot
+use up the connection pool. `tests/test_races.py` fires the requests together and also holds a lock on another
+connection to show the request waits. Limits: this is one database, not a distributed system, and the
+"too many tries from one device" counter is kept in each server's memory.
+
 ## Put it online (Vercel)
 
 `app.py` is the entry point for hosts that look for a WSGI object called `app`; on your own computer keep using
