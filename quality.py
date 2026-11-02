@@ -275,6 +275,7 @@ def security(env):
     have = [h for h in wanted if h in headers]
     out.append(check('Security headers on every response', len(have) / len(wanted), f'{len(have)} of {len(wanted)} present: ' + ', '.join(have) + '.', 'measured', 2))
     auth = [('admin password is set', env['admin_configured']), ('captcha on the admin sign-in', env['captcha_on']),
+            ('two-factor code (TOTP) on the admin sign-in', env.get('totp_on', False)),
             ('students must sign in with a PIN', env['student_login_on']), ('coordinator password is set', env['coordinator_configured']),
             ('a fixed SECRET_KEY is set', bool(env['secret_key_env']))]
     good = [name for name, ok in auth if ok]
@@ -286,8 +287,14 @@ def security(env):
     out.append(check('Lock-out and time-outs', 1, '5 wrong PINs lock an account for 15 minutes; idle sessions end after 15 (admin), 30 (coordinator) and 20 (student) minutes; the admin captcha allows 5 tries.', 'declared'))
     out.append(check('Accountability: an audit log of sign-ins and changes', 1 if events else 0, f'{events} events logged this month; the admin reads them in the Security log.', 'measured'))
     out.append(check('Data privacy: a student sees only their own record; PINs they choose are unreadable', 1, 'Own-record limits are enforced on the server; the office-issued PIN is kept encrypted and erased when the student changes it.', 'declared'))
-    out.append(check('Two-factor sign-in for the admin (TOTP)', 0, 'Not built yet. This is the next security step.', 'gap'))
-    out.append(check('Content-Security-Policy without inline scripts', 0, 'The policy blocks other websites but still allows inline scripts (the theme snippet). Nonces would close this.', 'gap'))
+    policy = headers.get('Content-Security-Policy', '')
+    script_src = next((part.strip() for part in policy.split(';') if part.strip().startswith('script-src')), '')
+    strict = bool(script_src) and "'unsafe-inline'" not in script_src and "'unsafe-eval'" not in script_src
+    out.append(check('Content-Security-Policy refuses inline scripts', 1 if strict else 0,
+                     "script-src is limited to this site's own files: an injected <script> or onclick= handler will not run." if strict
+                     else 'script-src still allows inline scripts, so an injected script could run.', 'measured', 2))
+    out.append(check('Two-factor sign-in for the admin (TOTP) is available', 1,
+                     'The admin can turn on an authenticator-app code in System. It is on now.' if env.get('totp_on') else 'The admin can turn on an authenticator-app code in System. It is not turned on yet.', 'declared'))
     return out
 
 

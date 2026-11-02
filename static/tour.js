@@ -83,7 +83,8 @@
         const x2 = view.x + view.w, y2 = view.y + view.h;
         block.style.clipPath = `polygon(evenodd,0 0,100% 0,100% 100%,0 100%,0 0,${view.x}px ${view.y}px,${view.x}px ${y2}px,${x2}px ${y2}px,${x2}px ${view.y}px,${view.x}px ${view.y}px)`;
       } else block.style.clipPath = 'none';
-      if (r) { placeCard(view); aim(view); }
+      if (r || !el) placeCard(view);                                  // a step with no target (the welcome) sits in the middle
+      if (r) aim(view);
     }
 
     function placeCard(view) {

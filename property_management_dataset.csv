@@ -194,3 +194,159 @@ S252,Kailan nilalagyan ng case at lace ang ID?,id_process,taglish,ai_seed
 S253,Paano ginagawa ang school ID?,id_process,taglish,ai_seed
 S254,What is the release step of my school ID?,id_process,en,ai_seed
 S255,Ano ang nangyayari pagkatapos ma-print ang ID?,id_process,taglish,ai_seed
+S256,Good afternoon,greeting,en,ai_seed
+S257,Hello bot,greeting,en,ai_seed
+S258,"Hi, is anyone there?",greeting,en,ai_seed
+S259,Hey assistant,greeting,en,ai_seed
+S260,Good day,greeting,en,ai_seed
+S261,Hi po,greeting,taglish,ai_seed
+S262,"Hello po, good evening",greeting,taglish,ai_seed
+S263,Uy kumusta,greeting,taglish,ai_seed
+S264,Musta na po,greeting,taglish,ai_seed
+S265,Gud pm po,greeting,taglish,ai_seed
+S266,Magandang araw po,greeting,fil,ai_seed
+S267,Kumusta ka na,greeting,fil,ai_seed
+S268,what time can i get my id tomorrow,id_release_schedule,en,ai_seed
+S269,Is my ID release scheduled this week?,id_release_schedule,en,ai_seed
+S270,When is the next ID releasing date?,id_release_schedule,en,ai_seed
+S271,On what date will they give out the school IDs?,id_release_schedule,en,ai_seed
+S272,What day can I pick up my new ID?,id_release_schedule,en,ai_seed
+S273,Kelan po pwede kunin ang id ko,id_release_schedule,taglish,ai_seed
+S274,Anong araw ang pamimigay ng ID?,id_release_schedule,taglish,ai_seed
+S275,Pwede ko na bang kunin ang ID ko bukas?,id_release_schedule,taglish,ai_seed
+S276,May schedule na ba ako sa pickup ng ID,id_release_schedule,taglish,ai_seed
+S277,Anong petsa ang release ng student ID namin?,id_release_schedule,taglish,ai_seed
+S278,Kailan ibibigay ang aking ID?,id_release_schedule,fil,ai_seed
+S279,Anong araw ko makukuha ang ID ko?,id_release_schedule,fil,ai_seed
+S280,Where is my ID now in the process?,id_processing_status,en,ai_seed
+S281,Is my student ID done printing?,id_processing_status,en,ai_seed
+S282,status,id_processing_status,en,ai_seed
+S283,ID status,id_processing_status,en,ai_seed
+S284,Has my ID already been made?,id_processing_status,en,ai_seed
+S285,Tapos na po ba ang ID ko?,id_processing_status,taglish,ai_seed
+S286,Ginagawa na ba ang ID ko?,id_processing_status,taglish,ai_seed
+S287,Nasa anong step na ang ID ko?,id_processing_status,taglish,ai_seed
+S288,Pwede ko bang malaman kung ready na ang school ID ko,id_processing_status,taglish,ai_seed
+S289,Gaano na katagal bago matapos ang ID ko?,id_processing_status,taglish,ai_seed
+S290,Nasaan na ang aking ID sa proseso?,id_processing_status,fil,ai_seed
+S291,Natapos na ba ang pag-print ng ID ko?,id_processing_status,fil,ai_seed
+S292,Why was my ID application put on hold?,pending_id,en,ai_seed
+S293,My ID says pending. What does that mean?,pending_id,en,ai_seed
+S294,What is still lacking in my ID requirements?,pending_id,en,ai_seed
+S295,Why is my ID not moving forward?,pending_id,en,ai_seed
+S296,What do I need to fix so my pending ID can continue?,pending_id,en,ai_seed
+S297,"Bakit hindi pa ako natatapos sa ID, pending daw?",pending_id,taglish,ai_seed
+S298,Anong reason bakit naka-hold ang ID ko?,pending_id,taglish,ai_seed
+S299,Ano ba ang kulang kaya pending ang ID ko,pending_id,taglish,ai_seed
+S300,"Pending po ang status ko, ano gagawin ko?",pending_id,taglish,ai_seed
+S301,"Kulang daw ako ng requirements sa ID, ano yun?",pending_id,taglish,ai_seed
+S302,Bakit nakabinbin ang aking ID?,pending_id,fil,ai_seed
+S303,Ano ang dahilan ng pagka-pending ng ID ko?,pending_id,fil,ai_seed
+S304,When can I come to complete my pending ID?,pending_id_schedule,en,ai_seed
+S305,Can I get an appointment to pass my missing requirements?,pending_id_schedule,en,ai_seed
+S306,What date can I return for my on-hold ID?,pending_id_schedule,en,ai_seed
+S307,I want to book a visit for my pending card,pending_id_schedule,en,ai_seed
+S308,What is the schedule for fixing my pending ID?,pending_id_schedule,en,ai_seed
+S309,Kelan ako pwedeng bumalik para sa pending ID?,pending_id_schedule,taglish,ai_seed
+S310,Pa-book po ng appointment para sa kulang kong requirements,pending_id_schedule,taglish,ai_seed
+S311,Anong araw pwedeng ipasa ang kulang sa ID?,pending_id_schedule,taglish,ai_seed
+S312,May available slot ba para sa pending ID follow-up?,pending_id_schedule,taglish,ai_seed
+S313,Gusto ko mag-schedule ng balik para sa pending ID ko,pending_id_schedule,taglish,ai_seed
+S314,Kailan ako maaaring bumalik para sa nakabinbin kong ID?,pending_id_schedule,fil,ai_seed
+S315,Maaari bang magpa-iskedyul para sa kulang na dokumento?,pending_id_schedule,fil,ai_seed
+S316,"I misplaced my student ID, what now?",lost_id_report,en,ai_seed
+S317,"My ID card got stolen, how do I report it?",lost_id_report,en,ai_seed
+S318,Where do I go to declare a lost ID?,lost_id_report,en,ai_seed
+S319,I dropped my ID somewhere and cannot find it,lost_id_report,en,ai_seed
+S320,How do I get a new ID because I lost mine?,lost_id_report,en,ai_seed
+S321,"Nawawala ang ID ko, ano po gagawin?",lost_id_report,taglish,ai_seed
+S322,"Naiwan ko ata ang ID ko sa jeep, paano mag-report?",lost_id_report,taglish,ai_seed
+S323,Paano po mag-file ng lost ID?,lost_id_report,taglish,ai_seed
+S324,"Nawalan ako ng school ID, saan ako magre-report?",lost_id_report,taglish,ai_seed
+S325,"Na-snatch ang bag ko pati ang ID, ano po gagawin ko?",lost_id_report,taglish,ai_seed
+S326,"Naiwala ko ang aking ID, paano ito iuulat?",lost_id_report,fil,ai_seed
+S327,Nawawala ang aking student card,lost_id_report,fil,ai_seed
+S328,When can I get my replacement for my lost ID?,lost_id_schedule,en,ai_seed
+S329,Set a date for my lost ID replacement visit,lost_id_schedule,en,ai_seed
+S330,What time slots are open for a lost ID replacement?,lost_id_schedule,en,ai_seed
+S331,"I reported my ID as lost, when do I come in?",lost_id_schedule,en,ai_seed
+S332,When is the appointment for replacing my stolen ID?,lost_id_schedule,en,ai_seed
+S333,Kelan ako makakakuha ng replacement sa nawalang ID?,lost_id_schedule,taglish,ai_seed
+S334,Anong oras ako pwedeng pumunta para sa lost ID?,lost_id_schedule,taglish,ai_seed
+S335,"Nag-report na ako ng nawalang ID, kailan ang appointment?",lost_id_schedule,taglish,ai_seed
+S336,Pa-set po ng araw para sa replacement ng nawala kong ID,lost_id_schedule,taglish,ai_seed
+S337,May slot pa ba sa lost ID replacement ngayong linggo?,lost_id_schedule,taglish,ai_seed
+S338,Kailan ang iskedyul ng pagpapalit ng nawalang ID?,lost_id_schedule,fil,ai_seed
+S339,Anong petsa ako pupunta para sa kapalit ng ID?,lost_id_schedule,fil,ai_seed
+S340,Show IDs for third year BSIT section B,id_inventory,en,ai_seed
+S341,List the IDs that are not yet printed,id_inventory,en,ai_seed
+S342,How many IDs have been released this month?,id_inventory,en,ai_seed
+S343,Find the ID record of a student by name,id_inventory,en,ai_seed
+S344,Show every ID record in the inventory,id_inventory,en,ai_seed
+S345,Ilang ID na ang na-release?,id_inventory,taglish,ai_seed
+S346,Ipakita ang listahan ng IDs na ready for release,id_inventory,taglish,ai_seed
+S347,Hanapin ang ID ni student sa inventory,id_inventory,taglish,ai_seed
+S348,Pakita ng mga ID ng first year BSCS,id_inventory,taglish,ai_seed
+S349,I-list ang IDs na pending pa,id_inventory,taglish,ai_seed
+S350,Ipakita ang talaan ng mga ID ayon sa seksyon,id_inventory,fil,ai_seed
+S351,Ilan ang mga ID na hindi pa nagagawa?,id_inventory,fil,ai_seed
+S352,What shows up when I scan the QR on the ID?,qr_student_details,en,ai_seed
+S353,Can my phone camera read the QR on my school ID?,qr_student_details,en,ai_seed
+S354,Which student details are linked to the QR code?,qr_student_details,en,ai_seed
+S355,Does scanning the sticker show my ID status?,qr_student_details,en,ai_seed
+S356,What will the QR scanner display?,qr_student_details,en,ai_seed
+S357,Anong lalabas kapag in-scan yung QR ng ID?,qr_student_details,taglish,ai_seed
+S358,Pwede bang camera ng phone ang gamitin sa pag-scan?,qr_student_details,taglish,ai_seed
+S359,Ano ang makikita sa QR ng school ID ko?,qr_student_details,taglish,ai_seed
+S360,Lalabas ba ang status ko sa scan ng sticker?,qr_student_details,taglish,ai_seed
+S361,Paano mo ba bubuksan yung nasa QR?,qr_student_details,taglish,ai_seed
+S362,Ano ang ipinapakita ng QR code sa ID?,qr_student_details,fil,ai_seed
+S363,Maaari bang i-scan ng telepono ang QR ng aking ID?,qr_student_details,fil,ai_seed
+S364,Can I print another QR sticker for my ID?,qr_sticker_request,en,ai_seed
+S365,"My QR label peeled off, how do I get a new one?",qr_sticker_request,en,ai_seed
+S366,Where do I download my QR code image?,qr_sticker_request,en,ai_seed
+S367,I need a replacement QR sticker,qr_sticker_request,en,ai_seed
+S368,How do I print the QR sticker at the right size?,qr_sticker_request,en,ai_seed
+S369,Pwede po bang humingi ng bagong QR sticker?,qr_sticker_request,taglish,ai_seed
+S370,"Natanggal na yung QR sticker ko, paano po?",qr_sticker_request,taglish,ai_seed
+S371,Saan ako mag-print ng QR code ng ID?,qr_sticker_request,taglish,ai_seed
+S372,"Nabasa ang QR sticker ko, may kapalit ba?",qr_sticker_request,taglish,ai_seed
+S373,Paano i-download ang QR label ko,qr_sticker_request,taglish,ai_seed
+S374,Paano ako makakakuha ng bagong QR sticker?,qr_sticker_request,fil,ai_seed
+S375,Nasira ang QR sticker ng aking ID,qr_sticker_request,fil,ai_seed
+S376,What do I need to bring to get my school ID?,id_requirements,en,ai_seed
+S377,Do I have to pay for a new ID?,id_requirements,en,ai_seed
+S378,What papers are required for ID replacement?,id_requirements,en,ai_seed
+S379,How many photos do I need for the ID?,id_requirements,en,ai_seed
+S380,What are the steps and documents to apply for an ID?,id_requirements,en,ai_seed
+S381,Ano po ang dadalhin ko para sa ID application?,id_requirements,taglish,ai_seed
+S382,Magkano ang bayad sa ID replacement?,id_requirements,taglish,ai_seed
+S383,Ilang pictures ang kailangan para sa ID?,id_requirements,taglish,ai_seed
+S384,Anong mga papeles ang kailangan para sa bagong ID?,id_requirements,taglish,ai_seed
+S385,"May fee ba kapag nawala ang ID, ano ang requirements?",id_requirements,taglish,ai_seed
+S386,Anu-anong dokumento ang kailangan para sa ID?,id_requirements,fil,ai_seed
+S387,Magkano ang bayad sa pagpapalit ng ID?,id_requirements,fil,ai_seed
+S388,Where do I go to get my student ID?,office_hours_location,en,ai_seed
+S389,What are the office hours of the ID office?,office_hours_location,en,ai_seed
+S390,Is the ID office open on Saturday?,office_hours_location,en,ai_seed
+S391,Where exactly is the Property Management Office?,office_hours_location,en,ai_seed
+S392,When does the ID office close for lunch?,office_hours_location,en,ai_seed
+S393,Anong oras po nagbubukas ang ID office?,office_hours_location,taglish,ai_seed
+S394,Saan po ang office para sa ID?,office_hours_location,taglish,ai_seed
+S395,Bukas ba ang ID office tuwing Sabado?,office_hours_location,taglish,ai_seed
+S396,Nasaan ang Property Management Office?,office_hours_location,taglish,ai_seed
+S397,Anong oras ang lunch break ng ID office?,office_hours_location,taglish,ai_seed
+S398,Saan matatagpuan ang tanggapan ng ID?,office_hours_location,fil,ai_seed
+S399,Anong oras magsasara ang tanggapan?,office_hours_location,fil,ai_seed
+S400,How is the school ID made step by step?,id_process,en,ai_seed
+S401,What are the stages before my ID is released?,id_process,en,ai_seed
+S402,Explain how the ID goes from printing to case and lace,id_process,en,ai_seed
+S403,What happens after the ID is printed and signed?,id_process,en,ai_seed
+S404,What are the steps of ID production?,id_process,en,ai_seed
+S405,Paano ginagawa ang ID mula print hanggang release?,id_process,taglish,ai_seed
+S406,Ano ang mga stage ng paggawa ng school ID?,id_process,taglish,ai_seed
+S407,Ano ang nangyayari sa signature step?,id_process,taglish,ai_seed
+S408,Anong ginagawa sa canva edit ng ID?,id_process,taglish,ai_seed
+S409,Ilang hakbang bago ma-release ang ID ko?,id_process,taglish,ai_seed
+S410,Ano ang mga hakbang sa paggawa ng ID?,id_process,fil,ai_seed
+S411,Paano nililikha ang student ID?,id_process,fil,ai_seed

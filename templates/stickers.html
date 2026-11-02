@@ -30,12 +30,13 @@
     <p>{{ students|length }} sticker{{ '' if students|length == 1 else 's' }}. Print at actual size (100%); each QR area is 30 × 30 mm.</p>
     {% if skipped %}<p>{{ skipped }} selected record{{ '' if skipped == 1 else 's' }} no longer exist and {{ 'was' if skipped == 1 else 'were' }} skipped.</p>{% endif %}
     <p>Scanning shows only name and year &amp; section. Use a reachable PUBLIC_BASE_URL before printing for phones.</p>
-    <button type="button" onclick="window.print()">Print sheet</button>
+    <button type="button" data-print>Print sheet</button>
   </div>
   <div class="sheet">
     {% for s in students %}<div class="sticker"><img src="/qr/{{ s.id }}.png" alt="QR code for {{ s.student_id }}"><small>{{ s.student_id }}</small></div>
     {% endfor %}
   </div>
 </main>
+<script src="/static/print.js" defer></script>
 </body>
 </html>
