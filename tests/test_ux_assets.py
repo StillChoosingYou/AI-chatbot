@@ -64,3 +64,9 @@ class UxAssetTests(AppTestCase):
         with patch.dict(os.environ, {'STUDENT_LOGIN': '1'}):
             page = self.make_app().test_client().get('/student').get_data(as_text=True)
             self.assertIn('maxlength="6"', page)
+
+    def test_the_overview_can_open_and_close_the_student_portal_after_asking(self):
+        script = self.client.get('/static/admin.js').get_data(as_text=True)
+        self.assertIn('ov-portal-switch', script)
+        self.assertIn('/api/admin/portal', script)
+        self.assertIn('Close the student portal?', script)

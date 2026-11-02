@@ -283,3 +283,5 @@
 .recovery-codes code { padding: 9px 10px; text-align: center; border-radius: 8px; background: var(--surface-alt); border: 1px solid var(--border); font: 700 15px ui-monospace, Menlo, monospace; letter-spacing: 1.5px; user-select: all; }
 .ux-field { display: grid; gap: 6px; margin: 10px 0 4px; font-weight: 600; font-size: 13px; }
 .ux-field input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: var(--surface-alt); color: var(--ink); }
+
+#ov-events + p { margin: 14px 0 0; }   /* the link under the activity list no longer touches its last row */
