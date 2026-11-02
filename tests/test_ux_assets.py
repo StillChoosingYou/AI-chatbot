@@ -20,7 +20,7 @@ class UxAssetTests(AppTestCase):
                 with self.subTest(path=path):
                     page = client.get(path).get_data(as_text=True)
                     self.assertIn('/static/auth.js', page)
-                    self.assertIn("localStorage.getItem('theme')", page)
+                    self.assertIn('/static/theme.js', page)
 
     def test_the_workspace_and_the_admin_panel_load_the_shared_tools_before_their_own_script(self):
         page = self.client.get('/coordinator').get_data(as_text=True)

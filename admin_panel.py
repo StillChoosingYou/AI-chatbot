@@ -24,6 +24,7 @@ from flask import Response, abort, jsonify, redirect, render_template, request, 
 
 import captcha
 import quality
+import totp
 from student_auth import hash_pin, new_pin, open_pin, seal_pin
 
 ADMIN_IDLE_SECONDS = 15 * 60
@@ -33,7 +34,7 @@ MAX_NEWS = 20
 DEFAULT_PUBLIC_URL = 'https://pgpc-ai-chatbot.vercel.app'     # the live site: what the links show when the panel is opened on localhost
 LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]', '0.0.0.0')
 SECURITY_ACTIONS = ('sign in', 'failed sign in', 'pin issued', 'pins issued', 'pin unlocked',
-                    'admin sign in', 'admin failed sign in', 'admin failed captcha', 'quality', 'portal', 'news', 'purge', 'backup', 'switch role',
+                    'admin sign in', 'admin failed sign in', 'admin failed captcha', 'two-factor', 'quality', 'portal', 'news', 'purge', 'backup', 'switch role',
                     'student sign in', 'student failed sign in', 'student locked', 'student sign out', 'student pin changed')
 
 
@@ -88,6 +89,8 @@ def register_admin(app, ctx):
         return render_template('admin.html', signed_in_as=login.username if login.enabled else 'local admin')
 
     captcha_on = os.environ.get('ADMIN_CAPTCHA', '1').strip() != '0'
+    TOTP_SETTING = 'admin_totp'
+    totp_allowed = os.environ.get('ADMIN_TOTP', '1').strip() != '0'      # ADMIN_TOTP=0 is the way back in if the phone is lost
 
     def login_page(error, status=200):
         return render_template('login.html', configured=login.configured, error=error, role_title='ADMIN',
@@ -97,14 +100,55 @@ def register_admin(app, ctx):
         for key in ('cap_until', 'cap_nonce', 'cap_seal', 'cap_tries'):
             session.pop(key, None)
 
+    # ─── two-factor (TOTP): the authenticator app's 6-digit code, asked on the same step as the picture ───
+    def totp_state():
+        try:
+            data = json.loads(ctx.get_setting(TOTP_SETTING, '') or '{}')
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) and data.get('secret') else {}
+
+    def totp_secret(state):
+        return open_pin(state.get('secret', ''), app.secret_key)
+
+    def totp_on():
+        return totp_allowed and bool(totp_secret(totp_state()))
+
+    def save_totp(state):
+        ctx.set_setting(TOTP_SETTING, json.dumps(state))
+
+    def check_second_factor(code):
+        """'code', 'recovery' or '' (refused). A code is good once: its time step is stored and never accepted again."""
+        state = totp_state()
+        secret = totp_secret(state)
+        if not secret:
+            return ''
+        step = totp.verify(secret, code, state.get('last', 0))
+        if step:
+            state['last'] = step
+            save_totp(state)
+            return 'code'
+        used, rest = totp.use_recovery(code, state.get('recovery', []), app.secret_key)
+        if used:
+            state['recovery'] = rest
+            save_totp(state)
+            return 'recovery'
+        return ''
+
+    def second_step():
+        return captcha_on or totp_on()
+
     def captcha_pending():
-        return captcha_on and time.time() < session.get('cap_until', 0)
+        return second_step() and time.time() < session.get('cap_until', 0)
+
+    def verify_page(error='', status=200):
+        return render_template('admin_captcha.html', error=error, need_captcha=captcha_on, need_code=totp_on()), status
 
     @app.post('/admin/login')
     def admin_login_post():
         who = address()
         if login.check(request.form.get('username', ''), request.form.get('password', ''), who):
-            if captcha_on:                                  # step 2 of 2: the picture, before the panel opens
+            if second_step():                               # step 2 of 2: the picture and/or the authenticator code
                 clear_captcha()
                 session['cap_until'] = time.time() + CAPTCHA_SECONDS
                 session['cap_tries'] = 0
@@ -122,11 +166,11 @@ def register_admin(app, ctx):
         if not captcha_pending():
             clear_captcha()
             return redirect('/')
-        return render_template('admin_captcha.html', error='')
+        return verify_page()
 
     @app.get('/admin/captcha.png')
     def admin_captcha_image():
-        if not captcha_pending():
+        if not captcha_pending() or not captcha_on:
             abort(404)
         code = captcha.new_code()
         nonce = secrets.token_hex(8)
@@ -142,19 +186,29 @@ def register_admin(app, ctx):
         if not captcha_pending():
             clear_captcha()
             return redirect('/')
-        if captcha.matches(request.form.get('captcha', ''), session.get('cap_seal'), session.get('cap_nonce', ''), app.secret_key):
+        how = ''
+        picture_ok = (not captcha_on) or captcha.matches(request.form.get('captcha', ''), session.get('cap_seal'), session.get('cap_nonce', ''), app.secret_key)
+        if picture_ok:                                      # the code is only looked at once the picture is right
+            how = 'none' if not totp_on() else check_second_factor(request.form.get('code', ''))
+        if picture_ok and how:
             clear_captcha()
             ctx.sign_in('admin')
-            log('admin', 'admin sign in', f'from {who}, captcha passed'[:120])
+            note = {'none': 'captcha passed', 'code': 'captcha and authenticator code passed', 'recovery': 'recovery code used'}[how]
+            if not captcha_on and how == 'none':
+                note = 'signed in'
+            log('admin', 'admin sign in', f'from {who}, {note}'[:120])
             return redirect('/')
         tries = session.get('cap_tries', 0) + 1
         session['cap_tries'] = tries
         session.pop('cap_seal', None)                       # a guess burns the picture: a new one must be fetched
-        log('admin', 'admin failed captcha', f'from {who}, try {tries}'[:120])
+        detail = f'from {who}, try {tries}' + ('' if not picture_ok else ', wrong code')
+        log('admin', 'admin failed captcha' if not picture_ok else 'two-factor', detail[:120])
         if tries >= CAPTCHA_TRIES:
             clear_captcha()
-            return login_page('Too many wrong pictures. Sign in again.', 401)
-        return render_template('admin_captcha.html', error='Those letters did not match. Here is a new picture.'), 401
+            return login_page('Too many wrong tries. Sign in again.', 401)
+        message = ('Those letters did not match. Here is a new picture.' if not picture_ok
+                   else 'That code was not accepted. Wait for the next one in your app, or use a recovery code.')
+        return verify_page(message, 401)
 
     @app.get('/admin/cancel')
     def admin_verify_cancel():
@@ -256,11 +310,109 @@ def register_admin(app, ctx):
         log('admin', 'portal', 'student portal opened' if payload['open'] else 'student portal closed')
         return jsonify(open=payload['open'])
 
+    # ─── two-factor management (inside the panel) ───
+    def totp_summary():
+        state = totp_state()
+        return {'enabled': bool(totp_secret(state)), 'switched_off_by_environment': not totp_allowed,
+                'recovery_left': len(state.get('recovery', [])), 'pending': bool(session.get('totp_pending'))}
+
+    def pending_secret():
+        return open_pin(session.get('totp_pending', ''), app.secret_key)
+
+    def spaced(secret):
+        return ' '.join(secret[i:i + 4] for i in range(0, len(secret), 4))
+
+    @app.get('/api/admin/totp')
+    def admin_totp_status():
+        denied = need_admin()
+        if denied:
+            return denied
+        return jsonify(**totp_summary())
+
+    @app.post('/api/admin/totp/begin')
+    def admin_totp_begin():
+        denied = need_admin()
+        if denied:
+            return denied
+        if totp_secret(totp_state()):
+            return jsonify(error='Two-factor sign-in is already on. Turn it off first to set it up again.'), 409
+        secret = totp.new_secret()
+        session['totp_pending'] = seal_pin(secret, app.secret_key)
+        return jsonify(secret=spaced(secret), uri=totp.uri(secret, login.username or 'admin', 'School ID Admin'))
+
+    @app.get('/api/admin/totp/qr.png')
+    def admin_totp_qr():
+        if not admin_signed_in():
+            abort(401)
+        secret = pending_secret()
+        if not secret:
+            abort(404)
+        stream = io.BytesIO()
+        code = qrcode.QRCode(box_size=8, border=3, error_correction=qrcode.constants.ERROR_CORRECT_M)
+        code.add_data(totp.uri(secret, login.username or 'admin', 'School ID Admin'))
+        code.make(fit=True)
+        code.make_image(fill_color='black', back_color='white').save(stream, format='PNG')
+        stream.seek(0)
+        response = send_file(stream, mimetype='image/png')
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.post('/api/admin/totp/enable')
+    def admin_totp_enable():
+        denied = need_admin()
+        if denied:
+            return denied
+        secret = pending_secret()
+        if not secret:
+            return jsonify(error='Start the setup first.'), 400
+        payload = request.get_json(silent=True) or {}
+        step = totp.verify(secret, payload.get('code', ''), 0)
+        if not step:
+            return jsonify(error='That code is not right. Check the 6 digits in your app and try again.'), 400
+        recovery = totp.new_recovery_codes()
+        save_totp({'secret': seal_pin(secret, app.secret_key), 'last': step,
+                   'recovery': [totp.recovery_hash(item, app.secret_key) for item in recovery]})
+        session.pop('totp_pending', None)
+        log('admin', 'two-factor', 'authenticator turned on')
+        return jsonify(enabled=True, recovery=recovery)
+
+    @app.post('/api/admin/totp/disable')
+    def admin_totp_disable():
+        denied = need_admin()
+        if denied:
+            return denied
+        if not totp_secret(totp_state()):
+            return jsonify(enabled=False)
+        payload = request.get_json(silent=True) or {}
+        if not check_second_factor(payload.get('code', '')):
+            return jsonify(error='Type a current code from your app (or a recovery code) to turn this off.'), 400
+        ctx.delete_setting(TOTP_SETTING)
+        log('admin', 'two-factor', 'authenticator turned off')
+        return jsonify(enabled=False)
+
+    @app.post('/api/admin/totp/recovery')
+    def admin_totp_recovery():
+        denied = need_admin()
+        if denied:
+            return denied
+        state = totp_state()
+        if not totp_secret(state):
+            return jsonify(error='Two-factor sign-in is off.'), 400
+        payload = request.get_json(silent=True) or {}
+        if check_second_factor(payload.get('code', '')) != 'code':
+            return jsonify(error='Type a current code from your app to get new recovery codes.'), 400
+        state = totp_state()                                 # check_second_factor saved the step: reload before changing
+        recovery = totp.new_recovery_codes()
+        state['recovery'] = [totp.recovery_hash(item, app.secret_key) for item in recovery]
+        save_totp(state)
+        log('admin', 'two-factor', 'new recovery codes made')
+        return jsonify(recovery=recovery)
+
     # ─── quality scorecard (ISO/IEC 25010) ───
     def quality_report(deep=False):
         return quality.evaluate({
             'app': app, 'connect': connect, 'matcher': ctx.matcher, 'metrics': app.extensions['metrics'], 'on_vercel': ctx.on_vercel,
-            'admin_configured': login.configured, 'captcha_on': captcha_on, 'student_login_on': ctx.student_login_on,
+            'admin_configured': login.configured, 'captcha_on': captcha_on, 'totp_on': totp_on(), 'student_login_on': ctx.student_login_on,
             'coordinator_configured': ctx.coordinator_configured, 'secret_key_env': os.environ.get('SECRET_KEY', ''), 'build': ctx.build,
         }, samples=120 if deep else 30)
 

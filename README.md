@@ -463,8 +463,8 @@ because the chatbot has to work offline. The PGPC seal is `static/pgpc-logo.png`
 
 ## Dataset and intents
 
-- `property_management_dataset.csv`: 195 synthetic utterances, 15 for each of the 12 school ID
-  intents and for `greeting` (`S001`-`S015`), with `id,text,intent,language,author` columns. The other
+- `property_management_dataset.csv`: 351 synthetic utterances, 27 for each of the 12 school ID
+  intents and for `greeting` (`S001`-`S015` and `S256`-`S411`; the new ones mix English, Taglish and Filipino), with `id,text,intent,language,author` columns. The other
   chit-chat rows (`S016`-`S075`: thanks, help, talk to a person) stay removed and are not renumbered.
 - `property_management_intent.csv`: the intent catalog and staff actions: the 12 ID intents,
   `greeting`, and the `out_of_scope` fallback (no training rows). Hello is also caught by `small_talk.py` first; thanks, "what can you
@@ -484,8 +484,8 @@ seed 42, and at most 600 iterations. No external AI service or pretrained model 
 .venv/bin/python Chatbot.py
 ```
 
-The script evaluates a stratified 80/20 split (132 training, 33 test examples), fitting
-vocabulary and IDF only on the training partition. It then refits on all 195 source
+The script evaluates a stratified 80/20 split (280 training, 71 test examples), fitting
+vocabulary and IDF only on the training partition. It then refits on all 351 source
 examples and saves `data/intent_model.joblib`. `Chatbot.py` loads that model. Train before
 starting the app; retrain and restart after changing either CSV or scikit-learn version.
 Only load model files produced by your own training script: joblib uses Python pickle.
@@ -672,3 +672,17 @@ Admin → **Quality** measures the system against the eight characteristics: Fun
 - **Rate this assistant** in a student's Settings is the 10-statement System Usability Scale. Only a keyed hash of the student ID is stored with the answers (one answer per student). The score feeds Interaction Capability once 5 students have answered (68 = average, 80.3 = excellent).
 - Every response now carries a Content-Security-Policy (no outside sources, no framing, `object-src 'none'`), `Cross-Origin-Opener-Policy` and the older headers. Inline scripts are still allowed, and the scorecard says so as a gap.
 - `.github/workflows/ci.yml` runs the Python and JavaScript lint and the whole test suite on every pull request, against a PostgreSQL service.
+
+
+## Admin two-factor sign-in (TOTP)
+
+Optional second lock on the admin panel. **Admin panel → System → Two-factor sign-in → Set it up**: scan the QR code with any authenticator app (Google Authenticator, Microsoft Authenticator, Authy), type the 6-digit code, and save the eight recovery codes shown once. From then on the sign-in asks for the password, the picture and the 6-digit code.
+
+- Standard RFC 6238 (SHA-1, 30 seconds, 6 digits; `totp.py`, standard library only, tested against the RFC vectors). One step either side is accepted for clock drift; a used step is stored and refused afterwards, so a code cannot be replayed.
+- The secret is stored encrypted (same vault key as the PIN vault); recovery codes are stored only as keyed hashes and each works once.
+- Turning it off or making new recovery codes needs a current code.
+- **Lost phone:** use a recovery code, or set `ADMIN_TOTP=0` in Vercel and redeploy to bypass the code step, sign in, then turn it off and on again. Remove the variable afterwards.
+
+## Content-Security-Policy
+
+`script-src 'self'`: no inline scripts or `onclick=` handlers run, so an injected `<script>` is inert. The theme snippet moved to `static/theme.js` and print buttons use `data-print` handled by `static/print.js`. Styles still allow inline `style=` attributes.

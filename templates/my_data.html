@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-  <div class="bar"><a href="/student">← Back to the assistant</a><span><a href="/api/student/export">JSON copy</a> <button type="button" class="primary" onclick="window.print()">Print / Save as PDF</button></span></div>
+  <div class="bar"><a href="/student">← Back to the assistant</a><span><a href="/api/student/export">JSON copy</a> <button type="button" class="primary" data-print>Print / Save as PDF</button></span></div>
   <main class="sheet">
     <h1>My School ID data</h1>
     <p class="sub">Padre Garcia Polytechnic College · School ID Property Management · copy made {{ exported }}</p>
@@ -46,5 +46,6 @@
       {% for r in incidents %}<tr><td>{{ r.timestamp }}</td><td>{{ r.category }}</td><td>{{ r.location }}</td><td>{{ r.detail }}</td><td>{{ r.status }}</td></tr>{% endfor %}</tbody></table>{% else %}<p class="sub">None.</p>{% endif %}
     <p class="note">Your PIN is never included in any copy, and nobody can read a PIN you set yourself. Keep this page private.</p>
   </main>
+<script src="/static/print.js" defer></script>
 </body>
 </html>

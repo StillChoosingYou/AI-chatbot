@@ -116,12 +116,18 @@ class ScorecardTests(DatabaseTestCase):
                     self.assertTrue(check['points'] is None or 0 <= check['points'] <= 1)
                     self.assertTrue(check['detail'])
 
-    def test_what_is_not_built_yet_scores_zero_instead_of_being_hidden(self):
+    def test_a_gap_scores_zero_instead_of_being_hidden(self):
+        gap = quality.check('Not built yet', 0, 'Planned.', 'gap')
+        self.assertEqual(gap['points'], 0)
+        self.assertEqual(gap['kind'], 'gap')
+
+    def test_security_reports_the_strict_policy_and_two_factor(self):
         security = next(c for c in self.admin.get('/api/admin/quality').json['characteristics'] if c['id'] == 'security')
-        gaps = [k for k in security['checks'] if k['kind'] == 'gap']
-        self.assertGreaterEqual(len(gaps), 2)
-        self.assertTrue(all(k['points'] == 0 for k in gaps))
-        self.assertLess(security['score'], 100)
+        by_name = {k['name']: k for k in security['checks']}
+        csp = by_name['Content-Security-Policy refuses inline scripts']
+        self.assertEqual(csp['points'], 1)
+        self.assertIn('Two-factor sign-in for the admin (TOTP) is available', by_name)
+        self.assertFalse([k for k in security['checks'] if k['kind'] == 'gap'])
 
     def test_measured_timings_are_real_numbers(self):
         report = self.admin.get('/api/admin/quality').json

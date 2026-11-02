@@ -250,7 +250,7 @@ const views = {
     return () => {
       const row = (label, url, which) => `<div class="a-card"><h2>${label}</h2>
         <div class="a-row"><span class="a-link">${esc(url)}</span><button type="button" data-copy="${esc(url)}">Copy</button><a href="${esc(url)}" target="_blank" rel="noopener"><button type="button">Open</button></a></div>
-        <div class="a-qr-box"><img class="a-qr" src="/api/admin/qr.png?which=${which}" alt="QR code for ${esc(label)}" width="170" height="170" onload="this.classList.add('in')"></div>
+        <div class="a-qr-box"><img class="a-qr" src="/api/admin/qr.png?which=${which}" alt="QR code for ${esc(label)}" width="170" height="170"></div>
         <p class="no-print">Right-click the QR to save it, or print this page to put it on a poster.</p></div>`;
       view.innerHTML = `<h1>Student portal</h1><p class="lead">The link students use. It comes from here.</p>
         <div class="a-two">${row('Student link', l.student, 'student')}${row('Coordinator link', l.coordinator, 'coordinator')}</div>
@@ -262,6 +262,7 @@ const views = {
           <p>Closing the portal shows students a "closed" page and stops their chat (maintenance, an exam day). Sticker scan pages and the coordinator workspace keep working.</p>
           <div class="a-row"><button type="button" class="${l.portal_open ? 'danger' : 'primary'}" id="toggle-portal">${l.portal_open ? 'Close the student portal' : 'Open the student portal'}</button></div>
           ${l.separate_hosts ? '' : '<div class="a-warn">Student and coordinator are on the same address. For two separate addresses, add two domains in Vercel and set STUDENT_HOST and COORDINATOR_HOST (see the README).</div>'}</div>`;
+      view.querySelectorAll('.a-qr').forEach((img) => { if (img.complete) img.classList.add('in'); else img.addEventListener('load', () => img.classList.add('in'), { once: true }); });
       $('save-url').onclick = (e) => busy(e.currentTarget, async () => {
         await api('/api/admin/public-url', send('PUT', { url: $('public-url').value })); toast('Address saved'); show('portal');
       });
@@ -494,6 +495,7 @@ const views = {
 
   async system() {
     const s = await api('/api/admin/system');
+    const two = await api('/api/admin/totp');
     const kv = (o) => Object.entries(o).map(([k, v]) => `<tr><td>${esc(k.replace(/_/g, ' '))}</td><td>${typeof v === 'boolean' ? badge(v, 'yes', 'no') : esc(v)}</td></tr>`).join('');
     return () => {
       view.innerHTML = `<div class="a-head"><div><h1>System</h1><p class="lead">Checks and configuration. Passwords and keys are never shown.</p></div>
@@ -503,11 +505,71 @@ const views = {
           <div class="a-card"><h2>Model</h2><table class="a-table"><tbody>${kv({ confidence_threshold: s.model.threshold, intents: s.model.intents.length })}</tbody></table><p>${s.model.intents.map(esc).join(', ')}</p></div>
           <div class="a-card"><h2>Versions</h2><table class="a-table"><tbody>${kv({ ...s.versions, build: s.build })}</tbody></table></div>
           <div class="a-card"><h2>Configuration</h2><table class="a-table"><tbody>${kv(s.config)}</tbody></table></div>
-        </div>`;
+        </div>
+        <div class="a-card" id="two-factor" style="margin-top:14px"></div>`;
+      twoFactor(two);
       $('sys-again').onclick = (e) => busy(e.currentTarget, async () => { await show('system'); toast('Checks done'); });
     };
   },
 };
+
+/* ---------- two-factor sign-in: an authenticator app's 6-digit code, on top of the password and the picture ---------- */
+function recoveryBody(codes) {
+  return `<p class="subtle">Each code works once. Keep them somewhere safe, not on the same phone.</p><div class="recovery-codes">${codes.map((c) => `<code>${esc(c)}</code>`).join('')}</div>`;
+}
+async function showRecovery(codes, title) {
+  await ux.dialog({ title, ok: 'I saved them', cancel: '', body: recoveryBody(codes) });
+}
+async function askCode(title, text, ok, danger = false) {
+  let code = '';
+  const yes = await ux.dialog({ title, text, ok, danger, body: '<label class="ux-field">Code from your app<input id="two-code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="123456"></label>',
+    read: (panel) => { code = panel.querySelector('#two-code').value.trim(); if (!code) { panel.querySelector('#two-code').focus(); return false; } return true; } });
+  return yes ? code : null;
+}
+function twoFactor(info) {
+  const box = $('two-factor');
+  const paint = () => {
+    if (info.switched_off_by_environment) {
+      box.innerHTML = `<h2>Two-factor sign-in</h2><p>Switched off by the server setting <code>ADMIN_TOTP=0</code>. Remove that setting to use it again.</p>`;
+      return;
+    }
+    if (info.enabled) {
+      box.innerHTML = `<h2>Two-factor sign-in ${badge(true, 'On', 'Off')}</h2>
+        <p>Signing in to the admin panel asks for the password, the picture and the 6-digit code from your authenticator app. Recovery codes left: <strong>${info.recovery_left}</strong>${info.recovery_left <= 2 ? ' · make new ones soon' : ''}.</p>
+        <div class="a-row"><button type="button" id="two-new">New recovery codes</button><button type="button" class="danger" id="two-off">Turn off</button></div>`;
+      $('two-new').onclick = (e) => busy(e.currentTarget, async () => {
+        const code = await askCode('New recovery codes?', 'The old ones stop working. Type a current code from your app.', 'Make new codes'); if (!code) return;
+        const r = await api('/api/admin/totp/recovery', send('POST', { code }));
+        info.recovery_left = r.recovery.length; paint(); await showRecovery(r.recovery, 'Your new recovery codes');
+      });
+      $('two-off').onclick = (e) => busy(e.currentTarget, async () => {
+        const code = await askCode('Turn off two-factor?', 'The admin panel will ask only for the password and the picture. Type a current code to confirm.', 'Turn off', true); if (!code) return;
+        await api('/api/admin/totp/disable', send('POST', { code }));
+        info.enabled = false; toast('Two-factor sign-in is off'); paint();
+      });
+    } else {
+      box.innerHTML = `<h2>Two-factor sign-in ${badge(false, 'On', 'Off')}</h2>
+        <p>Add a second lock: a 6-digit code from an authenticator app on your phone (Google Authenticator, Microsoft Authenticator, Authy). A stolen or guessed password is then not enough.</p>
+        <div class="a-row"><button type="button" class="primary" id="two-on">Set it up</button></div>`;
+      $('two-on').onclick = (e) => busy(e.currentTarget, async () => {
+        const r = await api('/api/admin/totp/begin', send('POST', {}));
+        box.innerHTML = `<h2>Set up two-factor sign-in</h2>
+          <ol class="two-steps"><li>In your authenticator app choose <b>Add account</b> and scan this picture.</li><li>Cannot scan? Type this key instead: <code class="two-key">${esc(r.secret)}</code></li><li>Type the 6-digit code the app shows now.</li></ol>
+          <div class="a-qr-box"><img class="a-qr" src="/api/admin/totp/qr.png?t=${Date.now()}" alt="QR code for your authenticator app" width="170" height="170"></div>
+          <div class="a-row"><input id="two-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" aria-label="6-digit code" style="max-width:150px"><button type="button" class="primary" id="two-ok">Turn it on</button><button type="button" id="two-cancel">Cancel</button></div>`;
+        const img = box.querySelector('.a-qr'); if (img.complete) img.classList.add('in'); else img.addEventListener('load', () => img.classList.add('in'), { once: true });
+        $('two-cancel').onclick = () => paint();
+        $('two-ok').onclick = (ev) => busy(ev.currentTarget, async () => {
+          const res = await api('/api/admin/totp/enable', send('POST', { code: $('two-code').value }));
+          info.enabled = true; info.recovery_left = res.recovery.length; toast('Two-factor sign-in is on'); paint();
+          await showRecovery(res.recovery, 'Save your recovery codes');
+        });
+        $('two-code').focus();
+      });
+    }
+  };
+  paint();
+}
 
 /* ---------- live: one change counter, asked every 4 seconds; the page reloads what it shows when it moves ---------- */
 const LIVE_MS = 4000;

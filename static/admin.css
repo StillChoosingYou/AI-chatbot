@@ -275,3 +275,11 @@
 .q-checks small { color: var(--muted); } .q-mark { font-weight: 800; } .q-checks .ok .q-mark { color: #1c8a55; } .q-checks .part .q-mark { color: #b7791f; } .q-checks .no .q-mark { color: #c23a3a; } .q-checks .na .q-mark { color: var(--muted); }
 .q-checks .a-badge { font-style: normal; font-size: 10.5px; text-transform: uppercase; }
 @media (max-width: 900px) { .q-top { grid-template-columns: 1fr; justify-items: center; } .q-sum { width: 100%; } .q-grid { grid-template-columns: 1fr; } .q-row { grid-template-columns: 130px 1fr 34px; } }
+
+/* two-factor sign-in */
+.two-steps { margin: 0 0 12px; padding-left: 20px; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+.two-key { display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--surface-alt); border: 1px solid var(--border); font: 600 13px ui-monospace, Menlo, monospace; letter-spacing: 1px; color: var(--ink); user-select: all; }
+.recovery-codes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0 14px; }
+.recovery-codes code { padding: 9px 10px; text-align: center; border-radius: 8px; background: var(--surface-alt); border: 1px solid var(--border); font: 700 15px ui-monospace, Menlo, monospace; letter-spacing: 1.5px; user-select: all; }
+.ux-field { display: grid; gap: 6px; margin: 10px 0 4px; font-weight: 600; font-size: 13px; }
+.ux-field input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: var(--surface-alt); color: var(--ink); }

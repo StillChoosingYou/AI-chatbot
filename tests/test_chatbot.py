@@ -17,11 +17,11 @@ class DatasetTests(unittest.TestCase):
             rows = list(csv.DictReader(f))
         with (ROOT/'property_management_intent.csv').open() as f:
             intents = {r['intent'] for r in csv.DictReader(f)}
-        self.assertEqual(len(rows),195)
+        self.assertEqual(len(rows),351)
         self.assertEqual(len({r['id'] for r in rows}),len(rows))
         self.assertEqual(len({r['text'].lower() for r in rows}),len(rows))
         self.assertEqual({r['intent'] for r in rows},intents-{'out_of_scope'})   # the fallback has no examples
-        self.assertEqual({sum(r['intent']==i for r in rows) for i in intents-{'out_of_scope'}},{15})
+        self.assertEqual({sum(r['intent']==i for r in rows) for i in intents-{'out_of_scope'}},{27})      # every topic has the same number of questions
         ElementTree.parse(ROOT/'chatbot.ows')
 
     def test_dataset_is_about_school_ids_only(self):
