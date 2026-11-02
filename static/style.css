@@ -787,13 +787,6 @@ html.motion-off .ux-panel, html.motion-off .ux-undo { transition: none; }
 .id-page .idcard:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
 @media (prefers-reduced-motion: reduce) { .id-page .idcard { animation: none; } .id-page .idcard:hover { transform: none; } }
 
-/* Pages change with a short cross-fade where the browser supports it (sign-in to workspace, workspace to admin) */
-@view-transition { navigation: auto; }
-::view-transition-old(root) { animation: .18s ease both vtOut; }
-::view-transition-new(root) { animation: .28s ease both vtIn; }
-@keyframes vtOut { to { opacity: 0; } }
-@keyframes vtIn { from { opacity: 0; } }
-
 /* ========= Nav marker, chat tools ========= */
 #role-nav { position: relative; }
 #role-nav .nav { position: relative; z-index: 1; }
