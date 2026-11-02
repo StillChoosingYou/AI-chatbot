@@ -206,6 +206,19 @@ const views = {
       o.locked ? `<p>🔒 ${o.locked} student account(s) are locked. <a href="#access" data-go="access">Unlock</a></p>` : '',
       !o.student_login ? '<p>🔓 Student sign-in is off: anyone who types a student ID sees that student\'s status. Set STUDENT_LOGIN=1 after issuing PINs.</p>' : '',
       fallbackRate >= 30 ? `<p>🧠 ${fallbackRate}% of answers were out of scope. <a href="#insights" data-go="insights">See the missed questions</a></p>` : ''].join('') || '<p class="all-clear">✅ Nothing needs attention.</p>';
+    const portalCard = () => `<h2>Student portal</h2>
+        <p>${badge(o.portal_open, 'Open', 'Closed')} ${badge(o.student_login, 'Sign-in required (ID + PIN)', 'No sign-in (anyone can look up)')}</p>
+        <div class="a-row"><span class="a-link">${esc(o.links.student)}</span><button type="button" data-copy="${esc(o.links.student)}">Copy</button></div>
+        <div class="a-row"><button type="button" class="${o.portal_open ? 'danger' : 'primary'}" id="ov-portal-switch">${o.portal_open ? 'Close the student portal' : 'Open the student portal'}</button></div>
+        <p>Hand this link to students. The link, QR code and address are in the <a href="#portal" data-go="portal">Student portal</a> tab.</p>`;
+    const bindPortal = () => {
+      const button = $('ov-portal-switch'); if (!button) return;
+      button.onclick = (e) => busy(e.currentTarget, async () => {
+        if (o.portal_open && !(await ask({ title: 'Close the student portal?', text: 'Students will see a "closed" page and their chat stops until you open it again.', ok: 'Close it', danger: true }))) return;
+        await api('/api/admin/portal', send('POST', { open: !o.portal_open }));
+        toast(o.portal_open ? 'Student portal closed' : 'Student portal open'); show('overview');
+      });
+    };
     return () => {
       const live = $('ov-live');
       if (live && live.dataset.ready) {                            // refresh in place: numbers roll to the new value
@@ -214,6 +227,7 @@ const views = {
           const el = view.querySelector(`[data-key="${key}"] strong`); if (el) { el.dataset.count = v; countUp(el, v, Number(el.dataset.value || 0)); }
         });
         $('ov-attention').innerHTML = attention();
+        $('ov-portal').innerHTML = portalCard(); bindPortal();
         $('ov-events').innerHTML = feed(events);
         $('ov-ring').style.setProperty('--p', understood); $('ov-ring-n').textContent = `${understood}%`;
         live.querySelector('time').textContent = clock();
@@ -231,10 +245,7 @@ const views = {
           ${stat('Signed in today', o.signed_in_today, 'students using the assistant', 'signedin')}
         </div>
         <div class="a-two">
-          <div class="a-card"><h2>Student portal</h2>
-            <p>${badge(o.portal_open, 'Open', 'Closed')} ${badge(o.student_login, 'Sign-in required (ID + PIN)', 'No sign-in (anyone can look up)')}</p>
-            <div class="a-row"><span class="a-link">${esc(o.links.student)}</span><button type="button" data-copy="${esc(o.links.student)}">Copy</button></div>
-            <p>Hand this link to students. Manage it in the <a href="#portal" data-go="portal">Student portal</a> tab.</p></div>
+          <div class="a-card" id="ov-portal">${portalCard()}</div>
           <div class="a-card a-quality"><div class="ring" id="ov-ring" style="--p:${understood}"><b id="ov-ring-n">${understood}%</b></div>
             <div><h2>Answer quality</h2><p>${o.answers ? `The bot placed ${understood}% of ${o.answers.toLocaleString()} question(s) into a topic.` : 'No questions yet.'}</p></div></div>
           <div class="a-card"><h2>Needs your attention</h2><div id="ov-attention">${attention()}</div></div>
@@ -242,6 +253,7 @@ const views = {
             <p><a href="#security" data-go="security">Open the whole Security log</a></p></div>
         </div>`;
       $('ov-refresh').onclick = (e) => refreshOverview(e.currentTarget, true);
+      bindPortal();
     };
   },
 
