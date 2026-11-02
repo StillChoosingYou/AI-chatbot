@@ -686,3 +686,7 @@ Optional second lock on the admin panel. **Admin panel → System → Two-factor
 ## Content-Security-Policy
 
 `script-src 'self'`: no inline scripts or `onclick=` handlers run, so an injected `<script>` is inert. The theme snippet moved to `static/theme.js` and print buttons use `data-print` handled by `static/print.js`. Styles still allow inline `style=` attributes.
+
+## One-word questions (`topic_words.py`)
+
+A single word such as "status", "canva" or "qr" is a poor fit for the ANN, which learns from whole questions: the word appears in several topics, so the network guessed or the fallback turned it away. A short fixed table (`topic_words.py`) now answers a message that is *only* one of these phrases (polite words aside, three words at most). Anything longer, even "status of my ID", still goes to the ANN. The table is checked in `tests/test_topic_words.py`; to add a phrase, add it to `TOPIC_PHRASES`.
