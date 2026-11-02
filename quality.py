@@ -262,6 +262,8 @@ def reliability(env):
     out.append(check('Recoverability: a backup was downloaded in the last 30 days', 1 if recent is not None and recent <= 30 else .5 if recent is not None and recent <= 90 else 0,
                      f'Last full backup {recent} day(s) ago.' if recent is not None else 'No backup downloaded yet. Use Data & backup.', 'measured'))
     out.append(check('Fault tolerance: offline banner, idle sign-out, closable portal, fallback ticker', 1, 'The pages say when the connection drops, sessions end by themselves, and the admin can close the student portal.', 'declared'))
+    out.append(check('Correct under simultaneous use: row locks on edits, requests, PIN tries and two-factor codes', 1,
+                     'Edits, request approvals, incident changes, PIN tries and authenticator codes take a PostgreSQL row lock (FOR UPDATE), so two people acting at the same moment cannot overwrite each other, spend one code twice or skip the PIN lock-out. Checked by the race tests in tests/test_races.py and tests/test_postgres.py, not by a live probe.', 'declared'))
     return out
 
 
