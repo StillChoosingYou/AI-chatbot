@@ -427,6 +427,13 @@ examples, and say that the questions come from this app's own users.
 
 Student sign-in is **always required**. The two addresses are off until you set their variables.
 
+**Admin, coordinator and student tabs side by side.** They share one browser cookie, and each open tab asks
+`/api/live` every 4 seconds. The server now sends the cookie only when the session really changed (and moves the
+idle clock at most every 30 seconds), so a late reply from one tab can no longer write an older cookie over a sign-in
+made in another tab. Each role still has its own idle limit: admin 15, student 20, coordinator 30 minutes. A tab that
+stays in the background does not ask anything, so after that long without a request in that role you are asked to
+sign in again on return. That is the idle sign-out working as designed.
+
 | Variable | Effect |
 |---|---|
 | `STUDENT_LOGIN=0` | Local demos only: switches the student sign-in **off**. By default students must sign in with **Student ID + 6-digit PIN** (from the admin panel). Signed in, the chat shows only their own record and files requests only for themselves. |
