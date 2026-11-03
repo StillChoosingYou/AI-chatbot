@@ -23,6 +23,8 @@ import sklearn
 from flask import Response, abort, jsonify, redirect, render_template, request, send_file, session
 
 import captcha
+import chat_moderation
+import moderation
 import quality
 import totp
 from student_auth import hash_pin, new_pin, open_pin, seal_pin
@@ -246,6 +248,49 @@ def register_admin(app, ctx):
             return redirect('/coordinator')
         return redirect('/')
 
+    # ─── chat moderation ───
+    @app.get('/api/admin/moderation')
+    def admin_moderation():
+        denied = need_admin()
+        if denied:
+            return denied
+        status = request.args.get('status', 'new')
+        return jsonify(**chat_moderation.overview(connect, status if status in ('new', 'urgent', 'review', 'all') else 'new'),
+                       model=moderation.model_status())
+
+    @app.post('/api/admin/moderation/report/<int:report_id>')
+    def admin_moderation_report(report_id):
+        denied = need_admin()
+        if denied:
+            return denied
+        data = request.get_json(silent=True) or {}
+        action = data.get('action')
+        if action not in chat_moderation.REVIEW_ACTIONS:
+            return jsonify(error='Choose confirm or dismiss.'), 400
+        done = chat_moderation.review_report(connect, report_id, action, str(data.get('note', '')).strip(), 'admin')
+        if done is None:
+            return jsonify(error='That report no longer exists.'), 404
+        log('admin', 'moderation', f'report {report_id} {done["status"]}'[:120])
+        return jsonify(**done)
+
+    @app.post('/api/admin/moderation/user')
+    def admin_moderation_user():
+        denied = need_admin()
+        if denied:
+            return denied
+        data = request.get_json(silent=True) or {}
+        action, subject = data.get('action'), str(data.get('subject', ''))[:80]
+        if action not in chat_moderation.USER_ACTIONS:
+            return jsonify(error='Unknown action.'), 400
+        minutes = data.get('minutes', 30)
+        if not isinstance(minutes, int) or isinstance(minutes, bool) or not 1 <= minutes <= 60 * 24 * 30:
+            return jsonify(error='Pause for 1 minute up to 30 days.'), 400
+        done = chat_moderation.user_action(connect, subject, action, minutes)
+        if done is None:
+            return jsonify(error='No such person in the moderation list.'), 404
+        log('admin', 'moderation', f'{action} {subject}'[:120])
+        return jsonify(**done)
+
     # ─── numbers ───
     @app.get('/api/admin/overview')
     def admin_overview():
@@ -264,11 +309,13 @@ def register_admin(app, ctx):
                 'FROM chat_history').fetchone()
             up, down = db.execute("SELECT COUNT(*) FILTER (WHERE rating = 'up'), COUNT(*) FILTER (WHERE rating = 'down') FROM chat_feedback").fetchone()
             signed_today = db.execute('SELECT COUNT(*) FROM inventory WHERE last_signin >= %s', (datetime.now().strftime('%Y-%m-%d'),)).fetchone()[0]
+        flagged, suspended = chat_moderation.new_count(connect)
         return jsonify(students=students, statuses=statuses, with_pin=with_pin, without_pin=students - with_pin,
                        locked=locked, open_requests=open_requests, open_incidents=open_incidents,
                        answers=turns, fallbacks=fallbacks, thumbs_up=up, thumbs_down=down,
                        portal_open=ctx.get_setting('student_portal_open', '1') == '1',
-                       student_login=ctx.student_login_on, signed_in_today=signed_today, links=links())
+                       student_login=ctx.student_login_on, signed_in_today=signed_today, links=links(),
+                       moderation_new=flagged, moderation_suspended=suspended)
 
     @app.put('/api/admin/public-url')
     def admin_public_url():

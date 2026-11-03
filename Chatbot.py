@@ -17,6 +17,8 @@ from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed
 from werkzeug.routing import IntegerConverter
 
 from admin_panel import ADMIN_IDLE_SECONDS, register_admin
+import chat_moderation
+import moderation
 from auth import AdminLogin, CoordinatorLogin
 from metrics import Metrics
 from quality import SUS_ITEMS, sus_score, who_answered
@@ -1783,6 +1785,39 @@ def create_app(database_url=None):
             return records_answer(workspace)
         return None
 
+    def moderation_reply(intent, reply, outcome=None, stored=None, workspace='student', session_id=''):
+        now = now_stamp()
+        message_id = save_chat_turn(session_id, workspace, stored if stored is not None else '', reply, intent, 0, None, now)
+        return jsonify(intent=intent, reply=reply, confidence=0, actions=[], timestamp=now, message_id=message_id,
+                       suggestions=[], suggestions_title='', follow_ups=[], selected_missing=False, student=None,
+                       moderation=outcome)
+
+    def moderate_message(user_text, workspace, own, session_id):
+        """None when the message may go on to the chatbot, else the finished reply. A fault in moderation never stops the chat."""
+        try:
+            subject, label, enforce = chat_moderation.subject_for(workspace, own, session_id)
+            blocked = chat_moderation.gate(connect, subject) if enforce else None
+            if blocked:
+                return moderation_reply('moderation_blocked', chat_moderation.blocked_reply(blocked),
+                                        {'action': blocked['state'], 'until': blocked['until']},
+                                        '(message not answered: chat paused)', workspace, session_id)
+            verdict = moderation.check(user_text)
+            if verdict['crisis']:
+                return moderation_reply('crisis_support', chat_moderation.CRISIS_REPLY, None,
+                                        '(message not stored)', workspace, session_id)
+            if not verdict['flagged']:
+                return None
+            outcome = chat_moderation.record(connect, subject, label, workspace, session_id, verdict,
+                                             verdict['masked'], enforce)
+            if verdict['source'] == 'model':
+                return None                  # only the model is unsure: no word was found, so the chat goes on; the administrator can look
+            return moderation_reply('moderation_' + outcome['action'], chat_moderation.reply_for(outcome),
+                                    {'action': outcome['action'], 'strikes': outcome['strikes'], 'until': outcome['until']},
+                                    verdict['masked'], workspace, session_id)
+        except Exception:
+            app.logger.exception('chat moderation failed; the message goes on unmoderated')
+            return None
+
     @app.post('/api/chat')
     def chat():
         payload = request.get_json(silent=True)
@@ -1810,6 +1845,11 @@ def create_app(database_url=None):
                 response.status_code = 401
                 return response
             own = shape(mine)
+
+        if os.environ.get('CHAT_MODERATION', '1') != '0':
+            stopped = moderate_message(user_text, workspace, own, session_id)
+            if stopped is not None:
+                return stopped
 
         selected = None                    # the student the conversation is about, kept by the browser
         selected_missing = False

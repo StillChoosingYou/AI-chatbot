@@ -715,3 +715,24 @@ Optional second lock on the admin panel. **Admin panel → System → Two-factor
 ## One-word questions (`topic_words.py`)
 
 A single word such as "status", "canva" or "qr" is a poor fit for the ANN, which learns from whole questions: the word appears in several topics, so the network guessed or the fallback turned it away. A short fixed table (`topic_words.py`) now answers a message that is *only* one of these phrases (polite words aside, three words at most). Anything longer, even "status of my ID", still goes to the ANN. The table is checked in `tests/test_topic_words.py`; to add a phrase, add it to `TOPIC_PHRASES`.
+
+## Chat moderation (`moderation.py`, `chat_moderation.py`)
+Every chat message is checked **before** the chatbot answers. Everything runs offline: a word list with patterns, plus a small character n-gram model (TF-IDF + logistic regression, `data/moderation_model.joblib`) trained from `moderation_dataset.csv`. No external AI service is called.
+
+| Step | What happens |
+| --- | --- |
+| Clean message | Answered as always. |
+| Profanity, insult, harassment (severity 2) | A **strike**. 1st: warning. 2nd: chat paused 5 min. 3rd: 30 min. 4th: 24 h. 5th: suspended until the administrator reviews it. |
+| Threat or sexual harassment (severity 3) | Chat paused 24 h at once; a second one suspends. |
+| Only the model is unsure (no word found) | Recorded for the administrator (Moderation tab, "Model only"), the chat is **not** interrupted and no strike is given. Messages under 3 words are never judged by the model alone. |
+| A cry for help ("gusto ko nang mamatay") | A supportive answer with guidance and 911; no strike, the text is not stored. |
+
+- Strikes count over the last 30 days. A suspension is never final by itself: the administrator can lift it, uphold it, or dismiss the report ("False alarm"), which gives the strike back.
+- Students are tracked by student ID, visitors by chat session. The shared coordinator sign-in is logged but never blocked.
+- Reports (`violations`) keep a **masked** excerpt only (`p***** i** mo b*** ka`); the chat history stores the masked text too.
+- Strikes are counted under a row lock (`SELECT … FOR UPDATE`), so messages sent at the same moment are counted one by one.
+- Admin panel: **Moderation** tab (badge for reports to review), `GET /api/admin/moderation`, `POST /api/admin/moderation/report/<id>` (confirm / dismiss), `POST /api/admin/moderation/user` (lift / restrict / suspend / uphold / reset).
+- `CHAT_MODERATION=0` switches it off. If moderation itself fails, the chat carries on unmoderated and the error is logged.
+- Rebuild after editing word lists: `python build_moderation_dataset.py` then `python train_moderation.py` (writes `evaluation/moderation.md`). The app falls back to the word list alone when the model does not match the dataset.
+
+**Honest limits:** the training data are written from templates (synthetic), so the reported scores are an upper bound; sarcasm and quoting can still be flagged (that is why every flag is reviewable); the Request-help and incident free-text fields and spam/flooding are not covered; only chat messages are moderated.

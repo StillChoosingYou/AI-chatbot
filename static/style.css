@@ -885,3 +885,9 @@ body.touring { overflow: hidden; }
 .sus-pick b { display: grid; place-items: center; width: 38px; height: 34px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-alt); font-size: 13px; transition: background-color .15s, color .15s, transform .15s; }
 .sus-pick label:hover b { transform: translateY(-1px); } .sus-pick input:checked + b { background: var(--green); border-color: var(--green); color: #fff; } .sus-pick input:focus-visible + b { outline: 2px solid var(--gold); outline-offset: 2px; }
 html[data-theme="dark"] .sus-pick input:checked + b { color: #0b1228; }
+
+/* Chat moderation: a warning looks different from an answer, and a paused chat says why the box is off. */
+.message.bot.mod { border-left: 4px solid #d98f00; background: color-mix(in srgb, #d98f00 10%, var(--surface, #fff)); }
+.pause-banner { margin: 0 12px 8px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 600;
+  background: color-mix(in srgb, #c0392b 12%, var(--surface, #fff)); border: 1px solid color-mix(in srgb, #c0392b 45%, transparent); }
+#chat-input:disabled { cursor: not-allowed; opacity: .6; }

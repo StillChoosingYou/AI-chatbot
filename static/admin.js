@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const view = $('view');
-const TABS = [['overview', 'Overview'], ['portal', 'Student portal'], ['access', 'Access & PINs'], ['insights', 'Chatbot insights'],
+const TABS = [['overview', 'Overview'], ['portal', 'Student portal'], ['access', 'Access & PINs'], ['insights', 'Chatbot insights'], ['moderation', 'Moderation'],
   ['news', 'Announcements'], ['data', 'Data & backup'], ['security', 'Security log'], ['system', 'System'], ['quality', 'Quality']];
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const REFRESH_MS = 30000;
@@ -150,6 +150,8 @@ function paintBadges(o) {
   tabDot('access', needs > 0, needs > 99 ? '99+' : String(needs));
   const rate = o.answers ? Math.round((o.fallbacks / o.answers) * 100) : 0;
   tabDot('insights', rate >= 30, '!');
+  const flagged = (o.moderation_new || 0) + (o.moderation_suspended || 0);
+  tabDot('moderation', flagged > 0, flagged > 99 ? '99+' : String(flagged));
 }
 
 async function show(tab, { quiet = false } = {}) {
@@ -205,6 +207,8 @@ const views = {
     const attention = () => [o.without_pin && o.student_login ? `<p>⚠️ ${o.without_pin} student(s) have no PIN, so they cannot sign in. <a href="#access" data-go="access">Issue PINs</a></p>` : '',
       o.locked ? `<p>🔒 ${o.locked} student account(s) are locked. <a href="#access" data-go="access">Unlock</a></p>` : '',
       !o.student_login ? '<p>🔓 Student sign-in is off: anyone who types a student ID sees that student\'s status. Set STUDENT_LOGIN=1 after issuing PINs.</p>' : '',
+      o.moderation_suspended ? `<p>🚫 ${o.moderation_suspended} chat suspension(s) wait for your review. <a href="#moderation" data-go="moderation">Review</a></p>` : '',
+      o.moderation_new ? `<p>🛡️ ${o.moderation_new} flagged chat message(s) to review. <a href="#moderation" data-go="moderation">Open moderation</a></p>` : '',
       fallbackRate >= 30 ? `<p>🧠 ${fallbackRate}% of answers were out of scope. <a href="#insights" data-go="insights">See the missed questions</a></p>` : ''].join('') || '<p class="all-clear">✅ Nothing needs attention.</p>';
     const portalCard = () => `<h2>Student portal</h2>
         <p>${badge(o.portal_open, 'Open', 'Closed')} ${badge(o.student_login, 'Sign-in required (ID + PIN)', 'No sign-in (anyone can look up)')}</p>
@@ -402,6 +406,37 @@ const views = {
     };
   },
 
+  async moderation() {
+    const d = await api(`/api/admin/moderation?status=${moderation.filter}`);
+    const SEV = ['', 'notice', 'strike', 'severe'];
+    const left = (s) => { const m = Math.ceil(s / 60); return m >= 120 ? `${Math.round(m / 60)} h` : `${m} min`; };
+    const standing = (u) => u.state === 'suspended' ? `<span class="a-badge off">Suspended${u.review === 'upheld' ? ' · upheld' : ' · awaiting review'}</span>`
+      : u.state === 'restricted' ? `<span class="a-badge off">Paused ${left(u.pause_left)}</span>` : '<span class="a-badge on">Can chat</span>';
+    const st = d.stats, top = Math.max(1, ...st.by_day.map((x) => x.count));
+    return () => {
+      const chips = [['new', 'Needs review'], ['urgent', 'Threats'], ['review', 'Model only (chat not interrupted)'], ['all', 'Everything']];
+      view.innerHTML = `<h1>Chat moderation</h1><p class="lead">Messages the chat flagged for offensive words, insults, threats or harassment. Rude words are masked. A first strike is a warning, then the chat pauses (5 min, 30 min, 24 h) and the fifth strike suspends the person until you review it. Dismiss a false alarm and the strike is given back.</p>
+        <div class="a-grid">${stat('Need review', st.needs_attention, 'strikes not yet reviewed')}${stat('Threats', st.urgent, 'severe, not yet reviewed')}${stat('Paused now', st.restricted_now, 'temporary pause')}${stat('Suspended', st.suspended_pending + st.suspended_upheld, `${st.suspended_pending} awaiting review`)}${stat('Last 7 days', st.last_7_days, 'flagged messages')}</div>
+        <div class="a-two" style="margin-top:14px">
+          <div class="a-card"><h2>Flagged per day (14 days)</h2><div class="a-cols">${st.by_day.map((i, n) => `<div class="a-col" title="${esc(i.day)}: ${i.count}"><span class="a-col-n">${i.count}</span><div class="a-col-bar" style="--h:${(i.count / top) * 100}%;--d:${n * 35}ms"></div><small>${esc(i.day.slice(-5))}</small></div>`).join('')}</div></div>
+          <div class="a-card"><h2>By kind</h2>${Object.entries(st.by_category).map(([k, v]) => `<p style="margin:2px 0">${esc(k)}: <b>${v}</b></p>`).join('') || '<p>Nothing flagged yet.</p>'}
+            <p style="margin-top:12px"><small>${d.model.loaded ? 'Rules and trained model are both on.' : `Rules only: ${esc(d.model.reason || 'model not loaded')}`}</small></p></div></div>
+        <div class="a-card" style="margin-top:14px"><h2>Reports</h2><div class="a-chips" id="mod-chips">${chips.map(([id, label]) => `<button type="button" class="chip ${moderation.filter === id ? 'on' : ''}" data-f="${id}">${label}</button>`).join('')}</div>
+          <div class="a-scroll"><table class="a-table"><thead><tr><th>Message (masked)</th><th>Who</th><th>Kind</th><th>Result</th><th>When</th><th></th></tr></thead><tbody>${d.reports.map((r, i) => `<tr class="rise fast ${r.severity >= 3 ? 'bad' : ''}" style="--i:${Math.min(i, 10)}"><td>${esc(r.excerpt)}</td><td>${esc(r.subject_label)}</td><td>${esc(r.categories)} · ${SEV[r.severity]}${r.source === 'model' ? ' · model' : ''}</td><td>${esc(r.action)}${r.strikes ? ` (strike ${r.strikes})` : ''}${r.status !== 'new' ? ` · <b>${esc(r.status)}</b>` : ''}</td><td>${esc(r.timestamp)}</td><td>${r.status === 'new' ? `<button type="button" data-r="${r.id}" data-a="confirm">Confirm</button> <button type="button" data-r="${r.id}" data-a="dismiss">False alarm</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6">Nothing here. ✅</td></tr>'}</tbody></table></div></div>
+        <div class="a-card" style="margin-top:14px"><h2>People with a record</h2>
+          <div class="a-scroll"><table class="a-table"><thead><tr><th>Person</th><th>Standing</th><th>Strikes (30 days)</th><th>Reports</th><th>Last</th><th></th></tr></thead><tbody>${d.users.map((u) => `<tr><td>${esc(u.subject_label)}</td><td>${standing(u)}</td><td>${u.strikes}</td><td>${u.total}</td><td>${esc(u.last || '')}</td><td>${u.subject === 'coordinator' ? '' : `${u.state !== 'ok' ? `<button type="button" data-u="${esc(u.subject)}" data-a="lift">Lift</button> ` : ''}${u.state === 'suspended' && u.review !== 'upheld' ? `<button type="button" data-u="${esc(u.subject)}" data-a="uphold">Uphold</button> ` : ''}${u.state !== 'suspended' ? `<button type="button" data-u="${esc(u.subject)}" data-a="suspend">Suspend</button> ` : ''}<button type="button" data-u="${esc(u.subject)}" data-a="reset">Clear strikes</button>`}</td></tr>`).join('') || '<tr><td colspan="6">Nobody has been flagged.</td></tr>'}</tbody></table></div></div>`;
+      $('mod-chips').onclick = (e) => { const b = e.target.closest('[data-f]'); if (b) { moderation.filter = b.dataset.f; show('moderation'); } };
+      view.querySelectorAll('button[data-r]').forEach((b) => { b.onclick = () => busy(b, async () => {
+        await api(`/api/admin/moderation/report/${b.dataset.r}`, send('POST', { action: b.dataset.a }));
+        toast(b.dataset.a === 'dismiss' ? 'Dismissed: the strike is given back' : 'Confirmed'); await show('moderation', { quiet: true }); }); });
+      view.querySelectorAll('button[data-u]').forEach((b) => { b.onclick = () => busy(b, async () => {
+        const danger = b.dataset.a === 'suspend';
+        if (danger && !(await ask({ title: 'Suspend this person?', text: 'They cannot use the chat until you lift the suspension.', ok: 'Suspend', danger: true }))) return;
+        await api('/api/admin/moderation/user', send('POST', { subject: b.dataset.u, action: b.dataset.a }));
+        toast('Saved'); await show('moderation', { quiet: true }); }); });
+    };
+  },
+
   async quality() {
     const d = await api(`/api/admin/quality${quality.deep ? '?deep=1' : ''}`); quality.deep = false;
     return () => {
@@ -586,11 +621,13 @@ function twoFactor(info) {
 /* ---------- live: one change counter, asked every 4 seconds; the page reloads what it shows when it moves ---------- */
 const LIVE_MS = 4000;
 let rev = null;
+const moderation = { filter: 'new' };
 const quality = { deep: false };                   // set by "Measure again": one deeper measurement
 const liveSafe = {                                   // a tab whose text boxes hold something is left alone
   overview: () => true,
   security: () => !$('sec-search')?.value && !$('sec-role')?.value && !$('sec-bad')?.checked,
   insights: () => !$('miss-search')?.value,
+  moderation: () => true,
   access: () => !$('pin-result')?.innerHTML && !$('pin-search')?.value && document.querySelector('#pin-chips .chip.on')?.dataset.f === 'all',
   system: () => true,
 };

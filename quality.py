@@ -289,6 +289,11 @@ def security(env):
     out.append(check('Lock-out and time-outs', 1, '5 wrong PINs lock an account for 15 minutes; idle sessions end after 15 (admin), 30 (coordinator) and 20 (student) minutes; the admin captcha allows 5 tries.', 'declared'))
     out.append(check('Accountability: an audit log of sign-ins and changes', 1 if events else 0, f'{events} events logged this month; the admin reads them in the Security log.', 'measured'))
     out.append(check('Data privacy: a student sees only their own record; PINs they choose are unreadable', 1, 'Own-record limits are enforced on the server; the office-issued PIN is kept encrypted and erased when the student changes it.', 'declared'))
+    import moderation
+    mod = moderation.model_status()
+    out.append(check('Chat moderation: offensive words, insults and threats are flagged, struck and reviewed', 1 if mod['loaded'] else 0.7,
+                     'Every chat message passes a word-list and a trained model; a first offence is a warning, repeats pause the chat and the fifth strike suspends it until the administrator reviews it. '
+                     + ('Both are on now.' if mod['loaded'] else f'Only the word list is on now: {mod["reason"]}. Synthetic training data: see evaluation/moderation.md.'), 'measured'))
     policy = headers.get('Content-Security-Policy', '')
     script_src = next((part.strip() for part in policy.split(';') if part.strip().startswith('script-src')), '')
     strict = bool(script_src) and "'unsafe-inline'" not in script_src and "'unsafe-eval'" not in script_src
