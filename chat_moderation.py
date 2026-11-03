@@ -103,7 +103,7 @@ def record(connect, subject, label, workspace, session_id, verdict, excerpt, enf
         report = db.execute(
             'INSERT INTO violations (subject, subject_label, workspace_role, session_id, categories, severity, excerpt, source, '
             'score, action, strikes, timestamp) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
-            (subject, label, workspace, (session_id or '')[:120], ','.join(verdict['categories']), severity, excerpt[:300],
+            (subject, label, workspace, (session_id or '')[:120], ','.join(verdict['categories']), severity, excerpt[:1000],
              verdict.get('source') or '', verdict.get('score'), action, strikes, stamp)).fetchone()[0]
         if action == 'restricted':
             db.execute("UPDATE moderation_users SET state = 'restricted', restricted_until = %s, review = '', subject_label = %s, "
