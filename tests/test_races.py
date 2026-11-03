@@ -5,6 +5,7 @@ the row lock in another connection and checks that the request waits for it.
 """
 import os
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -126,6 +127,54 @@ class TwoFactorRaceTests(EnvTestCase):
             lambda: client.post('/api/admin/totp/recovery', json={'code': code}).status_code)
         self.assertTrue(waiting)
         self.assertEqual(outcome, [200])
+
+
+class SharedCookieTests(DatabaseTestCase):
+    """Admin, coordinator and student share one cookie. A page that only asks "anything new?" must not rewrite it."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch.dict(os.environ, {**ENV, 'ADMIN_CAPTCHA': '0'})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.app = self.make_app()
+
+    def sign_in_admin_and_coordinator(self):
+        client = self.app.test_client()
+        client.post('/admin/login', data=CREDS)
+        client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
+        return client
+
+    def test_a_poll_does_not_send_the_cookie_again(self):
+        client = self.sign_in_admin_and_coordinator()
+        for role in ('admin', 'coordinator'):
+            reply = client.get(f'/api/live?role={role}')
+            self.assertEqual(reply.status_code, 200, role)
+            self.assertEqual(reply.headers.getlist('Set-Cookie'), [], role)
+
+    def test_a_late_poll_reply_cannot_sign_out_a_role_that_signed_in_meanwhile(self):
+        admin_only = self.app.test_client()
+        admin_only.post('/admin/login', data=CREDS)
+        old_cookie = admin_only.get_cookie('session').value
+        late = self.app.test_client()                        # the poll was sent with the cookie as it was then
+        late.set_cookie('session', old_cookie)
+        reply = late.get('/api/live?role=admin')
+        # ...and while it was on its way the coordinator signed in from another tab:
+        admin_only.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
+        for header in reply.headers.getlist('Set-Cookie'):   # the browser would store whatever the late reply says
+            self.fail(f'the poll sent a cookie: {header[:60]}')
+        self.assertEqual(admin_only.get('/api/live?role=coordinator').status_code, 200)
+        self.assertEqual(admin_only.get('/api/live?role=admin').status_code, 200)
+
+    def test_the_idle_clock_still_moves_but_only_now_and_then(self):
+        client = self.sign_in_admin_and_coordinator()
+        with client.session_transaction() as s:
+            s['seen_admin'] = time.time() - 120
+        reply = client.get('/api/live?role=admin')
+        self.assertEqual(len(reply.headers.getlist('Set-Cookie')), 1)
+        with client.session_transaction() as s:
+            self.assertLess(time.time() - s['seen_admin'], 5)
+        self.assertEqual(client.get('/api/live?role=admin').headers.getlist('Set-Cookie'), [])
 
 
 if __name__ == '__main__':

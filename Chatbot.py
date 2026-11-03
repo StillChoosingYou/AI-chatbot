@@ -173,7 +173,11 @@ def create_app(database_url=None):
     admin_login = AdminLogin(database_url=database_url)
     app.secret_key = login.secret
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax',
-                      SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600)
+                      SESSION_COOKIE_SECURE=login.on_vercel, PERMANENT_SESSION_LIFETIME=8 * 3600,
+                      # The three roles share one cookie and their tabs poll every few seconds. A reply that arrives late
+                      # must not write an older copy of the cookie over a sign-in made in another tab, so the cookie is
+                      # only sent when something in the session really changed.
+                      SESSION_REFRESH_EACH_REQUEST=False)
 
     student_login_on = os.environ.get('STUDENT_LOGIN', '1').strip() != '0'      # always required; STUDENT_LOGIN=0 is for local demos
     student_host = os.environ.get('STUDENT_HOST', '').strip().lower()            # e.g. pgpc-student.vercel.app
@@ -210,6 +214,7 @@ def create_app(database_url=None):
             return payload.get('workspace_role') if isinstance(payload, dict) else None
         return None
 
+    SEEN_EVERY = 30                                                       # the idle limits are 15 minutes and more, so this is precise enough
     IDLE_SECONDS = {'admin': ADMIN_IDLE_SECONDS, 'coordinator': 30 * 60, 'student': 20 * 60}                  # signed out after this long without a request
 
     def coordinator_signed_in():
@@ -270,8 +275,8 @@ def create_app(database_url=None):
             if session.get(role) and now - session.get(f'seen_{role}', now) > limit:
                 sign_out(role)
         active = request_role()
-        if active in IDLE_SECONDS and session.get(active):
-            session[f'seen_{active}'] = now
+        if active in IDLE_SECONDS and session.get(active) and now - session.get(f'seen_{active}', 0) > SEEN_EVERY:
+            session[f'seen_{active}'] = now                           # at most every SEEN_EVERY seconds: each write is a cookie
 
     metrics = Metrics()
     app.extensions['metrics'] = metrics
