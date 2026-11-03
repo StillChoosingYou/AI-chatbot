@@ -216,7 +216,7 @@ def rules(text):
         masked = ' '.join(mask(w) for w in masked.split())
     crisis = any(p.search(joined) for p in _CRISIS)
     shown = sorted({' '.join(mask(w) for w in t.split()[:2]) + (' …' if len(t.split()) > 2 else '') for t in terms} | labels)
-    return {'severity': severity, 'categories': sorted(categories), 'terms': shown, 'masked': masked[:300], 'crisis': crisis}
+    return {'severity': severity, 'categories': sorted(categories), 'terms': shown, 'masked': masked[:1000], 'crisis': crisis}
 
 
 # ─────────────────────────── the trained model ───────────────────────────

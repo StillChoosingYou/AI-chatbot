@@ -91,6 +91,39 @@ function ask({ title, text, ok = 'Confirm', danger = false }) {
   });
 }
 
+/* ---------- a flagged chat message, in full (words stay masked: only the first letter of a rude word is kept) ---------- */
+function showMessage(r, onDecide) {
+  const back = document.createElement('div');
+  back.className = 'a-modal-back';
+  const open = r.status === 'new';
+  back.innerHTML = `<div class="a-modal a-msg-modal" role="dialog" aria-modal="true" aria-labelledby="mm-title">
+    <h2 id="mm-title">Flagged message</h2>
+    <dl class="a-msg-meta"><div><dt>From</dt><dd></dd></div><div><dt>When</dt><dd></dd></div><div><dt>Kind</dt><dd></dd></div><div><dt>Result</dt><dd></dd></div></dl>
+    <div class="a-msg-body" tabindex="0"></div>
+    <p class="a-msg-note">Rude words are masked when the message is saved, so the administrator reads the whole message without keeping the offensive words.</p>
+    <div class="a-row a-modal-actions"><button type="button" data-close>Close</button>${open ? '<button type="button" data-d="dismiss">False alarm</button><button type="button" data-d="confirm" class="primary">Confirm</button>' : ''}</div></div>`;
+  const dd = back.querySelectorAll('dd');
+  dd[0].textContent = r.subject_label; dd[1].textContent = r.timestamp;
+  dd[2].textContent = `${r.categories.replace(/,/g, ', ')} · ${['', 'notice', 'strike', 'severe'][r.severity]}${r.source === 'model' ? ' · model' : ''}`;
+  dd[3].textContent = `${r.action}${r.strikes ? ` (strike ${r.strikes})` : ''}${r.status !== 'new' ? ` · ${r.status}` : ''}`;
+  back.querySelector('.a-msg-body').textContent = r.excerpt;
+  const previous = document.activeElement;
+  const close = () => {
+    document.removeEventListener('keydown', onKey, true);
+    back.classList.remove('show');
+    setTimeout(() => { back.remove(); if (previous && previous.focus) previous.focus(); }, REDUCED ? 0 : 200);
+  };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+  back.addEventListener('click', (e) => {
+    if (e.target === back || e.target.closest('[data-close]')) close();
+    const d = e.target.closest('[data-d]'); if (d) { close(); onDecide(d.dataset.d); }
+  });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(back);
+  void back.offsetWidth; back.classList.add('show');
+  back.querySelector('[data-close]').focus();
+}
+
 /* ---------- requests ---------- */
 async function api(url, options = {}) {
   progressStart();
@@ -422,10 +455,14 @@ const views = {
           <div class="a-card"><h2>By kind</h2>${Object.entries(st.by_category).map(([k, v]) => `<p style="margin:2px 0">${esc(k)}: <b>${v}</b></p>`).join('') || '<p>Nothing flagged yet.</p>'}
             <p style="margin-top:12px"><small>${d.model.loaded ? 'Rules and trained model are both on.' : `Rules only: ${esc(d.model.reason || 'model not loaded')}`}</small></p></div></div>
         <div class="a-card" style="margin-top:14px"><h2>Reports</h2><div class="a-chips" id="mod-chips">${chips.map(([id, label]) => `<button type="button" class="chip ${moderation.filter === id ? 'on' : ''}" data-f="${id}">${label}</button>`).join('')}</div>
-          <div class="a-scroll"><table class="a-table"><thead><tr><th>Message (masked)</th><th>Who</th><th>Kind</th><th>Result</th><th>When</th><th></th></tr></thead><tbody>${d.reports.map((r, i) => `<tr class="rise fast ${r.severity >= 3 ? 'bad' : ''}" style="--i:${Math.min(i, 10)}"><td>${esc(r.excerpt)}</td><td>${esc(r.subject_label)}</td><td>${esc(r.categories)} · ${SEV[r.severity]}${r.source === 'model' ? ' · model' : ''}</td><td>${esc(r.action)}${r.strikes ? ` (strike ${r.strikes})` : ''}${r.status !== 'new' ? ` · <b>${esc(r.status)}</b>` : ''}</td><td>${esc(r.timestamp)}</td><td>${r.status === 'new' ? `<button type="button" data-r="${r.id}" data-a="confirm">Confirm</button> <button type="button" data-r="${r.id}" data-a="dismiss">False alarm</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6">Nothing here. ✅</td></tr>'}</tbody></table></div></div>
+          <div class="a-scroll"><table class="a-table"><thead><tr><th>Message</th><th>Who</th><th>Kind</th><th>Result</th><th>When</th><th></th></tr></thead><tbody>${d.reports.map((r, i) => `<tr class="rise fast ${r.severity >= 3 ? 'bad' : ''}" style="--i:${Math.min(i, 10)}"><td><button type="button" class="a-msg-btn" data-m="${i}" title="Read the full message" aria-label="Read the full message from ${esc(r.subject_label)}">💬</button></td><td>${esc(r.subject_label)}</td><td>${esc(r.categories)} · ${SEV[r.severity]}${r.source === 'model' ? ' · model' : ''}</td><td>${esc(r.action)}${r.strikes ? ` (strike ${r.strikes})` : ''}${r.status !== 'new' ? ` · <b>${esc(r.status)}</b>` : ''}</td><td>${esc(r.timestamp)}</td><td>${r.status === 'new' ? `<button type="button" data-r="${r.id}" data-a="confirm">Confirm</button> <button type="button" data-r="${r.id}" data-a="dismiss">False alarm</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6">Nothing here. ✅</td></tr>'}</tbody></table></div></div>
         <div class="a-card" style="margin-top:14px"><h2>People with a record</h2>
           <div class="a-scroll"><table class="a-table"><thead><tr><th>Person</th><th>Standing</th><th>Strikes (30 days)</th><th>Reports</th><th>Last</th><th></th></tr></thead><tbody>${d.users.map((u) => `<tr><td>${esc(u.subject_label)}</td><td>${standing(u)}</td><td>${u.strikes}</td><td>${u.total}</td><td>${esc(u.last || '')}</td><td>${u.subject === 'coordinator' ? '' : `${u.state !== 'ok' ? `<button type="button" data-u="${esc(u.subject)}" data-a="lift">Lift</button> ` : ''}${u.state === 'suspended' && u.review !== 'upheld' ? `<button type="button" data-u="${esc(u.subject)}" data-a="uphold">Uphold</button> ` : ''}${u.state !== 'suspended' ? `<button type="button" data-u="${esc(u.subject)}" data-a="suspend">Suspend</button> ` : ''}<button type="button" data-u="${esc(u.subject)}" data-a="reset">Clear strikes</button>`}</td></tr>`).join('') || '<tr><td colspan="6">Nobody has been flagged.</td></tr>'}</tbody></table></div></div>`;
       $('mod-chips').onclick = (e) => { const b = e.target.closest('[data-f]'); if (b) { moderation.filter = b.dataset.f; show('moderation'); } };
+      view.querySelectorAll('button[data-m]').forEach((b) => { b.onclick = () => showMessage(d.reports[+b.dataset.m], (action) => busy(null, async () => {
+        const r = d.reports[+b.dataset.m];
+        await api(`/api/admin/moderation/report/${r.id}`, send('POST', { action }));
+        toast(action === 'dismiss' ? 'Dismissed: the strike is given back' : 'Confirmed'); await show('moderation', { quiet: true }); })); });
       view.querySelectorAll('button[data-r]').forEach((b) => { b.onclick = () => busy(b, async () => {
         await api(`/api/admin/moderation/report/${b.dataset.r}`, send('POST', { action: b.dataset.a }));
         toast(b.dataset.a === 'dismiss' ? 'Dismissed: the strike is given back' : 'Confirmed'); await show('moderation', { quiet: true }); }); });

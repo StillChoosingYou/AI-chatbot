@@ -144,6 +144,15 @@ class ChatTests(DatabaseTestCase):
             stored = ' '.join(r[0] for r in db.execute("SELECT message FROM chat_history WHERE role = 'user'"))
         self.assertNotIn('putang', stored.lower())
 
+    def test_a_long_flagged_message_is_kept_in_full_for_the_administrator(self):
+        long_text = ('ang tagal ng ID ko at ' * 30) + 'putang ina mo bobo ka ' + ('salamat po ' * 20)
+        self.assertLess(len(long_text), 1000)
+        self.say(long_text)
+        excerpt = self.admin.get('/api/admin/moderation').json['reports'][0]['excerpt']
+        self.assertGreater(len(excerpt), 600)
+        self.assertTrue(excerpt.endswith('salamat po'))
+        self.assertNotIn('putang', excerpt.lower())
+
     def test_the_administrator_sees_the_report_and_can_dismiss_it(self):
         self.say(THREAT)
         data = self.admin.get('/api/admin/moderation').json
