@@ -1087,7 +1087,7 @@ function chipRow(title, chips) {
    followUps, rating, retryText, student (the student this answer is about: the buttons act on them) */
 function addMessage(text, kind, meta = {}) {
   const node = document.createElement('div');
-  node.className = `message ${kind}${kind === 'bot' && CARD_INTENTS.has(meta.intent) ? ' card' : ''}`;
+  node.className = `message ${kind}${kind === 'bot' && CARD_INTENTS.has(meta.intent) ? ' card' : ''}${kind === 'bot' && /^(moderation_|crisis_)/.test(meta.intent || '') ? ' mod' : ''}`;
   let html = renderMarkdown(text);
   html += `<div class="message-time">${meta.timestamp ? formatTime(meta.timestamp) : formatNow()}</div>`;
   if (kind === 'bot' && meta.confidence > 0 && !QUIET_INTENTS.has(meta.intent)) {
@@ -1269,13 +1269,37 @@ function replyMeta(response, session) {
     intent: response.intent,
     actions: response.actions,
     timestamp: response.timestamp,
-    messageId: response.message_id,
+    messageId: response.moderation ? null : response.message_id,      // a warning is not rated 👍 or 👎
     sessionId: session,
     suggestions: response.suggestions,
     suggestionsTitle: response.suggestions_title,
     followUps: response.follow_ups,
     student: response.student || selected,
   };
+}
+
+/* A paused or suspended chat: the message box says so, with a countdown, until the pause is over. */
+let pauseTimer = 0;
+function showPause(info) {
+  clearInterval(pauseTimer);
+  const input = $('chat-input'), button = $('chat-form').querySelector('button');
+  const old = $('pause-banner'); if (old) old.remove();
+  const paused = info && (info.action === 'restricted' || info.action === 'suspended' || info.action === 'moderation_blocked');
+  const waiting = info && info.until && info.until * 1000 > Date.now();
+  if (!paused || (info.action !== 'suspended' && !waiting)) { input.disabled = false; button.disabled = false; return; }
+  const banner = document.createElement('div');
+  banner.id = 'pause-banner'; banner.className = 'pause-banner'; banner.setAttribute('role', 'status');
+  $('chat-form').before(banner);
+  input.disabled = true; button.disabled = true;
+  const tick = () => {
+    const left = Math.ceil((info.until * 1000 - Date.now()) / 1000);
+    if (info.action !== 'suspended' && left <= 0) { clearInterval(pauseTimer); banner.remove(); input.disabled = false; button.disabled = false; return; }
+    const text = info.action === 'suspended' ? 'Chat suspended until the administrator reviews it. Visit the Property Management Office.'
+      : `Chat paused. You can write again in ${left >= 3600 ? Math.round(left / 3600) + ' h' : left >= 60 ? Math.ceil(left / 60) + ' min' : left + ' s'}.`;
+    if (banner.textContent !== text) banner.textContent = text;
+  };
+  tick();
+  if (info.action !== 'suspended') pauseTimer = setInterval(tick, 1000);
 }
 
 async function send(text, { retry = false } = {}) {
@@ -1303,12 +1327,13 @@ async function send(text, { retry = false } = {}) {
     }
     if (response.student) setSelected(response.student);
     addMessage(response.reply, 'bot', replyMeta(response, session));
+    showPause(response.moderation);
   } catch (error) {
     hideTyping();
     if (session === sessionId()) addMessage(error.message, 'bot', { retryText: text });
   } finally {
     sending = false;
-    button.disabled = false;
+    button.disabled = Boolean($('pause-banner'));
     if (!isMobile()) $('chat-input').focus({ preventScroll: true });
   }
 }
