@@ -13,6 +13,12 @@ class UxAssetTests(AppTestCase):
                 self.assertEqual(response.status_code, 200)
                 response.close()
 
+    def test_edges_own_password_eye_is_hidden_so_only_the_page_toggle_shows(self):
+        css = self.client.get('/static/style.css')
+        text = css.get_data(as_text=True)
+        css.close()
+        self.assertRegex(text, r'input\[type="password"\]::-ms-reveal[^{]*\{\s*display:\s*none')
+
     def test_every_sign_in_page_loads_the_sign_in_script_and_the_saved_theme(self):
         with patch.dict(os.environ, {'STUDENT_LOGIN': '1', 'COORDINATOR_PASSWORD': 'x', 'ADMIN_PASSWORD': 'y'}):
             client = self.make_app().test_client()

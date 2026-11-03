@@ -774,6 +774,9 @@ html.motion-off .ux-panel, html.motion-off .ux-undo { transition: none; }
 .pw-wrap input { padding-right: 44px; }
 .pw-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; padding: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; font-size: 16px; color: var(--muted); transition: background-color .15s; }
 .pw-toggle:hover { background: var(--surface-hover); }
+/* Edge draws its own eye (and a clear cross) inside password fields: two eyes next to ours. Keep only ours. */
+input[type="password"]::-ms-reveal, input[type="password"]::-ms-clear { display: none; }
+input[type="password"]::-webkit-credentials-auto-fill-button { visibility: hidden; pointer-events: none; position: absolute; right: 0; }
 .caps-note { margin: -4px 0 0; font-size: 12px; color: var(--pending-fg); animation: cardRise .25s both; }
 .caps-note[hidden] { display: none; }
 .auth-theme { position: fixed; top: 14px; right: 14px; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-size: 17px; display: grid; place-items: center; transition: transform .4s cubic-bezier(.2, .7, .2, 1), background-color .2s; }
