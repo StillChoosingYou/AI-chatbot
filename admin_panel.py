@@ -23,6 +23,7 @@ import sklearn
 from flask import Response, abort, jsonify, redirect, render_template, request, send_file, session
 
 import captcha
+from chat_support import intent_name
 import chat_moderation
 import moderation
 import quality
@@ -629,13 +630,13 @@ def register_admin(app, ctx):
             return denied
         since = (datetime.now() - timedelta(days=14)).strftime('%Y-%m-%d')
         with connect() as db:
-            intents = [{'intent': r[0], 'count': r[1], 'avg_confidence': round(float(r[2] or 0), 2)} for r in db.execute(
+            intents = [{'intent': r[0], 'label': intent_name(r[0]), 'count': r[1], 'avg_confidence': round(float(r[2] or 0), 2)} for r in db.execute(
                 "SELECT intent, COUNT(*), AVG(NULLIF(confidence, 0)) FROM chat_history WHERE role = 'bot' AND intent <> '' "
                 'GROUP BY intent ORDER BY 2 DESC LIMIT 20')]
             per_day = [{'day': r[0], 'count': r[1]} for r in db.execute(
                 "SELECT SUBSTR(timestamp, 1, 10), COUNT(*) FROM chat_history WHERE role = 'user' AND timestamp >= %s "
                 'GROUP BY 1 ORDER BY 1', (since,))]
-            missed = [{'question': r[0][:200], 'intent': r[1], 'confidence': round(float(r[2]), 2), 'time': r[3], 'role': r[4]}
+            missed = [{'question': r[0][:200], 'intent': r[1], 'label': intent_name(r[1]), 'confidence': round(float(r[2]), 2), 'time': r[3], 'role': r[4]}
                       for r in db.execute(MISSED_SQL + 'ORDER BY b.id DESC LIMIT 60', ('user', 'bot'))]
             reasons = [{'reason': r[0] or 'none', 'count': r[1]} for r in db.execute(
                 "SELECT reason, COUNT(*) FROM chat_feedback WHERE rating = 'down' GROUP BY 1 ORDER BY 2 DESC LIMIT 8")]

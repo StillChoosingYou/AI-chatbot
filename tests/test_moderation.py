@@ -200,3 +200,22 @@ class ChatTests(DatabaseTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class IntentNameTests(unittest.TestCase):
+    """The admin screens show readable names, never the raw identifiers."""
+
+    def test_every_topic_and_every_moderation_answer_has_a_proper_name(self):
+        import csv
+        from chat_support import INTENT_NAMES, intent_name
+        with open('property_management_dataset.csv', encoding='utf-8') as f:
+            topics = {row['intent'] for row in csv.DictReader(f)}
+        for intent in topics | {'out_of_scope', 'student_lookup', 'own_record_only', 'crisis_support',
+                                'moderation_notice', 'moderation_warning', 'moderation_restricted',
+                                'moderation_suspended', 'moderation_blocked', 'moderation_logged'}:
+            self.assertIn(intent, INTENT_NAMES, intent)
+            self.assertNotIn('_', intent_name(intent))
+
+    def test_an_unknown_answer_type_is_still_made_readable(self):
+        from chat_support import intent_name
+        self.assertEqual(intent_name('some_new_thing'), 'Some new thing')

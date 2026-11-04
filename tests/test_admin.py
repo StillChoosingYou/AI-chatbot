@@ -130,6 +130,8 @@ class AdminTests(DatabaseTestCase):
         data = client.get('/api/admin/insights').json
         self.assertTrue(any('meaning of life' in m['question'] for m in data['missed']))
         self.assertTrue(data['intents'])
+        self.assertTrue(all(i['label'] and '_' not in i['label'] for i in data['intents']))     # readable names, not identifiers
+        self.assertTrue(all(m['label'] and '_' not in m['label'] for m in data['missed']))
         csv_text = client.get('/api/admin/missed.csv').get_data(as_text=True)
         self.assertTrue(csv_text.startswith('question,times_asked,bot_intent'))
         self.assertIn('meaning of life', csv_text)

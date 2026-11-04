@@ -78,6 +78,34 @@ def intent_label(intent):
     return _OTHER_LABELS.get(intent) or str(intent).replace('_', ' ').capitalize()
 
 
+# Full names for the admin screens, which list every kind of answer the bot gives, not only the 13 topics.
+INTENT_NAMES = {
+    'greeting': 'Greeting', 'thanks_goodbye': 'Thanks / goodbye', 'bot_help': 'What the bot can do',
+    'talk_to_human': 'Talk to the office', 'out_of_scope': 'Not understood (outside the bot’s topics)',
+    'id_processing_status': 'ID processing status', 'id_release_schedule': 'ID release schedule',
+    'pending_id': 'Pending ID: reason', 'pending_id_schedule': 'Pending ID: follow-up date',
+    'lost_id_report': 'Lost ID report', 'lost_id_schedule': 'Lost ID: replacement date',
+    'id_requirements': 'ID requirements', 'office_hours_location': 'Office hours and location',
+    'qr_student_details': 'QR scan: student details', 'qr_sticker_request': 'QR sticker request',
+    'id_process': 'How an ID is made (steps)', 'id_inventory': 'IDs not yet made',
+    'student_lookup': 'Student look-up (by ID or name)', 'student_not_found': 'Student not found',
+    'own_record_only': 'Own record only (privacy)', 'my_requests': 'My requests',
+    'request_help': 'Request help', 'request_submitted': 'Request submitted',
+    'records_list': 'Record list', 'incidents_list': 'Incident list', 'incident_status': 'Incident status',
+    'incident_filed': 'Incident filed', 'incident_help': 'Incident help',
+    'incident_not_for_students': 'Incidents (office only)',
+    'moderation_notice': 'Moderation: friendly reminder', 'moderation_warning': 'Moderation: warning',
+    'moderation_restricted': 'Moderation: chat paused', 'moderation_suspended': 'Moderation: suspended',
+    'moderation_blocked': 'Moderation: message blocked (chat paused)', 'moderation_logged': 'Moderation: logged only',
+    'crisis_support': 'Supportive reply (cry for help)',
+}
+
+
+def intent_name(intent):
+    """Readable name of any answer type, for the admin panel. Unknown ones are made readable rather than shown raw."""
+    return INTENT_NAMES.get(intent) or str(intent).replace('_', ' ').capitalize()
+
+
 def prompt_chips(intents, workspace):
     """Turn intent names into chip dicts, dropping unknown and role-inappropriate ones."""
     chips = []
