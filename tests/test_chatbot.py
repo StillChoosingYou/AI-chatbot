@@ -207,3 +207,14 @@ class SchoolIDTests(DatabaseTestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+class OffTopicChatTests(DatabaseTestCase):
+    def test_chat_tells_the_user_the_question_is_not_about_school_ids(self):
+        client = self.make_app().test_client()
+        for message, expected in (('magkano ang kilo ng bigas?', 'Hindi po related sa school ID'),
+                                  ('what is the capital of France', 'isn’t related to school IDs')):
+            with self.subTest(message=message):
+                reply = client.post('/api/chat', json={'message': message}).json
+                self.assertEqual(reply['intent'], 'out_of_scope')
+                self.assertIn(expected, reply['reply'])

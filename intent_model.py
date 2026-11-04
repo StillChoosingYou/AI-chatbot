@@ -29,7 +29,7 @@ ang ng sa na at ay ba po opo ho naman lang pa din rin daw raw nga pala kasi kaya
 nang pero ngunit o oo ako ko akin ikaw ka mo iyo siya niya kami namin amin tayo natin kayo ninyo sila nila ito iyan
 iyon ayan ayon yan yun nito dito doon diyan niyan ano anong sino saan nasaan kailan paano pano bakit alin gaano
 magkano ilan mayroon meron wala hindi di huwag wag para kung kapag pag sana muna pwede pwedeng puwede maaari gusto
-nais paki pakiusap ngayon bukas kahapon mamaya
+nais paki pakiusap ngayon bukas kahapon mamaya mag nag mang
 '''.split())
 
 

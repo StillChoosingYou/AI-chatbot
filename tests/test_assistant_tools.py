@@ -256,7 +256,7 @@ class SuggestionRouteTests(AppTestCase):
             with self.subTest(text):
                 reply = self.ask(text)
                 self.assertEqual((reply['intent'], reply['suggestions'], reply['follow_ups']), ('out_of_scope', [], []))
-                self.assertIn('automated assistant', reply['reply'])
+                self.assertIn('isn’t related to school IDs', reply['reply'])
                 self.assertIn('ask_human', [a['type'] for a in reply['actions']])
 
     def test_a_few_plain_words_nobody_matches_are_answered_as_a_student_who_was_not_found(self):

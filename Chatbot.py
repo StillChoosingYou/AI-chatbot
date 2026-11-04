@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import os
+import re
 import secrets
 import time
 from datetime import datetime
@@ -86,6 +87,22 @@ REQUEST_FLOW = {
 FEEDBACK_RATINGS = ('up', 'down')
 FEEDBACK_STATUSES = ('New', 'Reviewed')
 UNSURE_REPLY = 'I’m an automated assistant and I’m not sure what you meant. Did you mean one of these?'
+# Said when a message is clearly not about school IDs (no ID topic is even close): it names the reason instead of
+# only saying "can't help". Taglish or Filipino words in the message get the Taglish version.
+FILIPINO_MARKERS = frozenset('''ang ng sa mga ako ko mo ka siya namin natin ba po opo ano sino saan kailan paano pano bakit magkano gaano
+ilan pwede puwede kasi naman lang yung ito iyan hindi wala may mayroon meron gusto nais paki sige salamat kamusta kumusta
+mag nag mang'''.split())
+OFF_TOPIC_EN = ('That question isn’t related to school IDs, so I can’t answer it. I only help with ID status, release schedule, '
+                'requirements, lost IDs and QR stickers. Type a student ID or name, or ask “When is my ID release?”. '
+                'For anything else, please contact the office.')
+OFF_TOPIC_TL = ('Hindi po related sa school ID ang tanong na iyan, kaya hindi ko ito masasagot. Ang matutulungan ko lang ay ang ID status, '
+                'release schedule, requirements, nawalang ID at QR sticker. I-type ang student ID o pangalan, o itanong ang '
+                '“Kailan ang release ng ID ko?”. Para sa iba pang bagay, makipag-ugnayan po sa office.')
+
+
+def off_topic_reply(text):
+    words = re.findall(r"[a-zñ']+", str(text).lower())
+    return OFF_TOPIC_TL if sum(w in FILIPINO_MARKERS for w in words) >= 1 else OFF_TOPIC_EN
 API_ERRORS = {
     400: 'The request could not be understood.',
     404: 'That record or page was not found.',
@@ -2026,6 +2043,8 @@ def create_app(database_url=None):
                 with_follow_ups=not (intent in lookups and selected is None))
             if intent == 'out_of_scope' and suggestions:
                 answer = UNSURE_REPLY
+            elif intent == 'out_of_scope':
+                answer = off_topic_reply(user_text)
             if intent == 'id_process':
                 follow_ups = [{'intent': 'id_process', **chip} for chip in process_chips]
 
