@@ -89,3 +89,19 @@ class SmallTalkTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OffTopicReplyTests(unittest.TestCase):
+    def test_a_question_that_is_not_about_ids_says_so_in_the_askers_language(self):
+        from Chatbot import off_topic_reply
+        self.assertIn('Hindi po related sa school ID', off_topic_reply('magkano ang kilo ng bigas?'))
+        self.assertIn('isn’t related to school IDs', off_topic_reply('how much is a kilo of rice'))
+        self.assertIn('isn’t related to school IDs', off_topic_reply('what is the capital of France'))
+
+    def test_the_gate_sends_off_topic_questions_to_the_fallback(self):
+        from intent_model import ANNIntentModel
+        matcher = ANNIntentModel()
+        for text in ('magkano ang kilo ng bigas?', 'how much is a kilo of rice', 'sino presidente ng pilipinas',
+                     'paano mag-solve ng math', 'how to cook adobo'):
+            with self.subTest(text=text):
+                self.assertEqual(matcher.match(text), 'out_of_scope')
