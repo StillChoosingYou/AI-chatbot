@@ -418,7 +418,7 @@ const views = {
     return () => {
       view.innerHTML = `<h1>Chatbot insights</h1><p class="lead">What students ask, and what the bot could not place. The missed questions are your next dataset.</p>
         <div class="a-two">
-          <div class="a-card"><h2>Answers by intent</h2>${d.intents.map((i, n) => `<div class="a-meter"><div class="a-meter-top"><span>${esc(i.intent)}</span><span>${i.count} · ${Math.round((i.count / total) * 100)}%${i.avg_confidence ? ` · avg ${i.avg_confidence}` : ''}</span></div><div class="a-bar-wrap"><div class="a-bar" style="--w:${(i.count / max) * 100}%;--d:${Math.min(n, 14) * 40}ms"></div></div></div>`).join('') || '<p>No chat yet.</p>'}</div>
+          <div class="a-card"><h2>Answers by intent</h2>${d.intents.map((i, n) => `<div class="a-meter"><div class="a-meter-top"><span title="${esc(i.intent)}">${esc(i.label || i.intent)}</span><span>${i.count} · ${Math.round((i.count / total) * 100)}%${i.avg_confidence ? ` · avg ${i.avg_confidence}` : ''}</span></div><div class="a-bar-wrap"><div class="a-bar" style="--w:${(i.count / max) * 100}%;--d:${Math.min(n, 14) * 40}ms"></div></div></div>`).join('') || '<p>No chat yet.</p>'}</div>
           <div class="a-card"><h2>Questions per day (14 days)</h2>
             ${d.per_day.length ? `<div class="a-cols">${d.per_day.map((i, n) => `<div class="a-col" title="${esc(i.day)}: ${i.count}"><span class="a-col-n">${i.count}</span><div class="a-col-bar" style="--h:${(i.count / maxDay) * 100}%;--d:${n * 35}ms"></div><small>${esc(String(i.day).slice(-5))}</small></div>`).join('')}</div>` : '<p>No questions yet.</p>'}
             <h2 style="margin-top:16px">Why 👎</h2>${d.thumbs_down_reasons.map((r) => `<p style="margin:2px 0">${esc(r.reason)}: <b>${r.count}</b></p>`).join('') || '<p>None.</p>'}</div>
@@ -431,8 +431,8 @@ const views = {
           <p class="a-count" id="miss-count"></p></div>`;
       const draw = () => {
         const q = $('miss-search').value.trim().toLowerCase();
-        const rows = d.missed.filter((m) => !q || `${m.question} ${m.intent} ${m.role}`.toLowerCase().includes(q));
-        $('miss-rows').innerHTML = rows.map((m, i) => `<tr class="rise fast" style="--i:${Math.min(i, 10)}"><td>${esc(m.question)}</td><td>${esc(m.intent)}</td><td>${m.confidence}</td><td>${esc(m.role)}</td><td>${esc(m.time)}</td></tr>`).join('') || `<tr><td colspan="5">${d.missed.length ? 'No match.' : 'Nothing missed yet.'}</td></tr>`;
+        const rows = d.missed.filter((m) => !q || `${m.question} ${m.intent} ${m.label || ''} ${m.role}`.toLowerCase().includes(q));
+        $('miss-rows').innerHTML = rows.map((m, i) => `<tr class="rise fast" style="--i:${Math.min(i, 10)}"><td>${esc(m.question)}</td><td title="${esc(m.intent)}">${esc(m.label || m.intent)}</td><td>${m.confidence}</td><td>${esc(m.role)}</td><td>${esc(m.time)}</td></tr>`).join('') || `<tr><td colspan="5">${d.missed.length ? 'No match.' : 'Nothing missed yet.'}</td></tr>`;
         $('miss-count').textContent = d.missed.length ? `${rows.length} of ${d.missed.length}` : '';
       };
       draw(); $('miss-search').oninput = draw;
