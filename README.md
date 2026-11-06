@@ -736,3 +736,19 @@ Every chat message is checked **before** the chatbot answers. Everything runs of
 - Rebuild after editing word lists: `python build_moderation_dataset.py` then `python train_moderation.py` (writes `evaluation/moderation.md`). The app falls back to the word list alone when the model does not match the dataset.
 
 **Honest limits:** the training data are written from templates (synthetic), so the reported scores are an upper bound; sarcasm and quoting can still be flagged (that is why every flag is reviewable); the Request-help and incident free-text fields and spam/flooding are not covered; only chat messages are moderated.
+
+## School-only access (`campus_access.py`)
+`GEO_FENCE=1` makes the **student** pages and the student's chat work only on the Padre Garcia Polytechnic College campus. It is **off by default**, so testing and the defense work anywhere. The coordinator, the administrator and the public sticker-scan page are not affected.
+
+A student passes in either of two ways: the request comes from a **school network**, or the browser reports a **position inside the campus circle** (the browser asks the student first). A pass is kept in the signed session cookie for a few hours. The position is checked and thrown away: it is never saved or logged.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GEO_FENCE` | `0` | `1` turns the fence on. |
+| `CAMPUS_IPS` | empty | School public IPs or ranges, comma separated (for example `203.0.113.0/24, 198.51.100.7`). Find the school's public IP by opening any "what is my IP" site on the school Wi-Fi. |
+| `CAMPUS_LAT`, `CAMPUS_LNG` | PGPC pin (13.8828094, 121.2665155) | Centre of the circle. |
+| `CAMPUS_RADIUS_M` | `200` | Radius in metres (20 to 5000). |
+| `CAMPUS_MAX_ACCURACY_M` | `300` | A position less precise than this is refused (a laptop guessing from Wi-Fi). |
+| `CAMPUS_PASS_HOURS` | `3` | How long a pass lasts. |
+
+Limits, stated plainly: this is a deterrent, not a lock. Someone who fakes the GPS of a phone can pass; the school-network proof is the hard one to fake. Laptops usually have no GPS, so on campus they pass through the school Wi-Fi proof rather than the position check. Students at home cannot check their ID status; the page tells them to ask the office.
