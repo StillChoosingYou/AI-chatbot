@@ -27,6 +27,7 @@ from seasonal_news import auto_news
 from student_auth import FAILS_ALLOWED as PIN_FAILS_ALLOWED, LOCK_SECONDS as PIN_LOCK_SECONDS
 from student_auth import hash_pin, new_pin, pin_matches, pin_problem, seal_pin, seconds_locked
 from avatars import avatar_svg
+from campus_access import CampusAccess
 from chat_support import (
     FEEDBACK_REASONS, asks_for_incidents, asks_for_my_requests, asks_for_records,
     asks_to_file_incident, asks_to_request_help, clean_text, csv_safe, id_candidates,
@@ -198,6 +199,7 @@ def create_app(database_url=None):
                       # only sent when something in the session really changed.
                       SESSION_REFRESH_EACH_REQUEST=False)
 
+    campus = CampusAccess()                  # GEO_FENCE=1: the student assistant works only on the school campus
     student_login_on = os.environ.get('STUDENT_LOGIN', '1').strip() != '0'      # always required; STUDENT_LOGIN=0 is for local demos
     student_host = os.environ.get('STUDENT_HOST', '').strip().lower()            # e.g. pgpc-student.vercel.app
     coordinator_host = os.environ.get('COORDINATOR_HOST', '').strip().lower()    # e.g. pgpc-coordinator.vercel.app
@@ -342,7 +344,7 @@ def create_app(database_url=None):
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'DENY')
         response.headers.setdefault('Referrer-Policy', 'no-referrer')
-        response.headers.setdefault('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
+        response.headers.setdefault('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(self)')
         if login.on_vercel:
             response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
         if request.path.startswith('/api/') or request.path.startswith(('/coordinator', '/student', '/card/', '/sticker', '/me/')) \
@@ -380,6 +382,53 @@ def create_app(database_url=None):
             response.status_code = 503
             return response
         return render_template('student_closed.html'), 503
+
+    def on_campus():
+        """True when this request may use the student assistant: the fence is off, it comes from a school network,
+        or the session holds an unexpired pass from a position check."""
+        if not campus.enabled or campus.on_campus_network(client_address()):
+            return True
+        return time.time() < session.get('campus_until', 0)
+
+    @app.before_request
+    def campus_gate():
+        """With GEO_FENCE=1 the student pages and the student's chat answer only on the campus. The sticker scan page,
+        the coordinator and the administrator are not affected."""
+        path = request.path
+        if not campus.enabled or path == '/api/campus/check' or path == '/api/live' or path.startswith('/static/'):
+            return None
+        # Every chat endpoint counts as the student's unless the coordinator is signed in: a message that names another
+        # role is answered as the student's anyway, so it must not slip past the fence.
+        if path.startswith('/api/chat'):
+            if coordinator_signed_in():
+                return None
+        elif request_role() != 'student' or (path.startswith('/student/') and not path.startswith('/student/login')):
+            return None
+        if on_campus():
+            return None
+        if path.startswith('/api/'):
+            response = jsonify(error='The student assistant works only inside the PGPC campus. Open it again from the school.', campus=False)
+            response.status_code = 403
+            return response
+        return render_template('campus_only.html', radius=int(campus.radius_m)), 403
+
+    @app.post('/api/campus/check')
+    def campus_check():
+        """The browser sends its position; it is checked and forgotten. A pass lasts a few hours."""
+        if not campus.enabled:
+            return jsonify(ok=True)
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
+        lat, lng, accuracy = data.get('lat'), data.get('lng'), data.get('accuracy')
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (lat, lng, accuracy)):
+            return jsonify(error='The location was not understood. Please try again.'), 400
+        if not campus.position_ok(lat, lng, accuracy):
+            if campus.position_ok(lat, lng, 0):
+                return jsonify(error='Your location is not precise enough. Turn on GPS or precise location and try again.'), 403
+            return jsonify(error='You are not inside the PGPC campus, so the student assistant is closed to you. Please try again from the school.'), 403
+        session['campus_until'] = time.time() + campus.pass_seconds
+        session.permanent = True
+        return jsonify(ok=True)
 
     @app.before_request
     def require_coordinator():

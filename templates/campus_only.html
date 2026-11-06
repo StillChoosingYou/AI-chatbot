@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <title>On campus only · School ID</title>
+  <script src="/static/theme.js" data-system="1"></script>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/campus.js" defer></script>
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <img class="brand-logo" src="/static/pgpc-logo.png" alt="Padre Garcia Polytechnic College seal" width="42" height="42">
+    <p class="eyebrow">SCHOOL ID · STUDENT</p>
+    <h1>On campus only</h1>
+    <p class="subtle">The student assistant works only inside the Padre Garcia Polytechnic College campus (within about {{ radius }} m of the school). Connect to the school Wi-Fi, or allow your location and press the button.</p>
+    <button type="button" class="primary" id="campus-check">Check my location</button>
+    <p class="subtle" id="campus-msg" role="status" aria-live="polite"></p>
+    <p class="subtle">Your location is only used for this check. It is not saved. Away from school, please ask the Property Management Office about your ID.</p>
+  </main>
+</body>
+</html>
