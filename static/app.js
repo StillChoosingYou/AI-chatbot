@@ -831,10 +831,11 @@ function openDialog(row = null) {
   setDisabled($('kind-field'), !!row);
   form.elements.student_id.readOnly = !!row;            // the student ID is the key of the record, it is not edited
   if (row) {
-    for (const key of ['student_id', 'name', 'year_section', 'address', 'contact_number', 'status',
+    for (const key of ['student_id', 'name', 'year_level', 'address', 'contact_number', 'status',
       'schedule_type', 'schedule_date', 'schedule_time', 'pending_reason', 'notes']) {
       if (form.elements[key]) form.elements[key].value = row[key] ?? '';
     }
+    form.elements.section.value = row.section ?? '';
   }
   $('record-dialog').showModal();
   fx.dialog($('record-dialog'));
@@ -845,13 +846,18 @@ async function saveRecord(event) {
   event.preventDefault();
   const typed = {};
   for (const [key, value] of new FormData(event.target)) typed[key] = String(value).trim();   // enabled fields only
+  const yearSection = `${typed.year_level}-${typed.section}`;      // the server reads the two fields as one, '3-E'
+  delete typed.year_level;
+  delete typed.section;
+  typed.year_section = yearSection;
   let body = typed;
   if (editing) {
     const row = records.find(r => r.id === editing);
     body = {};
     for (const [key, value] of Object.entries(typed)) {            // send only what changed
       if (key === 'student_id' || key === 'request_type') continue;
-      if (value !== String(row ? row[key] ?? '' : '')) body[key] = value;
+      const before = key === 'year_section' ? `${row?.year_level}-${row?.section}` : String(row ? row[key] ?? '' : '');
+      if (value !== before) body[key] = value;
     }
     if (!Object.keys(body).length) {
       $('record-dialog').close();
