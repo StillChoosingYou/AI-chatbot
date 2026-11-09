@@ -596,8 +596,10 @@ def create_app(database_url=None):
                 mine = db.execute('SELECT id, student_id, name FROM inventory WHERE LOWER(student_id)=LOWER(%s)',
                                   (signed_student_id(),)).fetchone()
             me = dict(mine) if mine else None
+        # The student page is purely the student's: no admin link or switch, even for a signed-in admin.
         return render_template(
-            'index.html', page_role=page_role, signed_student=me, is_admin=(session.get('admin') is True and page_role == 'coordinator'),   # the student page is purely the student's statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES,
+            'index.html', page_role=page_role, signed_student=me, is_admin=(session.get('admin') is True and page_role == 'coordinator'),
+            statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES, max_year=MAX_YEAR,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
             request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,

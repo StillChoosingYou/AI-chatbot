@@ -171,6 +171,18 @@ class SchoolIDTests(DatabaseTestCase):
         script = Path(ROOT / 'static' / 'app.js').read_text(encoding='utf-8')
         self.assertIn("location.assign(`/${role}`)", script)
 
+    def test_add_student_form_lists_request_types_and_asks_year_level_and_section_apart(self):
+        page = self.client.get('/coordinator').get_data(as_text=True)
+        form = page[page.index('id="record-form"'):page.index('id="processing-fields"')]
+        for kind in ('New ID', 'Pending ID', 'Lost ID'):
+            self.assertIn(f'<option>{kind}</option>', form)         # the list was empty when the options were not passed on
+        self.assertIn('name="year_level"', form)
+        self.assertIn('name="section"', form)
+        self.assertNotIn('name="year_section"', form)
+        self.assertEqual(form.count('<option value="'), 1 + 4)      # the placeholder and the four year levels
+        for status in ('Pending', 'Processing', 'For release', 'Released'):
+            self.assertIn(f'<option>{status}</option>', page)       # the status lists were empty for the same reason
+
     def test_role_tools_and_student_request(self):
         home = self.client.get('/coordinator').get_data(as_text=True)
         self.assertNotIn('Verify ID', home)
