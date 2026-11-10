@@ -35,6 +35,23 @@ class StudentLoginTests(DatabaseTestCase):
         rows = self.coordinator.get('/api/inventory').json['records']
         return next(r['id'] for r in rows if r['student_id'] == student_id)
 
+    def test_a_second_account_on_the_same_device_does_not_see_the_first_ones_chat(self):
+        client = self.start()
+        first, second = f'device:student:{ALEX.lower()}', f'device:student:{CASEY.lower()}'
+        self.login(client, ALEX, self.pin_for(ALEX))
+        self.ask(client, 'hello', session_id=first)
+        self.assertEqual(len(client.get('/api/chat/history', query_string={'session_id': first}).json['messages']), 2)
+        client.post('/student/logout')
+        self.login(client, CASEY, self.pin_for(CASEY))
+        for name in (first, 'device:student'):          # the first account's chat, and the old shared name
+            self.assertEqual(client.get('/api/chat/history', query_string={'session_id': name}).json['messages'], [], name)
+        client.delete('/api/chat/history', query_string={'session_id': first})      # cannot clear it either
+        self.ask(client, 'hello', session_id=second)
+        self.assertEqual(len(client.get('/api/chat/history', query_string={'session_id': second}).json['messages']), 2)
+        client.post('/student/logout')
+        self.login(client, ALEX, self.pin_for(ALEX))
+        self.assertEqual(len(client.get('/api/chat/history', query_string={'session_id': first}).json['messages']), 2)
+
     def test_student_previews_own_card_and_sticker_without_coordinator_sign_in(self):
         client = self.start()
         pin = self.pin_for(ALEX)

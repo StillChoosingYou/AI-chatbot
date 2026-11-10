@@ -92,7 +92,11 @@ const ROLE_META = {
 /* ── Small helpers ── */
 const $ = (id) => document.getElementById(id);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const sessionId = () => `${baseSession}:${workspaceRole || 'none'}`;
+/* One chat per browser, role AND student: a second student account on the same device must not open the first one's chat. */
+const sessionId = () => {
+  const me = workspaceRole === 'student' ? signedStudent() : null;
+  return `${baseSession}:${workspaceRole || 'none'}${me ? ':' + me.student_id.toLowerCase() : ''}`;
+};
 const statusClass = (status) => String(status).toLowerCase().replace(/[^a-z0-9]+/g, '-');   // safe inside class=""
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const postJson = (body, method = 'POST') => ({ method, headers: JSON_HEADERS, body: JSON.stringify(body) });
