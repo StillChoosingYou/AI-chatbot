@@ -323,7 +323,7 @@ const views = {
   },
 
   async access() {
-    const data = await api('/api/admin/pins');
+    const [data, cpin] = await Promise.all([api('/api/admin/pins'), api('/api/admin/coordinator-pin')]);
     const list = data.students;
     const missing = list.filter((s) => !s.has_pin).length, locked = list.filter((s) => s.locked).length;
     const years = [...new Set(list.map((s) => s.year_level))].sort((a, b) => a - b);
@@ -331,7 +331,12 @@ const views = {
     return () => {
       view.innerHTML = `<h1>Access & PINs</h1><p class="lead">Student sign-in is Student ID + a 6-digit PIN. The PIN the office issued is shown in the Accounts table (kept encrypted). Once a student changes it to their own PIN, it becomes private and shows <i>Private</i>: use <b>Reset PIN</b> to give a new one.</p>
         <div class="a-grid">${stat('Students', list.length)}${stat('Without a PIN', missing)}${stat('Locked now', locked)}${stat('Signed in today', data.today.signed_in)}${stat('Failed tries today', data.today.failed)}${stat('PIN changes today', data.today.pin_changes)}</div>
-        <div class="a-card"><h2>Issue PINs in bulk</h2>
+        <div class="a-card" id="cpin-card"><h2>Coordinator sign-in PIN</h2>
+          <p>The coordinator signs in at <b>/coordinator</b> with the username <b>${esc(cpin.username)}</b> and this PIN. ${cpin.source === 'admin' ? `Set from this panel${cpin.changed ? ' on ' + esc(cpin.changed) : ''}.` : cpin.source === 'environment' ? 'Right now it is the password in the server settings. Set a PIN here and it takes over, with no redeploy.' : 'No coordinator password is set yet: set a PIN here.'} A new PIN is shown once and signs the coordinator out. Hand it over in person.</p>
+          <div class="a-row"><input id="cpin-input" type="text" inputmode="text" autocomplete="off" maxlength="64" placeholder="New PIN (empty = random 6 digits)" style="flex:1 1 220px;padding:8px 10px">
+          <button type="button" class="primary" id="cpin-change">Change coordinator PIN</button>
+          ${cpin.source === 'admin' ? '<button type="button" id="cpin-reset" title="Go back to the password in the server settings">Use server-settings password</button>' : ''}</div></div>
+        <div class="a-card" style="margin-top:14px"><h2>Issue PINs in bulk</h2>
           <p>Make PINs for everyone who has none (safe), or reset everyone's PIN (every old PIN stops working). The new PINs appear below once: print them as slips or download the CSV, then hand each one over in person.</p>
           <div class="a-row"><button type="button" class="primary" id="pins-missing" ${missing ? '' : 'disabled'}>Issue PINs for ${missing} student(s) without one</button>
           <button type="button" class="danger" id="pins-all">Reset every student's PIN</button></div>
@@ -428,6 +433,16 @@ const views = {
           const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'student_pins.csv'; a.click();
         };
         toast(`${rows.length} PIN(s) issued`);
+      });
+      $('cpin-change').onclick = (e) => busy(e.currentTarget, async () => {
+        if (!(await ux.confirm({ title: 'Change the coordinator PIN?', text: 'The old PIN stops working and the coordinator is signed out. You will see the new PIN once.', ok: 'Change PIN', danger: true }))) return;
+        const r = await api('/api/admin/coordinator-pin', send('POST', { pin: $('cpin-input').value }));
+        show('access', { quiet: true });
+        await ux.reveal({ title: 'New coordinator PIN', subject: `Username · ${r.username}`, secret: r.pin, note: 'Give it to the coordinator in person. It cannot be shown again; change it here if it is lost.' });
+      });
+      if ($('cpin-reset')) $('cpin-reset').onclick = (e) => busy(e.currentTarget, async () => {
+        if (!(await ux.confirm({ title: 'Use the server-settings password?', text: 'The PIN set here stops working. The coordinator signs in with COORDINATOR_PASSWORD again.', ok: 'Switch back', danger: true }))) return;
+        await api('/api/admin/coordinator-pin', { method: 'DELETE' }); toast('Back to the server-settings password'); show('access', { quiet: true });
       });
       $('pins-missing').onclick = (e) => issue(e.currentTarget, 'missing');
       $('pins-all').onclick = async (e) => {

@@ -1,7 +1,7 @@
 """Coordinator sign-in: one username and one password, kept in the environment and never in the repository.
 
 COORDINATOR_USERNAME   default "Coordinator"
-COORDINATOR_PASSWORD   the password. Sign-in is switched on when this is set, and always on Vercel
+COORDINATOR_PASSWORD   the password (the admin can replace it from the panel with a PIN of their own, kept as a hash in the database). Sign-in is switched on when this is set, and always on Vercel
                        (there, with no password set, nobody can sign in: it fails closed).
 SECRET_KEY             optional; signs the sign-in cookie. Without it one is derived from the password.
 
@@ -11,6 +11,8 @@ import hashlib
 import hmac
 import os
 import time
+
+from werkzeug.security import check_password_hash
 
 FAILS_ALLOWED = 5          # wrong tries from one address...
 LOCK_SECONDS = 60          # ...then it waits this long. Kept in memory: a best effort per server instance.
@@ -42,13 +44,17 @@ class CoordinatorLogin:
             self.failures.pop(address, None)
         return False
 
-    def check(self, username, password, address, now=None):
-        """True for the right pair. Wrong tries are counted; too many lock the address for a minute."""
+    def check(self, username, password, address, now=None, stored_hash=''):
+        """True for the right pair. Wrong tries are counted; too many lock the address for a minute.
+        stored_hash is a PIN the admin set in the panel: while there is one, it replaces the environment password."""
         now = time.time() if now is None else now
-        if not self.configured or self.locked(address, now):
+        if not (self.configured or stored_hash) or self.locked(address, now):
             return False
         same_user = hmac.compare_digest(str(username).strip().lower().encode(), self.username.lower().encode())
-        same_password = hmac.compare_digest(str(password).encode(), self.password.encode())
+        if stored_hash:
+            same_password = check_password_hash(stored_hash, str(password))
+        else:
+            same_password = hmac.compare_digest(str(password).encode(), self.password.encode())
         if same_user and same_password:
             self.failures.pop(address, None)
             return True
