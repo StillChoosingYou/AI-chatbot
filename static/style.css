@@ -896,3 +896,8 @@ html[data-theme="dark"] .sus-pick input:checked + b { color: #0b1228; }
 .tour-btn { white-space: nowrap; }
 #topbar-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 @media (max-width: 760px) { .topbar-right { flex-shrink: 0; gap: 8px; } .topbar .live-chip { display: none; } }
+
+.pause-banner .pause-text { display: block; }
+.pause-banner .pause-appeal { margin-top: 8px; padding: 7px 12px; border-radius: 8px; border: 1px solid currentColor; background: transparent; color: inherit; font: inherit; font-size: 12.5px; cursor: pointer; }
+.pause-banner .pause-appeal:disabled { opacity: .6; cursor: wait; }
+.pause-banner .pause-sent { display: block; margin-top: 8px; font-size: 12.5px; font-weight: 500; }

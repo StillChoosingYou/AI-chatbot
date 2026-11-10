@@ -171,7 +171,9 @@ def overview(connect, status='new', limit=150, now_ts=None):
             "(SELECT COUNT(*) FROM violations v WHERE v.subject = u.subject AND v.severity >= 2 AND v.status <> 'dismissed' "
             ' AND v.timestamp >= %s AND v.timestamp >= u.reset_at) AS strikes, '
             '(SELECT COUNT(*) FROM violations v WHERE v.subject = u.subject) AS total, '
-            '(SELECT MAX(v.timestamp) FROM violations v WHERE v.subject = u.subject) AS last '
+            '(SELECT MAX(v.timestamp) FROM violations v WHERE v.subject = u.subject) AS last, '
+            "(SELECT COUNT(*) FROM student_requests r WHERE r.request_type = 'Chat review' AND r.status IN ('Submitted', 'In review') "
+            " AND u.subject = 'student:' || LOWER(r.student_id)) AS appeals "
             "FROM moderation_users u ORDER BY (u.state = 'suspended') DESC, strikes DESC, last DESC NULLS LAST LIMIT 200", (since,))]
         total, new, new_strikes, new_urgent, new_review, last7 = db.execute(
             "SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'new'), COUNT(*) FILTER (WHERE status = 'new' AND severity >= 2), "
