@@ -1658,6 +1658,15 @@ def create_app(database_url=None):
     def clean_session_id(value):
         return value if isinstance(value, str) and 0 < len(value) <= 120 and clean_text(value) else ''
 
+    def own_chat_session(session_id):
+        """A signed-in student may read or clear only a chat session that is their own. The browser names a student's
+        chat 'something:student:<student ID>', so a second account on the same device never gets the first one's chat.
+        Any other chat (coordinator, or student sign-in switched off) is unchanged."""
+        me = signed_student_id()
+        if not me or ':student' not in session_id:
+            return True
+        return session_id.lower().endswith(':student:' + me.lower())
+
     def save_chat_turn(session_id, workspace, user_text, answer, intent, confidence, about, now):
         """Keep one question and its answer in the chat history. Returns the answer's id (what a 👍 or 👎 is
         attached to), or None when the browser sent no session."""
@@ -1679,7 +1688,7 @@ def create_app(database_url=None):
     @app.get('/api/chat/history')
     def chat_history():
         session_id = request.args.get('session_id', '')
-        if not session_id or len(session_id) > 120 or not clean_text(session_id):
+        if not session_id or len(session_id) > 120 or not clean_text(session_id) or not own_chat_session(session_id):
             return jsonify(messages=[])
         with connect() as db:
             rows = [dict(row) for row in db.execute(
@@ -1693,7 +1702,7 @@ def create_app(database_url=None):
     @app.delete('/api/chat/history')
     def clear_chat_history():
         session_id = request.args.get('session_id', '')
-        if session_id and len(session_id) <= 120 and clean_text(session_id):
+        if session_id and len(session_id) <= 120 and clean_text(session_id) and own_chat_session(session_id):
             with connect() as db:
                 db.execute('DELETE FROM chat_history WHERE session_id=%s', (session_id,))
         return jsonify(success=True)
