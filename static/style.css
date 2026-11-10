@@ -891,3 +891,8 @@ html[data-theme="dark"] .sus-pick input:checked + b { color: #0b1228; }
 .pause-banner { margin: 0 12px 8px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 600;
   background: color-mix(in srgb, #c0392b 12%, var(--surface, #fff)); border: 1px solid color-mix(in srgb, #c0392b 45%, transparent); }
 #chat-input:disabled { cursor: not-allowed; opacity: .6; }
+
+/* Phone polish: the top bar never breaks the breadcrumb or the Tutorial button onto two lines. */
+.tour-btn { white-space: nowrap; }
+#topbar-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+@media (max-width: 760px) { .topbar-right { flex-shrink: 0; gap: 8px; } .topbar .live-chip { display: none; } }
