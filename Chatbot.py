@@ -75,7 +75,7 @@ SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
 ROLES = ('coordinator', 'student')
 INCIDENT_CATEGORIES = ('No ID', 'Lost ID')
 INCIDENT_STATUSES = ('Open', 'Resolved')
-REQUEST_TYPES = ('Lost ID', 'Status inquiry', 'Appointment help', 'Other')
+REQUEST_TYPES = ('Lost ID', 'Status inquiry', 'Appointment help', 'Chat review', 'Other')
 REQUEST_STATUSES = ('Submitted', 'In review', 'Accepted', 'Closed')
 # Where a request may go next. Accepting a lost-ID request changes the inventory record,
 # so it can only happen once and a closed request stays closed.
@@ -601,7 +601,7 @@ def create_app(database_url=None):
             'index.html', page_role=page_role, signed_student=me, is_admin=(session.get('admin') is True and page_role == 'coordinator'),
             statuses=STATUSES, kinds=KINDS, schedules=SCHEDULES, max_year=MAX_YEAR,
             office=OFFICE, incident_categories=INCIDENT_CATEGORIES,
-            request_types=REQUEST_TYPES, feedback_reasons=FEEDBACK_REASONS,
+            request_types=[t for t in REQUEST_TYPES if t != 'Chat review'], feedback_reasons=FEEDBACK_REASONS,
             max_stickers=MAX_STICKERS, max_import_rows=MAX_IMPORT_ROWS, max_import_mb=MAX_IMPORT_BYTES // 1024 // 1024,
             student_id_example=STUDENT_ID_EXAMPLE, id_hint=STUDENT_ID_HINT, release_hours=RELEASE_HOURS,
             penalty_text=PENALTY_TEXT, year_hint=YEAR_SECTION_HINT, build=BUILD)
@@ -1614,6 +1614,27 @@ def create_app(database_url=None):
             return jsonify(error=error), 400
         row, _ = file_student_request(fields)
         return jsonify(**row, next_steps=request_steps(row['request_type'])), 201
+
+    @app.post('/api/chat/appeal')
+    def chat_appeal():
+        """A student whose chat was paused or suspended tells the office it was a false alarm, so the office sees it as soon as
+        it opens (the office may be closed when the pause happens). It is a request like any other; only the administrator
+        can lift a suspension, and the administrator sees the appeal next to the report."""
+        me = signed_student_id()
+        if not me:
+            return jsonify(error='Sign in with your student ID first.'), 401
+        payload = request.get_json(silent=True)
+        note = text_field((payload or {}).get('message', ''), max_len=300, required=False) if isinstance(payload, dict) else ''
+        found = find_by_student_id(me)
+        with connect() as db:
+            open_one = db.execute("SELECT id FROM student_requests WHERE LOWER(student_id)=LOWER(%s) AND request_type='Chat review' "
+                                  "AND status IN ('Submitted', 'In review') LIMIT 1", (me,)).fetchone()
+        if open_one:
+            return jsonify(sent=True, already=True), 200
+        detail = 'False alarm: my chat was paused or suspended, and I did not mean to send those words.' + (f' {note}' if note else '')
+        row, _ = file_student_request({'student_id': me, 'request_type': 'Chat review', 'name': found['name'] if found else '',
+                                       'detail': detail[:500]})
+        return jsonify(sent=True, already=False, id=row['id']), 201
 
     @app.patch('/api/requests/<rowid:request_id>')
     def update_request(request_id):

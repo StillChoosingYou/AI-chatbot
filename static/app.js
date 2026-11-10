@@ -1299,6 +1299,20 @@ function showPause(info) {
   if (!paused || (info.action !== 'suspended' && !waiting)) { input.disabled = false; button.disabled = false; return; }
   const banner = document.createElement('div');
   banner.id = 'pause-banner'; banner.className = 'pause-banner'; banner.setAttribute('role', 'status');
+  const note = document.createElement('span'); note.className = 'pause-text';
+  banner.append(note);
+  if (workspaceRole === 'student' && signedStudent()) {              // the office may be closed: the student can tell it, in one tap, that it was a mistake
+    const appeal = document.createElement('button');
+    appeal.type = 'button'; appeal.className = 'pause-appeal'; appeal.textContent = 'It was a mistake: ask the office to review';
+    appeal.onclick = async () => {
+      appeal.disabled = true;
+      try {
+        await api('/api/chat/appeal', postJson({ message: '' }));
+        appeal.replaceWith(Object.assign(document.createElement('span'), { className: 'pause-sent', textContent: 'Sent. The Property Management Office will review it when it opens.' }));
+      } catch (error) { appeal.disabled = false; notify(error.message || 'Could not send. Try again.'); }
+    };
+    banner.append(appeal);
+  }
   $('chat-form').before(banner);
   input.disabled = true; button.disabled = true;
   const tick = () => {
@@ -1306,7 +1320,7 @@ function showPause(info) {
     if (info.action !== 'suspended' && left <= 0) { clearInterval(pauseTimer); banner.remove(); input.disabled = false; button.disabled = false; return; }
     const text = info.action === 'suspended' ? 'Chat suspended until the administrator reviews it. Visit the Property Management Office.'
       : `Chat paused. You can write again in ${left >= 3600 ? Math.round(left / 3600) + ' h' : left >= 60 ? Math.ceil(left / 60) + ' min' : left + ' s'}.`;
-    if (banner.textContent !== text) banner.textContent = text;
+    if (note.textContent !== text) note.textContent = text;
   };
   tick();
   if (info.action !== 'suspended') pauseTimer = setInterval(tick, 1000);

@@ -194,3 +194,30 @@ class HostAndHeaderTests(DatabaseTestCase):
         with client.session_transaction() as s:
             s['seen_coordinator'] = time.time() - 31 * 60
         self.assertEqual(client.get('/api/stats').status_code, 401)
+
+
+class ChatAppealTests(StudentLoginTests):
+    """A student whose chat is suspended can tell the office, in one tap, that it was a false alarm."""
+
+    def test_a_suspended_student_sends_one_appeal_the_coordinator_and_admin_can_see(self):
+        client = self.start(ADMIN_PASSWORD='admin-pass')
+        self.assertEqual(client.post('/api/chat/appeal', json={}).status_code, 401)            # not signed in
+        self.login(client, ALEX, self.pin_for(ALEX))
+        with self.db() as db:
+            db.execute("INSERT INTO moderation_users (subject, subject_label, state, review) VALUES (%s, %s, 'suspended', 'pending')",
+                       (f'student:{ALEX.lower()}', f'Alex M. Rivera · {ALEX}'))
+            db.commit()
+        first = client.post('/api/chat/appeal', json={'message': 'I typed it by accident'})
+        self.assertEqual((first.status_code, first.json['already']), (201, False))
+        again = client.post('/api/chat/appeal', json={})
+        self.assertEqual((again.status_code, again.json['already']), (200, True))               # one open appeal at a time
+        mine = [r for r in self.coordinator.get('/api/requests').json['requests'] if r['request_type'] == 'Chat review']
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0]['student_id'], ALEX)
+        self.assertIn('False alarm', mine[0]['detail'])
+        self.assertIn('by accident', mine[0]['detail'])
+        admin = self.app.test_client()
+        admin.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
+        users = admin.get('/api/admin/moderation').json['users']
+        self.assertEqual([u['appeals'] for u in users if u['subject'] == f'student:{ALEX.lower()}'], [1])
+        self.assertNotIn('Chat review', client.get('/student').get_data(as_text=True))          # not a choice in the Request help form
