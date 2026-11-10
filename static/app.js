@@ -422,13 +422,21 @@ function load({ reuse = false } = {}) {
   return mine;
 }
 
+/* Year and section are two filters. The usual years (1-4) and sections (A-E) are always offered, even before a student exists in them. */
+const USUAL_YEARS = ['1', '2', '3', '4'];
+const USUAL_SECTIONS = ['A', 'B', 'C', 'D', 'E'];
+
 function fillSections() {
-  const select = $('section-filter');
-  const previous = select.value;
-  const values = [...new Set(records.map(r => r.year_section))].sort(bySection);
-  select.innerHTML = '<option value="">All year &amp; sections</option>' +
-    values.map(value => `<option>${escapeHtml(value)}</option>`).join('');
-  select.value = values.includes(previous) ? previous : '';
+  const fill = (id, label, values, text) => {
+    const select = $(id);
+    const previous = select.value;
+    select.innerHTML = `<option value="">${label}</option>` + values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(text(v))}</option>`).join('');
+    select.value = values.includes(previous) ? previous : '';
+  };
+  const years = [...new Set([...USUAL_YEARS, ...records.map(r => String(r.year_level || '')).filter(Boolean)])].sort();
+  const sections = [...new Set([...USUAL_SECTIONS, ...records.map(r => String(r.section || '').toUpperCase()).filter(Boolean)])].sort();
+  fill('year-filter', 'All years', years, v => `Year ${v}`);
+  fill('section-filter', 'All sections', sections, v => `Section ${v}`);
 }
 
 /* "Needs attention" filters. The tests run against the server's date. */
@@ -442,6 +450,7 @@ const ATTENTION = [
 function filterValues() {
   return {
     words: fold($('search').value).split(/\s+/).filter(Boolean),
+    year: $('year-filter').value,
     section: $('section-filter').value,
     kind: $('kind-filter').value,
   };
@@ -459,7 +468,8 @@ function matchesFilters(row, f, today, skip = '') {
     const attention = ATTENTION.find(a => a.id === attentionFilter);
     if (attention && !attention.test(row, today)) return false;
   }
-  if (f.section && row.year_section !== f.section) return false;
+  if (f.year && String(row.year_level) !== f.year) return false;
+  if (f.section && String(row.section).toUpperCase() !== f.section) return false;
   if (f.kind && row.request_type !== f.kind) return false;
   return f.words.every(word => row._hay.includes(word));
 }
@@ -632,7 +642,7 @@ function refreshActivity() {
 /* ── Filters ── */
 function resetFilters() {
   $('search').value = '';
-  $('section-filter').value = '';
+  $('year-filter').value = ''; $('section-filter').value = '';
   $('kind-filter').value = '';
   statusFilter = '';
   attentionFilter = '';
@@ -651,7 +661,7 @@ function filterByStatus(value) {
 function showNotYetMade() {
   showView('dashboard');
   $('search').value = '';
-  $('section-filter').value = '';
+  $('year-filter').value = ''; $('section-filter').value = '';
   $('kind-filter').value = '';
   filterByStatus(NOT_MADE);
 }
@@ -659,7 +669,7 @@ function showNotYetMade() {
 /* Finds one student on the Dashboard: the search box gets the student's ID and every other filter is cleared. */
 function showOnDashboard(studentId) {
   showView('dashboard');
-  $('section-filter').value = '';
+  $('year-filter').value = ''; $('section-filter').value = '';
   $('kind-filter').value = '';
   $('search').value = studentId;
   filterByStatus('');
@@ -1944,7 +1954,7 @@ async function submitStudentRequest(event) {
 
 /* ── Dashboard ── */
 $('search').addEventListener('input', () => { visibleRows = PAGE_SIZE; render(); });
-for (const id of ['section-filter', 'kind-filter']) {
+for (const id of ['year-filter', 'section-filter', 'kind-filter']) {
   $(id).addEventListener('change', () => { visibleRows = PAGE_SIZE; render(); });
 }
 $('reset-filters').onclick = resetFilters;

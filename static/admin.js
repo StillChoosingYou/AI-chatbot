@@ -326,8 +326,8 @@ const views = {
     const data = await api('/api/admin/pins');
     const list = data.students;
     const missing = list.filter((s) => !s.has_pin).length, locked = list.filter((s) => s.locked).length;
-    const years = [...new Set(list.map((s) => s.year_level))].sort((a, b) => a - b);
-    const sections = [...new Set(list.map((s) => s.section))].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    const years = [...new Set([1, 2, 3, 4, ...list.map((s) => s.year_level)].filter(Boolean))].sort((a, b) => a - b);   // the usual years and sections are always offered
+    const sections = [...new Set(['A', 'B', 'C', 'D', 'E', ...list.map((s) => String(s.section || '').toUpperCase())].filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
     return () => {
       view.innerHTML = `<h1>Access & PINs</h1><p class="lead">Student sign-in is Student ID + a 6-digit PIN. The PIN the office issued is shown in the Accounts table (kept encrypted). Once a student changes it to their own PIN, it becomes private and shows <i>Private</i>: use <b>Reset PIN</b> to give a new one.</p>
         <div class="a-grid">${stat('Students', list.length)}${stat('Without a PIN', missing)}${stat('Locked now', locked)}${stat('Signed in today', data.today.signed_in)}${stat('Failed tries today', data.today.failed)}${stat('PIN changes today', data.today.pin_changes)}</div>
