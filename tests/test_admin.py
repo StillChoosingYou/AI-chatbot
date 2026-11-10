@@ -104,6 +104,12 @@ class AdminTests(DatabaseTestCase):
         self.assertEqual(client.put('/api/admin/news', json={'news': 'x'}).status_code, 400)
         self.assertEqual(client.delete('/api/admin/news').json['news'], before)
 
+    def test_the_accounts_list_carries_year_level_and_section_for_the_print_filters(self):
+        client = self.signed_in(STUDENT_LOGIN='1')
+        rows = {s['student_id']: s for s in client.get('/api/admin/pins').json['students']}
+        sam = rows['P202400103']
+        self.assertEqual((sam['year_level'], sam['section'], sam['year_section']), (3, 'A', '3A'))
+
     def test_bulk_pins_unlock_and_student_sign_in(self):
         client = self.signed_in(STUDENT_LOGIN='1')
         issued = client.post('/api/admin/pins/bulk', json={'scope': 'missing'}).json['issued']

@@ -29,6 +29,7 @@ import moderation
 import quality
 import totp
 from student_auth import hash_pin, new_pin, open_pin, seal_pin
+from student_data import format_year_section
 
 ADMIN_IDLE_SECONDS = 15 * 60
 CAPTCHA_SECONDS = 5 * 60          # time allowed between the password step and the picture step
@@ -549,7 +550,7 @@ def register_admin(app, ctx):
         now = time.time()
         with connect() as db:
             rows = db.execute("SELECT student_id, name, pin_hash <> '', pin_failures, pin_locked_until, last_signin, "
-                              'signin_count, pin_changed, pin_vault FROM inventory ORDER BY student_id').fetchall()
+                              'signin_count, pin_changed, pin_vault, year_level, section FROM inventory ORDER BY student_id').fetchall()
             today = datetime.now().strftime('%Y-%m-%d')
             recent = [{'time': r[0], 'action': r[1], 'detail': r[2]} for r in db.execute(
                 "SELECT timestamp, action, detail FROM activity_log WHERE actor_role = 'student' ORDER BY id DESC LIMIT 15")]
@@ -558,7 +559,8 @@ def register_admin(app, ctx):
         return jsonify(students=[{'student_id': r[0], 'name': r[1], 'has_pin': bool(r[2]), 'failures': r[3],
                                   'locked': r[4] > now, 'locked_minutes': max(0, int((r[4] - now) // 60) + 1) if r[4] > now else 0,
                                   'last_signin': r[5], 'signins': r[6], 'pin_changed': r[7],
-                                  'pin': open_pin(r[8], app.secret_key)}
+                                  'pin': open_pin(r[8], app.secret_key), 'year_level': r[9], 'section': r[10],
+                                  'year_section': format_year_section(r[9], r[10])}
                                  for r in rows],
                        recent=recent, today={'signed_in': counts.get('student sign in', 0),
                                              'failed': counts.get('student failed sign in', 0) + counts.get('student locked', 0),

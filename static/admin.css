@@ -295,3 +295,14 @@
 .a-msg-meta dd { margin: 2px 0 0; font-size: 13px; overflow-wrap: anywhere; }
 .a-msg-body { max-height: min(40vh, 320px); overflow: auto; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-hover, rgba(0,0,0,.03)); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
 .a-msg-note { font-size: 12px !important; }
+
+/* Accounts table: Print button at the top right of the card; printing shows only that card. */
+#accounts-print { font-size: 13px; padding: 6px 14px; border-radius: 8px; cursor: pointer; }
+.print-only { display: none; margin: 0 0 8px; font-size: 12px; opacity: .75; }
+@media print {
+  .print-skip, #accounts-card .a-actions, #accounts-card thead th:last-child, #accounts-card .pin-eye, #accounts-card .a-count { display: none !important; }
+  .print-only { display: block; }
+  #accounts-card { box-shadow: none; border: 0; margin-top: 0 !important; padding: 0; }
+  #accounts-card .a-scroll { overflow: visible; }
+}
+#accounts-card select { padding: 8px 10px; border-radius: 8px; max-width: 100%; }
