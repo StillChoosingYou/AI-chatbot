@@ -77,7 +77,8 @@
         <div class="chip-row attention-row" id="attention-chips" role="group" aria-label="Needs attention"></div>
         <div class="filter-row">
           <label class="search"><span class="sr-only">Search students</span><input id="search" type="search" placeholder="Search name, student ID, address or contact number…"></label>
-          <label><span class="sr-only">Year and section</span><select id="section-filter"><option value="">All year &amp; sections</option></select></label>
+          <label><span class="sr-only">Year level</span><select id="year-filter"><option value="">All years</option></select></label>
+          <label><span class="sr-only">Section</span><select id="section-filter"><option value="">All sections</option></select></label>
           <label><span class="sr-only">Request type</span><select id="kind-filter"><option value="">All requests</option>{% for k in kinds %}<option>{{k}}</option>{% endfor %}</select></label>
           <button class="text-button" id="reset-filters" type="button">Reset filters</button>
         </div>
