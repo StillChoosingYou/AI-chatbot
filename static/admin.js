@@ -326,6 +326,8 @@ const views = {
     const data = await api('/api/admin/pins');
     const list = data.students;
     const missing = list.filter((s) => !s.has_pin).length, locked = list.filter((s) => s.locked).length;
+    const years = [...new Set(list.map((s) => s.year_level))].sort((a, b) => a - b);
+    const sections = [...new Set(list.map((s) => s.section))].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
     return () => {
       view.innerHTML = `<h1>Access & PINs</h1><p class="lead">Student sign-in is Student ID + a 6-digit PIN. The PIN the office issued is shown in the Accounts table (kept encrypted). Once a student changes it to their own PIN, it becomes private and shows <i>Private</i>: use <b>Reset PIN</b> to give a new one.</p>
         <div class="a-grid">${stat('Students', list.length)}${stat('Without a PIN', missing)}${stat('Locked now', locked)}${stat('Signed in today', data.today.signed_in)}${stat('Failed tries today', data.today.failed)}${stat('PIN changes today', data.today.pin_changes)}</div>
@@ -337,13 +339,17 @@ const views = {
         <div class="a-card" style="margin-top:14px"><h2>Recent student activity</h2>
           <p>Every sign-in, sign-out, wrong PIN and PIN change is recorded here (also in the Security log).</p>
           ${data.recent.length ? `<ul class="a-feed">${data.recent.map((r) => `<li class="${/fail|locked/.test(r.action) ? 'bad' : ''}"><time>${esc(r.time)}</time><b>${esc(r.action.replace('student ', ''))}</b><span>${esc(r.detail)}</span></li>`).join('')}</ul>` : '<p>No student has signed in yet.</p>'}</div>
-        <div class="a-card" style="margin-top:14px"><h2>Accounts</h2>
-          <div class="a-row"><input id="pin-search" type="search" placeholder="Search student ID or name   ( / )" style="flex:1 1 240px;padding:8px 10px">
+        <div class="a-card" id="accounts-card" style="margin-top:14px">
+          <div class="a-head"><h2>Accounts</h2><button type="button" class="no-print" id="accounts-print" title="Print the accounts table (or save it as a PDF)">Print</button></div>
+          <p class="print-only" id="accounts-stamp"></p>
+          <div class="a-row no-print"><input id="pin-search" type="search" placeholder="Search student ID or name   ( / )" style="flex:1 1 240px;padding:8px 10px">
+            <select id="pin-year" aria-label="Filter by year level"><option value="">All year levels</option>${years.map((y) => `<option value="${y}">Year ${y}</option>`).join('')}</select>
+            <select id="pin-section" aria-label="Filter by section"><option value="">All sections</option>${sections.map((s) => `<option value="${esc(s)}">Section ${esc(s)}</option>`).join('')}</select>
             <div class="a-chips" id="pin-chips" role="group" aria-label="Filter">
               <button type="button" class="chip on" data-f="all">All <b>${list.length}</b></button>
               <button type="button" class="chip" data-f="none">No PIN <b>${missing}</b></button>
               <button type="button" class="chip" data-f="locked">Locked <b>${locked}</b></button></div></div>
-          <div class="a-scroll"><table class="a-table"><thead><tr><th>Student ID</th><th>Name</th><th>PIN <button type="button" class="pin-eye" id="pin-eye" aria-pressed="true" title="Hide or show PINs">Hide</button></th><th>Last sign-in</th><th>Sign-ins</th><th>Status</th><th></th></tr></thead><tbody id="pin-rows"></tbody></table></div>
+          <div class="a-scroll"><table class="a-table"><thead><tr><th>Student ID</th><th>Name</th><th>Year &amp; section</th><th>PIN <button type="button" class="pin-eye" id="pin-eye" aria-pressed="true" title="Hide or show PINs">Hide</button></th><th>Last sign-in</th><th>Sign-ins</th><th>Status</th><th></th></tr></thead><tbody id="pin-rows"></tbody></table></div>
           <p class="a-count" id="pin-count"></p></div>`;
       let filter = 'all', shown = true;
       const pinCell = (s) => s.pin ? `<code class="pin-code" data-pin="${esc(s.pin)}">${shown ? esc(s.pin) : '••••••'}</code>`
@@ -352,16 +358,29 @@ const views = {
         : '<small title="Issued before PINs could be shown. Reset to see it">Reset to view</small>';
       const draw = () => {
         const q = $('pin-search').value.trim().toLowerCase();
+        const year = $('pin-year').value, section = $('pin-section').value;
         const rows = list.filter((s) => (!q || s.student_id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q))
+          && (!year || String(s.year_level) === year) && (!section || s.section === section)
           && (filter === 'all' || (filter === 'none' && !s.has_pin) || (filter === 'locked' && s.locked)));
         $('pin-rows').innerHTML = rows.slice(0, 300).map((s, i) =>
-          `<tr class="rise fast" style="--i:${Math.min(i, 10)}" data-row="${esc(s.student_id)}"><td>${esc(s.student_id)}</td><td>${esc(s.name)}</td><td>${pinCell(s)}</td>
+          `<tr class="rise fast" style="--i:${Math.min(i, 10)}" data-row="${esc(s.student_id)}"><td>${esc(s.student_id)}</td><td>${esc(s.name)}</td><td>${esc(s.year_section || '')}</td><td>${pinCell(s)}</td>
            <td>${s.last_signin ? esc(s.last_signin) : '<small>never</small>'}</td><td>${s.signins || 0}</td>
            <td>${s.locked ? `<span class="a-badge warn">Locked ${s.locked_minutes} min</span>` : s.failures ? `${s.failures} wrong try(s)` : ''}</td>
-           <td class="a-actions">${s.locked || s.failures ? `<button type="button" data-unlock="${esc(s.student_id)}">Unlock</button>` : ''}<button type="button" data-newpin="${esc(s.student_id)}" data-name="${esc(s.name)}" data-has="${s.has_pin ? 1 : 0}">${s.has_pin ? 'Reset PIN' : 'Issue PIN'}</button></td></tr>`).join('') || '<tr><td colspan="7">No match.</td></tr>';
+           <td class="a-actions">${s.locked || s.failures ? `<button type="button" data-unlock="${esc(s.student_id)}">Unlock</button>` : ''}<button type="button" data-newpin="${esc(s.student_id)}" data-name="${esc(s.name)}" data-has="${s.has_pin ? 1 : 0}">${s.has_pin ? 'Reset PIN' : 'Issue PIN'}</button></td></tr>`).join('') || '<tr><td colspan="8">No match.</td></tr>';
         $('pin-count').textContent = rows.length > 300 ? `Showing the first 300 of ${rows.length}. Search to narrow it down.` : `${rows.length} of ${list.length} student(s)`;
       };
-      draw(); $('pin-search').oninput = draw;
+      draw(); $('pin-search').oninput = draw; $('pin-year').onchange = draw; $('pin-section').onchange = draw;
+      // Print only the Accounts card: hide its siblings (and those of its parents) while the print dialog is open.
+      $('accounts-print').onclick = () => {
+        const card = $('accounts-card'), hidden = [];
+        for (let el = card; el && el !== document.body; el = el.parentElement)
+          Array.from(el.parentElement.children).forEach((sib) => { if (sib !== el) { sib.classList.add('print-skip'); hidden.push(sib); } });
+        const picked = [$('pin-year').value && `Year ${$('pin-year').value}`, $('pin-section').value && `Section ${$('pin-section').value}`].filter(Boolean);
+        $('accounts-stamp').textContent = `Student accounts${picked.length ? ' (' + picked.join(', ') + ')' : ''}, printed ${new Date().toLocaleString()}`;
+        const done = () => { hidden.forEach((s) => s.classList.remove('print-skip')); window.removeEventListener('afterprint', done); };
+        window.addEventListener('afterprint', done);
+        window.print();
+      };
       $('pin-eye').onclick = () => {
         shown = !shown; $('pin-eye').textContent = shown ? 'Hide' : 'Show'; $('pin-eye').setAttribute('aria-pressed', shown);
         $('pin-rows').querySelectorAll('.pin-code').forEach((c) => { c.textContent = shown ? c.dataset.pin : '••••••'; });
