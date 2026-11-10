@@ -376,8 +376,15 @@ const views = {
         for (let el = card; el && el !== document.body; el = el.parentElement)
           Array.from(el.parentElement.children).forEach((sib) => { if (sib !== el) { sib.classList.add('print-skip'); hidden.push(sib); } });
         const picked = [$('pin-year').value && `Year ${$('pin-year').value}`, $('pin-section').value && `Section ${$('pin-section').value}`].filter(Boolean);
-        $('accounts-stamp').textContent = `Student accounts${picked.length ? ' (' + picked.join(', ') + ')' : ''}, printed ${new Date().toLocaleString()}`;
-        const done = () => { hidden.forEach((s) => s.classList.remove('print-skip')); window.removeEventListener('afterprint', done); };
+        $('accounts-stamp').textContent = `Student PIN list${picked.length ? ' (' + picked.join(', ') + ')' : ''}\nPrinted ${new Date().toLocaleString()}`;
+        // The list on paper shows the PINs even if they are hidden on screen.
+        const codes = Array.from($('pin-rows').querySelectorAll('.pin-code')), before = codes.map((c) => c.textContent);
+        codes.forEach((c) => { c.textContent = c.dataset.pin; });
+        const done = () => {
+          hidden.forEach((s) => s.classList.remove('print-skip'));
+          codes.forEach((c, i) => { c.textContent = before[i]; });
+          window.removeEventListener('afterprint', done);
+        };
         window.addEventListener('afterprint', done);
         window.print();
       };

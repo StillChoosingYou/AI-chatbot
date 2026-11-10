@@ -300,9 +300,18 @@
 #accounts-print { font-size: 13px; padding: 6px 14px; border-radius: 8px; cursor: pointer; }
 .print-only { display: none; margin: 0 0 8px; font-size: 12px; opacity: .75; }
 @media print {
-  .print-skip, #accounts-card .a-actions, #accounts-card thead th:last-child, #accounts-card .pin-eye, #accounts-card .a-count { display: none !important; }
-  .print-only { display: block; }
-  #accounts-card { box-shadow: none; border: 0; margin-top: 0 !important; padding: 0; }
-  #accounts-card .a-scroll { overflow: visible; }
+  .print-skip, #accounts-card .a-head, #accounts-card .a-count, #accounts-card .pin-eye { display: none !important; }
+  /* A plain printed list, not a copy of the screen: only Student ID, Name and PIN (columns 1, 2 and 4). */
+  #accounts-card th:nth-child(3), #accounts-card td:nth-child(3),
+  #accounts-card th:nth-child(n+5), #accounts-card td:nth-child(n+5) { display: none !important; }
+  #accounts-card { background: none; box-shadow: none; border: 0; border-radius: 0; margin-top: 0 !important; padding: 0; color: #000; }
+  .print-only { display: block; margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: #000; opacity: 1; white-space: pre-line; }
+  .print-only::first-line { font-size: 18px; font-weight: 700; }
+  #accounts-card .a-scroll { overflow: visible; border: 0; border-radius: 0; box-shadow: none; background: none; }
+  #accounts-card table { width: 100%; border-collapse: collapse; }
+  #accounts-card th, #accounts-card td { border: 1px solid #000; padding: 9px 12px; background: none !important; color: #000; font-size: 14px; text-align: left; text-transform: none; letter-spacing: 0; position: static; box-shadow: none; }
+  #accounts-card th { font-weight: 700; background: #eee !important; }
+  #accounts-card tr { break-inside: avoid; }
+  #accounts-card .pin-code { background: none; border: 0; padding: 0; border-radius: 0; font: 700 15px ui-monospace, Consolas, monospace; letter-spacing: 2px; color: #000; }
 }
 #accounts-card select { padding: 8px 10px; border-radius: 8px; max-width: 100%; }
