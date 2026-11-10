@@ -167,3 +167,46 @@ class CoordinatorLoginRouteTests(DatabaseTestCase):
 if __name__ == '__main__':
     unittest.main()
 
+
+
+class CoordinatorPinFromAdminTests(DatabaseTestCase):
+    """The admin sets the coordinator's PIN in the panel: it replaces the environment password with no redeploy."""
+
+    def start(self):
+        with patch.dict(os.environ, {'COORDINATOR_PASSWORD': 'right-password', 'ADMIN_PASSWORD': 'admin-pass'}):
+            app = self.make_app()
+        admin = app.test_client()
+        admin.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
+        return app, admin
+
+    def test_a_new_pin_replaces_the_environment_password_and_is_stored_only_as_a_hash(self):
+        app, admin = self.start()
+        self.assertEqual(admin.get('/api/admin/coordinator-pin').get_json()['source'], 'environment')
+        pin = admin.post('/api/admin/coordinator-pin', json={}).get_json()['pin']
+        self.assertRegex(pin, r'^\d{6}$')
+        with self.db() as db:
+            stored = db.execute("SELECT value FROM app_settings WHERE key = 'coordinator_pin_hash'").fetchone()[0]
+        self.assertNotIn(pin, stored)
+        coordinator = app.test_client()
+        self.assertEqual(coordinator.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'right-password'}).status_code, 401)
+        self.assertEqual(coordinator.post('/coordinator/login', data={'username': 'Coordinator', 'password': pin}).status_code, 302)
+        self.assertEqual(admin.get('/api/admin/coordinator-pin').get_json()['source'], 'admin')
+
+    def test_a_chosen_pin_must_be_long_enough_and_going_back_restores_the_environment_password(self):
+        app, admin = self.start()
+        self.assertEqual(admin.post('/api/admin/coordinator-pin', json={'pin': '123'}).status_code, 400)
+        self.assertEqual(admin.post('/api/admin/coordinator-pin', json={'pin': 'office-2026'}).status_code, 200)
+        self.assertEqual(admin.delete('/api/admin/coordinator-pin').status_code, 200)
+        coordinator = app.test_client()
+        self.assertEqual(coordinator.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'right-password'}).status_code, 302)
+
+    def test_changing_the_pin_signs_the_coordinator_out_and_only_the_admin_can_change_it(self):
+        app, admin = self.start()
+        coordinator = app.test_client()
+        coordinator.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'right-password'})
+        self.assertEqual(coordinator.get('/api/stats').status_code, 200)
+        self.assertEqual(coordinator.post('/api/admin/coordinator-pin', json={}).status_code, 401)       # not the admin
+        admin.post('/api/admin/coordinator-pin', json={'pin': 'office-2026'})
+        with coordinator.session_transaction() as session:
+            session['coordinator_checked'] = 0                                                           # the half-minute check is due
+        self.assertIn(coordinator.get('/api/stats').status_code, (401, 302))

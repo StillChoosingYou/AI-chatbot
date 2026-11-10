@@ -214,7 +214,7 @@ def create_app(database_url=None):
         session.permanent = True
 
     def sign_out(role):
-        for key in (role, f'seen_{role}', *(('pv',) if role == 'student' else ()), *(('via_admin',) if role == 'coordinator' else ())):
+        for key in (role, f'seen_{role}', *(('pv',) if role == 'student' else ()), *(('via_admin', 'coordinator_pin', 'coordinator_checked') if role == 'coordinator' else ())):
             session.pop(key, None)
 
     def request_role():
@@ -296,6 +296,12 @@ def create_app(database_url=None):
             if session.get(role) and now - session.get(f'seen_{role}', now) > limit:
                 sign_out(role)
         active = request_role()
+        if active == 'coordinator' and session.get('coordinator') and not session.get('via_admin') \
+                and now - session.get('coordinator_checked', 0) > SEEN_EVERY:
+            if session.get('coordinator_pin', '') != coordinator_pin_hash()[:16]:      # the admin changed the PIN: sign in again
+                sign_out('coordinator')
+            else:
+                session['coordinator_checked'] = now
         if active in IDLE_SECONDS and session.get(active) and now - session.get(f'seen_{active}', 0) > SEEN_EVERY:
             session[f'seen_{active}'] = now                           # at most every SEEN_EVERY seconds: each write is a cookie
 
@@ -362,6 +368,10 @@ def create_app(database_url=None):
             db.execute('INSERT INTO app_settings (key, value, updated) VALUES (%s, %s, %s) '
                        'ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = EXCLUDED.updated',
                        (key, value, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+
+    def coordinator_pin_hash():
+        """The PIN the admin set for the coordinator (a hash), or '' when the environment password is in use."""
+        return get_setting('coordinator_pin_hash', '') or ''
 
     def delete_setting(key):
         with database.connect() as db:
@@ -863,19 +873,20 @@ def create_app(database_url=None):
     def coordinator_page():
         if coordinator_signed_in():
             return workspace('coordinator')
-        return render_template('login.html', configured=login.configured, error='')
+        return render_template('login.html', configured=login.configured or bool(coordinator_pin_hash()), error='')
 
     @app.post('/coordinator/login')
     def coordinator_login():
         address = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
-        if login.check(request.form.get('username', ''), request.form.get('password', ''), address):
-            sign_in('coordinator')
+        pin_hash = coordinator_pin_hash()
+        if login.check(request.form.get('username', ''), request.form.get('password', ''), address, stored_hash=pin_hash):
+            sign_in('coordinator', coordinator_pin=pin_hash[:16], coordinator_checked=time.time())
             log_activity('coordinator', 'sign in', f'from {address}'[:120])
             return redirect('/coordinator')
         log_activity('coordinator', 'failed sign in', f'from {address}'[:120])
         error = ('Too many wrong tries. Wait a minute and try again.' if login.locked(address)
                  else 'Wrong username or password.')
-        return render_template('login.html', configured=login.configured, error=error), 401
+        return render_template('login.html', configured=login.configured or bool(pin_hash), error=error), 401
 
     @app.post('/coordinator/logout')
     def coordinator_logout():
@@ -2401,11 +2412,11 @@ def create_app(database_url=None):
 
     from types import SimpleNamespace
     register_admin(app, SimpleNamespace(
-        admin_login=admin_login, connect=connect, log_activity=log_activity, get_setting=get_setting,
+        admin_login=admin_login, connect=connect, log_activity=log_activity, get_setting=get_setting, coordinator_pin_hash=coordinator_pin_hash,
         set_setting=set_setting, delete_setting=delete_setting, news_items=news_items, manual_news=manual_news, auto_news=auto_news, auto_news_on=auto_news_on, clean_news=clean_news,
         matcher=matcher, build=BUILD, student_login_on=student_login_on, student_host=student_host,
         coordinator_host=coordinator_host, admin_host=admin_host, public_base=public_base, on_vercel=login.on_vercel,
-        coordinator_configured=login.configured, sign_in=sign_in, sign_out=sign_out))
+        coordinator_configured=login.configured, coordinator_login_username=login.username, sign_in=sign_in, sign_out=sign_out))
 
     return app
 

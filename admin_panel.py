@@ -28,7 +28,8 @@ import chat_moderation
 import moderation
 import quality
 import totp
-from student_auth import hash_pin, new_pin, open_pin, seal_pin
+from werkzeug.security import generate_password_hash
+from student_auth import HASH_METHOD, hash_pin, new_pin, open_pin, seal_pin
 from student_data import format_year_section
 
 ADMIN_IDLE_SECONDS = 15 * 60
@@ -540,6 +541,43 @@ def register_admin(app, ctx):
         ctx.delete_setting('news')
         log('admin', 'news', 'ticker back to data/pgpc_news.json')
         return jsonify(news=ctx.manual_news())
+
+    # ─── the coordinator's sign-in PIN ───
+    @app.get('/api/admin/coordinator-pin')
+    def admin_coordinator_pin():
+        denied = need_admin()
+        if denied:
+            return denied
+        mine = bool(ctx.coordinator_pin_hash())
+        return jsonify(username=ctx.coordinator_login_username, source='admin' if mine else ('environment' if ctx.coordinator_configured else 'none'),
+                       changed=ctx.get_setting('coordinator_pin_changed', '') if mine else '')
+
+    @app.post('/api/admin/coordinator-pin')
+    def admin_coordinator_pin_change():
+        """A new sign-in PIN for the coordinator, from the panel (no redeploy). Shown once: only a hash is kept.
+        Whoever is signed in as the coordinator is signed out within half a minute."""
+        denied = need_admin()
+        if denied:
+            return denied
+        wanted = str((request.get_json(silent=True) or {}).get('pin', '')).strip()
+        if wanted and not 6 <= len(wanted) <= 64:
+            return jsonify(error='The PIN must be 6 to 64 characters, or leave it empty for a random 6-digit PIN.'), 400
+        pin = wanted or new_pin()
+        ctx.set_setting('coordinator_pin_hash', generate_password_hash(pin, method=HASH_METHOD))
+        ctx.set_setting('coordinator_pin_changed', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        log('admin', 'coordinator pin changed', 'new coordinator sign-in PIN set from the admin panel')
+        return jsonify(pin=pin, username=ctx.coordinator_login_username)
+
+    @app.delete('/api/admin/coordinator-pin')
+    def admin_coordinator_pin_reset():
+        """Go back to the password in the server settings (COORDINATOR_PASSWORD)."""
+        denied = need_admin()
+        if denied:
+            return denied
+        ctx.delete_setting('coordinator_pin_hash')
+        ctx.delete_setting('coordinator_pin_changed')
+        log('admin', 'coordinator pin reset', 'back to the server-settings password')
+        return jsonify(source='environment' if ctx.coordinator_configured else 'none')
 
     # ─── PIN tools ───
     @app.get('/api/admin/pins')
