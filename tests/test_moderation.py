@@ -34,6 +34,14 @@ class JudgementTests(unittest.TestCase):
         self.assertTrue(verdict['flagged'])
         self.assertNotIn('putang', verdict['masked'].lower().replace(' ', ''))
 
+    def test_a_rude_word_typed_together_with_ka_or_mo_is_still_caught(self):
+        for text in ('hayopka', 'Hayop ka', 'hayop ka!', 'gagoka', 'bobomo', 'ulolka', 'tangaka!!'):
+            verdict = moderation.check(text)
+            self.assertTrue(verdict['flagged'], text)
+            self.assertGreaterEqual(verdict['severity'], 2, text)
+        for text in ('tamaka', 'salamat ka', 'pwedeng ka mag-ask', 'Thank you!', 'thankyou po'):
+            self.assertFalse(moderation.check(text)['flagged'], text)
+
     def test_a_cry_for_help_is_never_punished(self):
         verdict = moderation.check('gusto ko nang mamatay')
         self.assertTrue(verdict['crisis'])

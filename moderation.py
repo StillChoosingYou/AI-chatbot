@@ -102,6 +102,7 @@ def fold(text):
 
 def _token(token):
     """One word with number-and-symbol tricks undone ("g@g0" -> "gago"), only when it already holds letters."""
+    token = re.sub(r'(?<=[a-z])[!+]+$', '', token)           # "ka!" is "ka" with an exclamation mark, not "kai"
     if re.search('[a-z]', token) and re.search(r'[0-9@$!+]', token):
         token = re.sub(r'(?<=[a-z])[!+](?=[a-z])', lambda m: 'i' if m.group() == '!' else 't', token)
         token = token.translate(LEET)
@@ -157,6 +158,13 @@ _KINDS = (('mild', _compile(MILD), 'profanity'), ('strong', _compile(STRONG), 'p
 _SAFE = re.compile(r'(?<![a-z*])(?:' + '|'.join(re.escape(w) for w in sorted(SAFE_WORDS, key=len, reverse=True)) + r')(?![a-z*])')
 _PATTERNS = tuple((re.compile(p), cat, sev) for p, cat, sev in _PATTERNS)
 _CRISIS = tuple(re.compile(p) for p in _CRISIS)
+# "hayopka", "gagoka", "bobomo": the rude word and the "ka"/"mo"/"you" aimed at someone typed as one word.
+_GLUED = {t.replace(' ', ''): 'insult' for t in STRONG + PERSON if ' ' in t and t.split()[-1] in ('ka',)}
+for _term_ in STRONG + PERSON:
+    _stem = _term_.replace(' ', '')
+    if ' ' not in _term_ and len(_stem) >= 4:
+        for _tail in ('ka', 'mo', 'kayo', 'niyo', 'you', 'u'):
+            _GLUED.setdefault(_stem + _tail, 'insult')
 _SQUASH = re.compile(r'(?:putangina|tangina|motherfucker|fuckyou|fuckoff|pakyou|gagoka|tangaka|bobomo|ulolka)')
 
 
@@ -197,6 +205,13 @@ def rules(text):
             categories.add(category)
             terms.add(match.group().strip())
             to_mask.append((match.start(), match.end()))
+    for start, end, position in index:                                      # "hayopka": the word and "ka" typed together
+        word = words[position]
+        if word in _GLUED and not any(s <= start and end <= e for s, e in safe):
+            severity = max(severity, 2)
+            categories.add('insult')
+            terms.add(word)
+            to_mask.append((start, end))
     squashed = False
     if not terms:                                                           # "t a n g i n a" with the gaps closed up
         for match in _SQUASH.finditer(re.sub(r'[^a-z]', '', joined)):
