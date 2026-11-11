@@ -896,3 +896,8 @@ html[data-theme="dark"] .sus-pick input:checked + b { color: #0b1228; }
 .tour-btn { white-space: nowrap; }
 #topbar-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 @media (max-width: 760px) { .topbar-right { flex-shrink: 0; gap: 8px; } .topbar .live-chip { display: none; } }
+
+/* Appointment help request: date and time to book when it is accepted */
+.appt-pick{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 4px}
+.appt-pick label{display:grid;gap:4px;font-size:.8rem;font-weight:600}
+.appt-pick input{font:inherit;padding:6px 8px;border:1px solid var(--line,#d5dbe8);border-radius:8px;background:var(--card,#fff);color:inherit}
