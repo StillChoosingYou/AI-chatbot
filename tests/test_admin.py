@@ -67,16 +67,29 @@ class AdminTests(DatabaseTestCase):
         self.assertEqual(overview['students'], 6)
         self.assertTrue(overview['portal_open'])
 
-    def test_the_admin_switches_into_the_coordinator_workspace_and_back(self):
+    def test_the_admin_switch_asks_for_the_coordinator_sign_in_and_then_returns_to_admin(self):
         client = self.signed_in()
         self.assertEqual(client.get('/api/inventory').status_code, 401)          # admin is not automatically the coordinator
         switched = client.post('/admin/switch', data={'to': 'coordinator'})
         self.assertEqual((switched.status_code, switched.headers['Location']), (302, '/coordinator'))
+        self.assertEqual(client.get('/api/inventory').status_code, 401)          # the switch alone does not sign in
+        self.assertIn('Sign in', client.get('/coordinator').get_data(as_text=True))
+        self.assertEqual(client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'wrong'}).status_code, 401)
+        self.assertEqual(client.get('/api/inventory').status_code, 401)
+        client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
         self.assertEqual(client.get('/api/inventory').status_code, 200)
         page = client.get('/coordinator').get_data(as_text=True)
         self.assertIn('data-admin="1"', page)
         self.assertIn('Back to Admin panel', page)
         self.assertEqual(client.get('/api/admin/overview').status_code, 200)       # still signed in as admin
+
+    def test_switching_again_ends_an_earlier_coordinator_sign_in(self):
+        client = self.signed_in()
+        client.post('/admin/switch', data={'to': 'coordinator'})
+        client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
+        self.assertEqual(client.get('/api/inventory').status_code, 200)
+        client.post('/admin/switch', data={'to': 'coordinator'})
+        self.assertEqual(client.get('/api/inventory').status_code, 401)
 
     def test_closing_the_portal_stops_the_student_side_but_not_the_scan_page(self):
         client = self.signed_in()
@@ -91,7 +104,7 @@ class AdminTests(DatabaseTestCase):
         self.assertEqual(client.post('/api/admin/portal', json={'open': 'yes'}).status_code, 400)
 
     def coordinator_token(self, client):
-        client.post('/admin/switch', data={'to': 'coordinator'})
+        client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
         return client.get('/api/inventory').json['records'][0]['token']
 
     def test_ticker_news_can_be_edited_and_reset(self):
@@ -224,6 +237,7 @@ class AdminTests(DatabaseTestCase):
     def test_the_student_page_is_pure_even_for_a_signed_in_admin(self):
         client = self.signed_in()
         client.post('/admin/switch', data={'to': 'coordinator'})
+        client.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
         student = client.get('/student').get_data(as_text=True)
         self.assertNotIn('data-admin', student)
         self.assertNotIn('Back to Admin panel', student)

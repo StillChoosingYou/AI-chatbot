@@ -185,10 +185,12 @@ class StudentSettingsTests(DatabaseTestCase):
             self.assertLess(__import__('time').time() - s['seen_admin'], 14 * 60 + 30)
             self.assertGreater(__import__('time').time() - s['seen_admin'], 13 * 60)
 
-    def test_admin_sign_out_also_ends_the_coordinator_workspace_it_opened(self):
+    def test_admin_sign_out_also_ends_the_coordinator_workspace_of_that_browser(self):
         browser = self.app.test_client()
         browser.post('/admin/login', data={'username': 'Admin', 'password': 'admin-pass'})
         browser.post('/admin/switch', data={'to': 'coordinator'})
+        self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 401)
+        browser.post('/coordinator/login', data={'username': 'Coordinator', 'password': 'coord-pass'})
         self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 200)
         browser.post('/admin/logout')
         self.assertEqual(browser.get('/api/live?role=coordinator').status_code, 401)

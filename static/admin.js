@@ -805,7 +805,7 @@ const tourSteps = () => [
   { target: '#news-add', title: 'Add your own', text: 'Write an announcement with an emoji icon, then press “Save to the ticker”. Yours always come first.' },
   { target: '#tab-security', mode: 'click', title: 'Try it: open the Security log', text: 'Every sign-in, failed try, PIN change and admin action is recorded.' },
   { wait: '#view h1', target: '#view h1', title: 'Your audit trail', text: 'Check this after anything unusual. You can download it as a CSV.' },
-  { target: '.admin-actions form[action="/admin/switch"] button', title: 'Work as the coordinator', text: 'One click opens the coordinator workspace. You stay signed in and can return from there.' },
+  { target: '.admin-actions form[action="/admin/switch"] button', title: 'Work as the coordinator', text: 'Opens the coordinator sign-in. Enter the coordinator username and PIN, and you can return here from the workspace.' },
   { target: '#tour-btn', title: 'You are ready! 🎉', text: 'Replay this tutorial any time with this button. Ctrl+K opens a quick command search and ? lists the shortcuts.' },
 ];
 $('tour-btn').onclick = () => tour.start(tourSteps(), { key: 'admin' });

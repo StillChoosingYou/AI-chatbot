@@ -32,7 +32,7 @@ OLD_ROWS = {
 NEW_VARIANTS = {
     GREETING: ['hi', 'Hello!', 'hello bot', 'Hi, good afternoon', 'Good morning po', 'Magandang umaga po sir', 'Kamusta po?',
                'Hello everyone', "Good evening ma'am", 'Hello po, kumusta?'],
-    THANKS: ['thanks', 'Thank you so much', 'thank u po', 'salamat', 'Salamat po ulit', 'ok thanks bye', 'bye bye',
+    THANKS: ['thanks', 'thankyou', 'Thankyou po', 'thanku', 'Thank you so much', 'thank u po', 'salamat', 'Salamat po ulit', 'ok thanks bye', 'bye bye',
              'Thanks a lot!', 'tysm', 'Maraming salamat po', 'See you!', 'Take care po'],
     HELP: ['help', 'Help me please', 'can you help me?', 'what can i ask you?', 'How does this chatbot work?',
            'Ano ang magagawa mo?', 'Paano gamitin ito?', 'who are you?', 'What are your commands?', 'Hi, what can you do?',

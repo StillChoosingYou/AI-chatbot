@@ -233,21 +233,18 @@ def register_admin(app, ctx):
 
     @app.post('/admin/logout')
     def admin_logout():
-        if session.get('via_admin'):                       # the coordinator workspace opened from here ends with it
-            ctx.sign_out('coordinator')
+        ctx.sign_out('coordinator')                        # a coordinator workspace opened from this browser ends with it
         ctx.sign_out('admin')
         return redirect('/')
 
     @app.post('/admin/switch')
     def admin_switch():
-        """Role switch: the admin steps into the coordinator workspace (the admin session is kept)."""
+        """Role switch: send the admin to the coordinator sign-in (the admin session is kept, the coordinator login is still required)."""
         if not admin_signed_in():
             return redirect('/')
         if request.form.get('to') == 'coordinator':
-            if not session.get('coordinator'):
-                ctx.sign_in('coordinator')
-                session['via_admin'] = True
-            log('admin', 'switch role', 'admin opened the coordinator workspace')
+            ctx.sign_out('coordinator')                    # the coordinator workspace always asks for the coordinator sign-in
+            log('admin', 'switch role', 'admin went to the coordinator sign-in')
             return redirect('/coordinator')
         return redirect('/')
 

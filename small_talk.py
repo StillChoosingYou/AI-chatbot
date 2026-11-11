@@ -58,7 +58,7 @@ coordinator staff office pmo team ka kayo na naman ba ulit again please pls
 # ─── thanks and goodbye ──────────────────────────────────────────────────
 
 THANKS_ANCHORS = phrases(
-    'thanks', 'thank', 'thx', 'thnx', 'tnx', 'ty', 'tysm', 'bye', 'byebye', 'goodbye', 'good bye', 'cya',
+    'thanks', 'thank', 'thankyou', 'thankyouu', 'thanku', 'thank u', 'thanx', 'thx', 'thnx', 'tnx', 'ty', 'tysm', 'bye', 'byebye', 'goodbye', 'good bye', 'cya',
     'see you', 'see ya', 'take care', 'good night', 'goodnight', 'that all', 'until next time',
     'salamat', 'paalam', 'ingat', 'hanggang sa muli', 'hanggang sa susunod')
 THANKS_FILLERS = frozenset('''
