@@ -416,7 +416,7 @@ class RequestTrackingTests(AppTestCase):
 
     def test_students_see_only_type_status_and_time_of_their_own_requests(self):
         first = self.submit()
-        self.submit(request_type='Status inquiry', student_id='p202400103', detail='private words')
+        self.submit(request_type='Other', student_id='p202400103', detail='private words')
         self.submit(student_id='P202400104')
         mine = self.client.post('/api/student/requests', json={'student_id': 'p202400103'}).json['requests']
         self.assertEqual(len(mine), 2)
