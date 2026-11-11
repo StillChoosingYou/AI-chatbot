@@ -1531,6 +1531,7 @@ async function loadRequests() {
           <h3>${escapeHtml(row.request_type)} · ${escapeHtml(row.student_id)}</h3>
           <p>${escapeHtml(row.name || 'Unnamed')} · <span class="status ${statusClass(row.status)}">${escapeHtml(row.status)}</span> · ${escapeHtml(row.timestamp)}</p>
           <p>${escapeHtml(row.detail || 'No details')}</p>
+          ${row.request_type === 'Appointment help' && ['Submitted', 'In review'].includes(row.status) ? `<div class="appt-pick"><label>Appointment date<input type="date" data-appt="date" min="${nextOfficeDay().date}" value="${nextOfficeDay().date}"></label><label>Time<input type="time" data-appt="time" min="08:00" max="16:59" value="09:00"></label></div><p class="subtle">Accepting books this date and time on the student’s record, so it shows on the Appointments page.</p>` : ''}
           ${row.request_type === 'Lost ID' ? '<p class="reason">Lost ID: the student pays the replacement fee at the Cashier first, then brings the Cashier’s receipt, an affidavit of loss and a 1×1 photo to this office.</p>' : ''}
         </div>
         <div class="row-actions">
@@ -1539,6 +1540,14 @@ async function loadRequests() {
       </article>`).join('');
     fx.sync($('request-inbox'));
   } catch (error) { notify(error.message); }
+}
+
+/* The first open office day from tomorrow, as YYYY-MM-DD in local time: the default for a new appointment. */
+function nextOfficeDay() {
+  const day = new Date();
+  do { day.setDate(day.getDate() + 1); } while (day.getDay() === 0 || day.getDay() === 6);
+  const pad = n => String(n).padStart(2, '0');
+  return { date: `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}` };
 }
 
 /* ═══════════════ Chatbot feedback (coordinator) ═══════════════ */
@@ -2122,13 +2131,17 @@ document.addEventListener('click', async event => {
   }
   const requestButton = event.target.closest('[data-request-status]');
   if (requestButton) {
+    const pick = requestButton.dataset.status === 'Accepted' ? requestButton.closest('.tool-row').querySelector('.appt-pick') : null;
+    const when = pick ? { schedule_date: pick.querySelector('[data-appt=date]').value, schedule_time: pick.querySelector('[data-appt=time]').value } : {};
+    if (pick && (!when.schedule_date || !when.schedule_time)) { notify('Choose the appointment date and time first.'); return; }
     requestButton.disabled = true;
-    api(`/api/requests/${requestButton.dataset.requestStatus}`, postJson({ status: requestButton.dataset.status }, 'PATCH'))
+    api(`/api/requests/${requestButton.dataset.requestStatus}`, postJson({ status: requestButton.dataset.status, ...when }, 'PATCH'))
       .then(async () => {
         if (requestFilter && requestFilter !== requestButton.dataset.status) await fx.leave(requestButton.closest('.tool-row'));
         notify(`Request marked ${requestButton.dataset.status}.`);
         loadRequests();
         load();                                  // accepting a lost ID changes that student's status
+        if (typeof loadQueue === 'function') loadQueue();   // accepting an appointment request books it
         refreshActivity();
       })
       .catch(error => { notify(error.message); loadRequests(); });   // reload: someone else may have moved it already

@@ -1626,6 +1626,32 @@ def create_app(database_url=None):
         row, _ = file_student_request(fields)
         return jsonify(**row, next_steps=request_steps(row['request_type'])), 201
 
+    def appointment_for_request(db, current, payload):
+        """Put the appointment a coordinator chose for an accepted 'Appointment help' request on the student's record.
+        Returns (text for the activity log, None), or (None, (message, status code)) when it cannot be booked."""
+        date, clock = text_field(payload.get('schedule_date'), 10, required=False), text_field(payload.get('schedule_time'), 5, required=False)
+        if not date or not clock:
+            return None, ('Choose the appointment date and time before accepting.', 400)
+        kind = payload.get('schedule_type') or 'Pending follow-up'
+        if kind not in SCHEDULES:
+            return None, ('Choose a valid appointment type.', 400)
+        try:
+            when = datetime.strptime(f'{date} {clock}', '%Y-%m-%d %H:%M')
+        except ValueError:
+            return None, ('Use a valid date and time.', 400)
+        problem = office_hours_error(when)
+        if problem:
+            return None, (problem, 400)
+        lock_student(db, current['student_id'])
+        row = db.execute('SELECT id FROM inventory WHERE LOWER(student_id) = LOWER(%s) FOR UPDATE',
+                         (current['student_id'],)).fetchone()
+        if row is None:
+            return None, (f"{current['student_id']} is not on the dashboard yet. Add the student first, then accept the request.", 409)
+        day, hour = when.isoformat(sep=' ', timespec='minutes').split(' ')
+        db.execute('UPDATE inventory SET schedule_type=%s, schedule_date=%s, schedule_time=%s WHERE id=%s',
+                   (kind, day, hour, row[0]))
+        return f'{kind} {day} {hour}', None
+
     @app.patch('/api/requests/<rowid:request_id>')
     def update_request(request_id):
         payload = request.get_json(silent=True)
@@ -1641,6 +1667,13 @@ def create_app(database_url=None):
                 return jsonify(current)
             if payload['status'] not in REQUEST_FLOW[current['status']]:
                 return jsonify(error=f"A request cannot move from {current['status']} to {payload['status']}."), 409
+            booking = None
+            if payload['status'] == 'Accepted' and current['request_type'] == 'Appointment help':
+                # Accepting an appointment request books it: the date and time go on the student's record, which is
+                # what the Appointments page, the dashboard and the student's own chat read.
+                booking, problem = appointment_for_request(db, current, payload)
+                if problem:
+                    return jsonify(error=problem[0]), problem[1]
             updated = dict(db.execute('UPDATE student_requests SET status=%s WHERE id=%s RETURNING *',
                                       (payload['status'], request_id)).fetchone())
             lost_note = ''
@@ -1660,6 +1693,8 @@ def create_app(database_url=None):
                         (current['student_id'], current['name'] or current['student_id'], 'TBD', 1,
                          'Pending', 'Lost ID', current['detail'] or 'Lost ID request accepted', secrets.token_urlsafe(18)))
         log_activity('coordinator', 'Updated request', f"{current['student_id']} → {payload['status']}")
+        if booking:
+            log_activity('coordinator', 'Appointment booked', f"{current['student_id']} · {booking}")
         if lost_note:
             log_activity('coordinator', 'Lost ID', lost_note)
         return jsonify(updated)

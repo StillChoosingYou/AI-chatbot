@@ -436,6 +436,28 @@ class RequestTrackingTests(AppTestCase):
         self.assertEqual([r['id'] for r in only], [b['id']])
         self.assertEqual(self.client.get('/api/requests', query_string={'status': 'Lost'}).status_code, 400)
 
+    def test_accepting_an_appointment_request_books_it_on_the_students_record(self):
+        ticket = self.submit(request_type='Appointment help', detail='I want to talk')
+        patch = lambda **body: self.client.patch(f'/api/requests/{ticket["id"]}', json={'status': 'Accepted', **body})
+        self.assertEqual(patch().status_code, 400)                                           # a date and time are needed
+        self.assertEqual(patch(schedule_date='2026-11-14', schedule_time='09:00').status_code, 400)   # a Saturday
+        self.assertEqual(patch(schedule_date='2026-11-16', schedule_time='12:30').status_code, 400)   # lunch
+        self.assertEqual(patch(schedule_date='2026-11-16', schedule_time='09:00', schedule_type='Nope').status_code, 400)
+        self.assertEqual(self.client.get('/api/requests').json['counts']['Accepted'], 0)      # nothing was half done
+        done = patch(schedule_date='2026-11-16', schedule_time='09:30')
+        self.assertEqual((done.status_code, done.json['status']), (200, 'Accepted'))
+        queue = self.client.get('/api/queue').json['appointments']
+        mine = [r for r in queue if r['student_id'] == 'P202400103']
+        self.assertEqual([(r['schedule_date'], r['schedule_time'], r['schedule_type']) for r in mine],
+                         [('2026-11-16', '09:30', 'Pending follow-up')])
+
+    def test_an_appointment_request_from_a_student_not_on_the_list_cannot_be_accepted_yet(self):
+        ticket = self.submit(request_type='Appointment help', student_id='P209999999')
+        done = self.client.patch(f'/api/requests/{ticket["id"]}',
+                                 json={'status': 'Accepted', 'schedule_date': '2026-11-16', 'schedule_time': '09:00'})
+        self.assertEqual(done.status_code, 409)
+        self.assertEqual(self.client.get('/api/requests').json['counts']['Accepted'], 0)
+
     def test_accepting_a_lost_id_request_changes_the_record_only_once(self):
         ticket = self.submit()
         rid = next(r['id'] for r in self.records if r['student_id'] == 'P202400103')
