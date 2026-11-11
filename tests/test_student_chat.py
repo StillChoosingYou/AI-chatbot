@@ -50,8 +50,8 @@ class RequestHelpButtonTests(StudentChatCase):
 
     def test_the_form_opens_set_to_what_the_answer_was_about(self):
         taylor = self.student(TAYLOR)['id']
-        for question, expected in (('What is the status of my student ID?', 'Status inquiry'),
-                                   ('Why is my student ID pending?', 'Status inquiry'),
+        for question, expected in (('What is the status of my student ID?', 'Other'),
+                                   ('Why is my student ID pending?', 'Other'),
                                    ('When can I collect my school ID?', 'Appointment help')):
             reply = self.ask(question, 'student', record_id=taylor)
             self.assertEqual(self.button(reply)['request_type'], expected, question)
@@ -121,7 +121,7 @@ class SendingTheFormTests(StudentChatCase):
         self.assertEqual(self.rate(data, 'up', session='another-session').status_code, 404)    # not someone else's
 
     def test_another_kind_of_request_has_no_steps(self):
-        data = self.send_request(request_type='Status inquiry', detail='').json
+        data = self.send_request(request_type='Other', detail='').json
         self.assertNotIn('Cashier', data['reply'])
         self.assertIn('The office will look at it', data['reply'])
 
@@ -164,14 +164,14 @@ class SendingTheFormTests(StudentChatCase):
 class MyRequestsTests(StudentChatCase):
     def test_my_requests_lists_type_status_and_time_but_not_what_the_student_wrote(self):
         ticket = self.send_request().json['request']
-        self.send_request(request_type='Status inquiry', detail='second private note')
+        self.send_request(request_type='Other', detail='second private note')
         reply = self.ask(f'my requests {TAYLOR}', 'student')
         text = reply['reply']
         self.assertEqual(reply['intent'], 'my_requests')
         self.assertIn('Taylor A. Cruz (P202400104)', text)
         self.assertIn(f'#{ticket["id"]} · Lost ID · **Submitted**', text)
         self.assertIn('waiting for the office to look at it', text)
-        self.assertLess(text.index('Status inquiry'), text.index('Lost ID'))               # newest first
+        self.assertLess(text.index('Other'), text.index('Lost ID'))               # newest first
         self.assertNotIn('PRIVATE-NOTE', text)
         self.assertNotIn('second private', text)
         self.assertEqual(self.button(reply)['student_id'], TAYLOR)

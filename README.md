@@ -260,7 +260,7 @@ The student role is chat-only, so the help request lives where the question is a
 
 1. The student types something like `I lost my ID`, an ID, or a name. The answer carries a small **📝 Request help**
    button (and `request help` typed in full opens it too).
-2. The button opens the **Request help** form as a pop-up, already set to the right type (Lost ID, Status inquiry,
+2. The button opens the **Request help** form as a pop-up, already set to the right type (Lost ID,
    Appointment help …) and, when a student was found, filled with that student's ID and name. A Lost ID shows the
    Cashier step and the ₱1,500 rule before it is sent. Cancel, ✕ or Escape closes it without sending anything.
 3. After **Send request** the chat shows the request number, what happens next and `my requests`. The text the

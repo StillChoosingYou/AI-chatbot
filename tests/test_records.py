@@ -212,7 +212,8 @@ class LostIdTests(AppTestCase):
         self.assertEqual(lost.status_code, 201)
         self.assertIn('Cashier', lost.json['next_steps'][0])
         self.assertIn('Property Management Office', lost.json['next_steps'][1])
-        other = self.client.post('/api/requests', json={'student_id': 'P202400104', 'request_type': 'Status inquiry'})
+        self.assertEqual(self.client.post('/api/requests', json={'student_id': 'P202400104', 'request_type': 'Status inquiry'}).status_code, 400)   # no longer offered
+        other = self.client.post('/api/requests', json={'student_id': 'P202400104', 'request_type': 'Other'})
         self.assertEqual(other.json['next_steps'], [])
         self.assertEqual(lost.json['student_id'], 'P202400104')
 

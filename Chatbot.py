@@ -75,7 +75,7 @@ SCHEDULES = ('Release', 'Pending follow-up', 'Lost ID replacement')
 ROLES = ('coordinator', 'student')
 INCIDENT_CATEGORIES = ('No ID', 'Lost ID')
 INCIDENT_STATUSES = ('Open', 'Resolved')
-REQUEST_TYPES = ('Lost ID', 'Status inquiry', 'Appointment help', 'Other')
+REQUEST_TYPES = ('Lost ID', 'Appointment help', 'Other')
 REQUEST_STATUSES = ('Submitted', 'In review', 'Accepted', 'Closed')
 # Where a request may go next. Accepting a lost-ID request changes the inventory record,
 # so it can only happen once and a closed request stays closed.
@@ -2189,7 +2189,7 @@ def create_app(database_url=None):
                     actions.append({'label': '🖨️ Print my sticker', 'type': 'print_sticker'})
                     actions.append({'label': '🪪 Preview ID card', 'type': 'preview_card'})
                 if intent in lookups:                   # the form opens already set to what the answer was about
-                    actions.append(help_action(selected, 'Status inquiry' if intent in lookups[:2] else 'Appointment help'))
+                    actions.append(help_action(selected, 'Other' if intent in lookups[:2] else 'Appointment help'))
         else:
             if intent in ('greeting', 'bot_help'):
                 actions.extend([
